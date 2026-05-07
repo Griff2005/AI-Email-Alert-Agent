@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+{% block title %}Events — Solucore Alert Triage{% endblock %}
+
+{% block content %}
+<h1>Recent Events</h1>
+<p style="font-size:0.875rem;color:#6b7280;margin-bottom:20px">Last 100 events across all cases.</p>
+
+<div class="card">
+  {% if events %}
+  <ul class="timeline">
+    {% for ev in events %}
+    <li>
+      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+        <div class="ev-type">{{ ev.event_type.replace('_', ' ') }}</div>
+        {% if ev.case_id %}
+        <a href="/cases/{{ ev.case_id }}" style="font-size:0.72rem;color:#6b7280;text-decoration:none">
+          Case {{ ev.case_id[:8] }}…
+        </a>
+        {% endif %}
+        {% if ev.case_type %}
+        <span style="font-size:0.7rem;background:#f3f4f6;color:#6b7280;padding:1px 7px;border-radius:4px">
+          {{ ev.case_type.replace('_', ' ').title() }}
+        </span>
+        {% endif %}
+      </div>
+      <div class="ev-desc">{{ ev.description or '' }}</div>
+      {% if ev.building %}
+      <div style="font-size:0.75rem;color:#9ca3af">{{ ev.building }}</div>
+      {% endif %}
+      <div class="ev-time">{{ ev.created_at[:16].replace('T', ' ') if ev.created_at else '' }}</div>
+    </li>
+    {% endfor %}
+  </ul>
+  {% else %}
+  <div class="empty-state">No events yet. Run <code>python src/agent.py ingest</code> first.</div>
+  {% endif %}
+</div>
+{% endblock %}

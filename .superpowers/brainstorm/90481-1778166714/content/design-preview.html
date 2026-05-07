@@ -1,0 +1,141 @@
+<h2>Full Page Design Preview</h2>
+<p class="subtitle">How the completed documentation page will look. Scroll to see all sections.</p>
+
+<div class="mockup">
+  <div class="mockup-header">docs/index.html — Full Dark Theme Preview</div>
+  <div class="mockup-body" style="padding:0;overflow:hidden;border-radius:0 0 6px 6px">
+
+    <!-- Simulated full page -->
+    <div style="display:flex;height:520px;background:#0d1117;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-size:12px">
+
+      <!-- SIDEBAR -->
+      <div style="width:220px;background:#161b22;border-right:1px solid #30363d;padding:16px 0;overflow-y:auto;flex-shrink:0;display:flex;flex-direction:column">
+        <div style="padding:0 16px 16px;border-bottom:1px solid #21262d;margin-bottom:12px">
+          <div style="color:#f0f6fc;font-weight:700;font-size:13px;margin-bottom:2px">Email Triage Agent</div>
+          <div style="color:#8b949e;font-size:10px">Developer Reference</div>
+        </div>
+
+        <!-- Nav sections -->
+        <div style="padding:0 8px">
+          <div style="color:#6e7681;font-size:9px;font-weight:600;letter-spacing:1px;padding:4px 8px;margin-bottom:2px">GETTING STARTED</div>
+          <div style="color:#58a6ff;background:#1f2d4a;border-radius:4px;padding:5px 8px;margin-bottom:1px">Overview</div>
+          <div style="color:#8b949e;padding:5px 8px;margin-bottom:1px">Architecture</div>
+          <div style="color:#8b949e;padding:5px 8px;margin-bottom:1px">Data Flow</div>
+          <div style="color:#8b949e;padding:5px 8px;margin-bottom:8px">Quick Start</div>
+
+          <div style="color:#6e7681;font-size:9px;font-weight:600;letter-spacing:1px;padding:4px 8px;margin-bottom:2px">MODULES</div>
+          <div style="color:#8b949e;padding:4px 8px 4px 16px;font-size:11px">agent.py</div>
+          <div style="color:#8b949e;padding:4px 8px 4px 16px;font-size:11px">config.py</div>
+          <div style="color:#8b949e;padding:4px 8px 4px 16px;font-size:11px">database.py</div>
+          <div style="color:#8b949e;padding:4px 8px 4px 16px;font-size:11px">claude_client.py</div>
+          <div style="color:#8b949e;padding:4px 8px 4px 16px;font-size:11px">classifier.py</div>
+          <div style="color:#8b949e;padding:4px 8px 4px 16px;font-size:11px">extractor.py</div>
+          <div style="color:#8b949e;padding:4px 8px 4px 16px;font-size:11px">case_manager.py</div>
+          <div style="color:#8b949e;padding:4px 8px 4px 16px;font-size:11px">email_reader.py</div>
+          <div style="color:#8b949e;padding:4px 8px 4px 16px;font-size:11px">email_sender.py</div>
+          <div style="color:#8b949e;padding:4px 8px 4px 16px;font-size:11px">followup.py</div>
+          <div style="color:#8b949e;padding:4px 8px 4px 16px;font-size:11px">web/app.py</div>
+
+          <div style="color:#6e7681;font-size:9px;font-weight:600;letter-spacing:1px;padding:12px 8px 4px;margin-bottom:2px">REFERENCE</div>
+          <div style="color:#8b949e;padding:5px 8px">Database Schema</div>
+          <div style="color:#8b949e;padding:5px 8px">Security Model</div>
+          <div style="color:#8b949e;padding:5px 8px">Demo vs Production</div>
+        </div>
+      </div>
+
+      <!-- MAIN CONTENT -->
+      <div style="flex:1;overflow-y:auto;padding:32px 40px">
+
+        <!-- Overview section -->
+        <div style="margin-bottom:32px">
+          <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">
+            <div style="background:#1f2d4a;border:1px solid #58a6ff;border-radius:4px;padding:2px 8px;color:#58a6ff;font-size:10px;font-weight:600">OVERVIEW</div>
+          </div>
+          <div style="font-size:22px;font-weight:700;color:#f0f6fc;margin-bottom:8px">Email Alert Triage Agent</div>
+          <div style="color:#8b949e;line-height:1.6;margin-bottom:16px">An AI-powered compliance case management system for elevator KPI alerts. Classifies inbound alert emails, extracts structured fields, creates or updates compliance cases, generates outbound follow-up emails, and tracks deadlines.</div>
+
+          <!-- Stats row -->
+          <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:16px">
+            <div style="background:#161b22;border:1px solid #30363d;border-radius:6px;padding:10px;text-align:center">
+              <div style="color:#f0f6fc;font-weight:700;font-size:18px">11</div>
+              <div style="color:#8b949e;font-size:10px">Python modules</div>
+            </div>
+            <div style="background:#161b22;border:1px solid #30363d;border-radius:6px;padding:10px;text-align:center">
+              <div style="color:#f0f6fc;font-weight:700;font-size:18px">6</div>
+              <div style="color:#8b949e;font-size:10px">Case types</div>
+            </div>
+            <div style="background:#161b22;border:1px solid #30363d;border-radius:6px;padding:10px;text-align:center">
+              <div style="color:#f0f6fc;font-weight:700;font-size:18px">7</div>
+              <div style="color:#8b949e;font-size:10px">DB tables</div>
+            </div>
+            <div style="background:#161b22;border:1px solid #30363d;border-radius:6px;padding:10px;text-align:center">
+              <div style="color:#f0f6fc;font-weight:700;font-size:18px">CLI</div>
+              <div style="color:#8b949e;font-size:10px">Claude Haiku</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Module section preview -->
+        <div style="border-top:1px solid #21262d;padding-top:24px;margin-bottom:24px">
+          <div style="font-size:16px;font-weight:700;color:#f0f6fc;margin-bottom:4px">claude_client.py</div>
+          <div style="color:#8b949e;font-size:11px;margin-bottom:12px">Claude CLI subprocess wrapper. All AI calls in the project go through this module.</div>
+
+          <!-- Function card -->
+          <div style="background:#161b22;border:1px solid #30363d;border-radius:6px;overflow:hidden;margin-bottom:8px">
+            <div style="background:#1c2128;border-bottom:1px solid #30363d;padding:8px 12px;display:flex;align-items:center;gap:8px">
+              <span style="background:#1f2d4a;color:#79c0ff;font-size:9px;padding:1px 6px;border-radius:3px;font-family:monospace">def</span>
+              <span style="color:#d2a8ff;font-family:monospace;font-size:12px">call_claude</span>
+              <span style="color:#8b949e;font-family:monospace;font-size:11px">(prompt: str, use_cache: bool = True) → str</span>
+            </div>
+            <div style="padding:10px 12px">
+              <div style="color:#c9d1d9;font-size:11px;margin-bottom:8px">Call the Claude CLI with <code style="background:#1c2128;padding:1px 4px;border-radius:3px;color:#79c0ff">--print</code> and return its stdout. Checks cache before invoking subprocess.</div>
+              <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+                <div>
+                  <div style="color:#6e7681;font-size:9px;font-weight:600;letter-spacing:1px;margin-bottom:4px">ARGS</div>
+                  <div style="font-size:10px;color:#8b949e"><code style="color:#ffa657">prompt</code> — Full prompt string passed via stdin</div>
+                  <div style="font-size:10px;color:#8b949e;margin-top:2px"><code style="color:#ffa657">use_cache</code> — Check SHA-256 keyed disk cache first</div>
+                </div>
+                <div>
+                  <div style="color:#6e7681;font-size:9px;font-weight:600;letter-spacing:1px;margin-bottom:4px">RAISES</div>
+                  <div style="font-size:10px;color:#ff7b72"><code>RuntimeError</code> — Non-zero CLI exit code</div>
+                  <div style="font-size:10px;color:#ff7b72;margin-top:2px"><code>FileNotFoundError</code> — claude not on PATH</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Data flow preview -->
+        <div style="border-top:1px solid #21262d;padding-top:24px">
+          <div style="font-size:16px;font-weight:700;color:#f0f6fc;margin-bottom:12px">Data Flow</div>
+          <div style="display:flex;align-items:center;gap:0;flex-wrap:wrap;row-gap:4px">
+            <div style="background:#1f2d4a;border:1px solid #58a6ff;border-radius:4px;padding:4px 10px;color:#58a6ff;font-size:10px">IMAP Inbox</div>
+            <div style="color:#8b949e;margin:0 4px">→</div>
+            <div style="background:#1a2f1e;border:1px solid #56d364;border-radius:4px;padding:4px 10px;color:#56d364;font-size:10px">quick_filter</div>
+            <div style="color:#8b949e;margin:0 4px">→</div>
+            <div style="background:#1a2f1e;border:1px solid #56d364;border-radius:4px;padding:4px 10px;color:#56d364;font-size:10px">classify</div>
+            <div style="color:#8b949e;margin:0 4px">→</div>
+            <div style="background:#1a2f1e;border:1px solid #56d364;border-radius:4px;padding:4px 10px;color:#56d364;font-size:10px">extract_fields</div>
+            <div style="color:#8b949e;margin:0 4px">→</div>
+            <div style="background:#2d1b69;border:1px solid #a78bfa;border-radius:4px;padding:4px 10px;color:#a78bfa;font-size:10px">case_manager</div>
+            <div style="color:#8b949e;margin:0 4px">→</div>
+            <div style="background:#2d1717;border:1px solid #ff7b72;border-radius:4px;padding:4px 10px;color:#ff7b72;font-size:10px">email_sender</div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="section" style="margin-top:20px">
+  <h3>What's included in every module section</h3>
+  <ul style="color:#475569;font-size:14px;line-height:2">
+    <li>Module purpose + one-line description</li>
+    <li>Every <code>class</code> and <code>def</code> with its full pydoc: description, Args, Returns, Raises</li>
+    <li>Inline comments surfaced where they explain non-obvious behaviour</li>
+    <li>Colour-coded badges: <code>def</code> / <code>class</code> / method count</li>
+  </ul>
+</div>
+
+<p class="subtitle">Does this look right? Any sections you'd add or remove before I write the spec?</p>

@@ -1,0 +1,58 @@
+{% extends "base.html" %}
+{% block title %}Manual Reviews — Solucore Alert Triage{% endblock %}
+
+{% block content %}
+<h1>Manual Review Queue</h1>
+
+{% if reviews %}
+<p style="font-size:0.875rem;color:#6b7280;margin-bottom:16px">
+  {{ reviews | length }} open review item{% if reviews | length != 1 %}s{% endif %} requiring attention.
+</p>
+
+{% for r in reviews %}
+<div class="card">
+  <div style="display:flex;align-items:flex-start;gap:16px;flex-wrap:wrap">
+    <div style="flex:1;min-width:0">
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px;flex-wrap:wrap">
+        <a href="/cases/{{ r.case_id }}" style="font-weight:700;font-size:0.95rem;color:#2563eb;text-decoration:none">
+          Case {{ r.case_id[:8] }}…
+        </a>
+        {% if r.case_type %}
+        <span style="font-size:0.8rem;color:#6b7280;background:#f3f4f6;padding:2px 8px;border-radius:4px">
+          {{ r.case_type.replace('_', ' ').title() }}
+        </span>
+        {% endif %}
+        {% if r.case_status %}
+        <span class="badge badge-{{ r.case_status }}">{{ r.case_status }}</span>
+        {% endif %}
+      </div>
+
+      <div style="margin-bottom:8px">
+        <span style="font-size:0.72rem;font-weight:700;text-transform:uppercase;letter-spacing:0.05em;color:#9ca3af">Reason:</span>
+        <span style="font-size:0.875rem;color:#374151;margin-left:6px">{{ r.reason or 'No reason provided.' }}</span>
+      </div>
+
+      {% if r.building %}
+      <div style="font-size:0.8rem;color:#6b7280">Building: {{ r.building }}</div>
+      {% endif %}
+
+      <div style="font-size:0.75rem;color:#9ca3af;margin-top:6px">
+        Flagged: {{ r.flagged_at[:16].replace('T', ' ') if r.flagged_at else '—' }}
+      </div>
+    </div>
+
+    <form method="post" action="/cases/{{ r.case_id }}/resolve-review"
+          onsubmit="return confirm('Mark this review item as resolved?')">
+      <input type="hidden" name="review_id" value="{{ r.review_id }}">
+      <button type="submit" class="btn btn-primary btn-sm">Mark Resolved</button>
+    </form>
+  </div>
+</div>
+{% endfor %}
+
+{% else %}
+<div class="card">
+  <div class="empty-state">No open review items. All caught up!</div>
+</div>
+{% endif %}
+{% endblock %}

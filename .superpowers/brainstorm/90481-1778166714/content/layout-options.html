@@ -1,0 +1,105 @@
+<h2>Documentation Page Layout</h2>
+<p class="subtitle">Three approaches for the standalone developer reference. Which structure fits best?</p>
+
+<div class="cards">
+
+  <div class="card" data-choice="a" onclick="toggleSelect(this)">
+    <div class="card-image">
+      <div style="display:flex;height:160px;border:1px solid #e2e8f0;border-radius:6px;overflow:hidden;font-size:11px">
+        <div style="width:30%;background:#1e293b;color:#94a3b8;padding:8px;display:flex;flex-direction:column;gap:4px">
+          <div style="color:#f8fafc;font-weight:600;margin-bottom:4px;font-size:10px">EMAIL TRIAGE AGENT</div>
+          <div style="color:#60a5fa;font-size:10px">▸ Overview</div>
+          <div style="color:#60a5fa;font-size:10px">▸ Architecture</div>
+          <div style="color:#60a5fa;font-size:10px">▸ Data Flow</div>
+          <div style="color:#94a3b8;font-size:10px;margin-top:4px;font-weight:600">MODULES</div>
+          <div style="color:#60a5fa;font-size:10px">▸ config.py</div>
+          <div style="color:#60a5fa;font-size:10px">▸ database.py</div>
+          <div style="color:#60a5fa;font-size:10px">▸ claude_client.py</div>
+          <div style="color:#60a5fa;font-size:10px">▸ classifier.py</div>
+          <div style="color:#94a3b8;font-size:9px">+ 7 more...</div>
+        </div>
+        <div style="flex:1;padding:10px;background:#f8fafc">
+          <div style="font-weight:700;font-size:13px;color:#0f172a;margin-bottom:4px">config.py</div>
+          <div style="font-size:10px;color:#475569;margin-bottom:6px">Environment configuration loader</div>
+          <div style="background:#e2e8f0;border-radius:4px;padding:6px;font-family:monospace;font-size:9px;color:#334155">
+            class Config:<br>
+            &nbsp;&nbsp;"""Central config object.<br>
+            &nbsp;&nbsp;All values from env."""<br>
+            &nbsp;&nbsp;AGENT_EMAIL: str
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>A — Fixed Sidebar + Scrolling Content</h3>
+      <p>Dark sidebar with module list stays fixed. Content scrolls on the right. The developer-standard layout (like Python docs, Django docs). Cmd+F searches everything at once.</p>
+    </div>
+  </div>
+
+  <div class="card" data-choice="b" onclick="toggleSelect(this)">
+    <div class="card-image">
+      <div style="height:160px;border:1px solid #e2e8f0;border-radius:6px;overflow:hidden;font-size:11px">
+        <div style="background:#1e293b;padding:8px;display:flex;gap:12px;align-items:center">
+          <span style="color:#f8fafc;font-weight:600;font-size:11px">Email Triage Agent Docs</span>
+          <div style="display:flex;gap:6px;margin-left:auto">
+            <div style="background:#3b82f6;color:white;padding:2px 8px;border-radius:3px;font-size:9px">Overview</div>
+            <div style="background:transparent;color:#94a3b8;padding:2px 8px;border-radius:3px;font-size:9px">Architecture</div>
+            <div style="background:transparent;color:#94a3b8;padding:2px 8px;border-radius:3px;font-size:9px">Modules</div>
+            <div style="background:transparent;color:#94a3b8;padding:2px 8px;border-radius:3px;font-size:9px">Security</div>
+          </div>
+        </div>
+        <div style="padding:12px;background:#f8fafc">
+          <div style="font-weight:700;font-size:13px;color:#0f172a;margin-bottom:6px">System Overview</div>
+          <div style="font-size:10px;color:#475569;line-height:1.5">The Email Alert Triage Agent automates triage of KPI alert emails using Claude AI. Each email is classified, fields extracted, and a compliance case opened or updated...</div>
+          <div style="margin-top:8px;display:flex;gap:8px">
+            <div style="background:#dbeafe;color:#1d4ed8;padding:2px 8px;border-radius:3px;font-size:9px">Quick Start</div>
+            <div style="background:#dcfce7;color:#166534;padding:2px 8px;border-radius:3px;font-size:9px">Data Flow ↓</div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>B — Top Navigation Tabs</h3>
+      <p>Horizontal nav bar with Overview / Architecture / Modules / Security tabs. Each tab shows a full page of content. More compact header, content takes full width. Like GitHub's repo tabs.</p>
+    </div>
+  </div>
+
+  <div class="card" data-choice="c" onclick="toggleSelect(this)">
+    <div class="card-image">
+      <div style="height:160px;border:1px solid #e2e8f0;border-radius:6px;overflow:hidden;font-size:11px">
+        <div style="background:#0f172a;padding:6px 10px;display:flex;align-items:center;justify-content:space-between">
+          <span style="color:#f8fafc;font-weight:600;font-size:11px">Email Triage Agent</span>
+          <span style="color:#94a3b8;font-size:9px">Developer Reference</span>
+        </div>
+        <div style="display:flex;height:calc(100% - 26px)">
+          <div style="width:28%;background:#1e293b;padding:6px;overflow:hidden">
+            <div style="font-size:9px;color:#64748b;font-weight:600;margin-bottom:4px">CONTENTS</div>
+            <div style="background:#0f172a;border-radius:3px;padding:3px 6px;color:#60a5fa;font-size:9px;margin-bottom:2px">Overview</div>
+            <div style="padding:3px 6px;color:#94a3b8;font-size:9px;margin-bottom:2px">Architecture</div>
+            <div style="padding:3px 6px;color:#94a3b8;font-size:9px;margin-bottom:2px">Modules ▸</div>
+            <div style="padding:3px 6px 3px 14px;color:#64748b;font-size:8px">config.py</div>
+            <div style="padding:3px 6px 3px 14px;color:#64748b;font-size:8px">database.py</div>
+            <div style="padding:3px 6px;color:#94a3b8;font-size:9px">Security</div>
+          </div>
+          <div style="flex:1;padding:8px;background:#f8fafc;overflow:hidden">
+            <div style="font-weight:700;font-size:12px;color:#0f172a;margin-bottom:3px">Overview</div>
+            <div style="font-size:9px;color:#475569;margin-bottom:6px;line-height:1.5">An AI-powered compliance case management agent for elevator KPI alerts. Classifies emails, extracts fields, creates cases, sends follow-up emails.</div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:4px">
+              <div style="background:#eff6ff;border-radius:4px;padding:4px 6px;font-size:9px;color:#1d4ed8">11 Python modules</div>
+              <div style="background:#f0fdf4;border-radius:4px;padding:4px 6px;font-size:9px;color:#166534">6 KPI case types</div>
+              <div style="background:#fdf4ff;border-radius:4px;padding:4px 6px;font-size:9px;color:#7e22ce">SQLite + Flask</div>
+              <div style="background:#fff7ed;border-radius:4px;padding:4px 6px;font-size:9px;color:#c2410c">Claude Haiku AI</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>C — Dashboard Style with Stats</h3>
+      <p>Dark header, fixed sidebar, overview cards/stats section. More visual than A — feels like a project homepage as much as a reference. Good for sharing with stakeholders too.</p>
+    </div>
+  </div>
+
+</div>
+
+<p class="subtitle" style="margin-top:16px">My recommendation: <strong>A</strong> — most practical for a developer looking things up. Cmd+F works across the whole page, no click-through needed.</p>

@@ -1,0 +1,28 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(claude --version)",
+      "Bash(python3 -c ' *)",
+      "Bash(python3 -m pip install apscheduler)",
+      "Bash(python3 -c \"from apscheduler.schedulers.background import BackgroundScheduler; print\\('OK'\\)\")",
+      "Bash(python3 src/agent.py demo)",
+      "Bash(python3 src/agent.py ingest)",
+      "Bash(kill %1)",
+      "Bash(wait)",
+      "Bash(python3 src/agent.py reply --case-id a233fd40-120c-430a-8da0-cb25ef47c932)",
+      "Bash(bash *)",
+      "Bash(python3 -m py_compile src/config.py)",
+      "Bash(python3 -m py_compile src/claude_client.py)",
+      "Bash(python3 -m py_compile src/classifier.py)",
+      "Bash(python3 -m py_compile src/extractor.py)",
+      "Bash(python3 -m py_compile src/email_reader.py)",
+      "Bash(python3 -m py_compile src/email_sender.py)",
+      "Bash(python3 -m py_compile src/followup.py)",
+      "Bash(python3 -m py_compile src/database.py)",
+      "Bash(python3 -m py_compile src/case_manager.py)",
+      "Bash(python3 -m py_compile src/agent.py)",
+      "Bash(python3 -m py_compile src/web/app.py)",
+      "Bash(open *)"
+    ]
+  }
+}

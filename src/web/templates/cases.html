@@ -1,0 +1,75 @@
+{% extends "base.html" %}
+{% block title %}Cases — Solucore Alert Triage{% endblock %}
+
+{% block content %}
+<h1>Case Management</h1>
+
+{% set open_count = cases | selectattr("status", "equalto", "open") | list | length %}
+{% set closed_count = cases | selectattr("status", "equalto", "closed") | list | length %}
+{% set critical_count = cases | selectattr("priority", "equalto", "critical") | list | length %}
+
+<div class="stat-row">
+  <div class="stat">
+    <div class="label">Total</div>
+    <div class="value">{{ cases | length }}</div>
+  </div>
+  <div class="stat">
+    <div class="label">Open</div>
+    <div class="value">{{ open_count }}</div>
+  </div>
+  <div class="stat">
+    <div class="label">Closed</div>
+    <div class="value">{{ closed_count }}</div>
+  </div>
+  <div class="stat">
+    <div class="label">Critical</div>
+    <div class="value" style="color:#ef4444">{{ critical_count }}</div>
+  </div>
+</div>
+
+<div class="filter-bar">
+  <strong style="font-size:0.8rem;color:#6b7280;margin-right:4px;">Filter:</strong>
+  <a href="/cases" {% if not status_filter %}class="active"{% endif %}>All</a>
+  <a href="/cases?status=open" {% if status_filter == 'open' %}class="active"{% endif %}>Open</a>
+  <a href="/cases?status=closed" {% if status_filter == 'closed' %}class="active"{% endif %}>Closed</a>
+</div>
+
+<div class="card" style="padding:0">
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Case ID</th>
+          <th>Type</th>
+          <th>Status</th>
+          <th>Priority</th>
+          <th>Building</th>
+          <th>Device</th>
+          <th>Created</th>
+          <th>Updated</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for c in cases %}
+        <tr class="pri-{{ c.priority }}">
+          <td><a href="/cases/{{ c.case_id }}">{{ c.case_id[:8] }}…</a></td>
+          <td style="font-size:0.8rem;white-space:nowrap">{{ c.case_type.replace('_', ' ').title() }}</td>
+          <td><span class="badge badge-{{ c.status }}">{{ c.status }}</span></td>
+          <td><span class="badge badge-{{ c.priority }}">{{ c.priority }}</span></td>
+          <td style="font-size:0.85rem">{{ c.building or '—' }}</td>
+          <td style="font-size:0.85rem">{{ c.device or '—' }}</td>
+          <td style="font-size:0.78rem;color:#6b7280">{{ c.created_at[:16].replace('T',' ') if c.created_at else '—' }}</td>
+          <td style="font-size:0.78rem;color:#6b7280">{{ c.updated_at[:16].replace('T',' ') if c.updated_at else '—' }}</td>
+        </tr>
+        {% else %}
+        <tr>
+          <td colspan="8">
+            <div class="empty-state">No cases found. Run <code>python src/agent.py ingest</code> to load sample emails.</div>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

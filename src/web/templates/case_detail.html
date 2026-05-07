@@ -1,0 +1,154 @@
+{% extends "base.html" %}
+{% block title %}Case {{ case.case_id[:8] }} — Solucore Alert Triage{% endblock %}
+
+{% block content %}
+<div style="display:flex;align-items:center;gap:12px;margin-bottom:20px;flex-wrap:wrap">
+  <a href="/cases" style="font-size:0.85rem;color:#6b7280;text-decoration:none">&#8592; All Cases</a>
+  <h1 style="margin:0">Case {{ case.case_id[:8] }}…</h1>
+  <span class="badge badge-{{ case.status }}">{{ case.status }}</span>
+  <span class="badge badge-{{ case.priority }}">{{ case.priority }}</span>
+  {% if case.status == 'open' %}
+  <form method="post" action="/cases/{{ case.case_id }}/close" style="margin-left:auto">
+    <button type="submit" class="btn btn-danger btn-sm"
+      onclick="return confirm('Close this case? This cannot be undone.')">
+      Close Case
+    </button>
+  </form>
+  {% endif %}
+</div>
+
+<!-- Core Details -->
+<div class="card">
+  <h2>Case Details</h2>
+  <div class="detail-grid">
+    <div class="detail-field">
+      <div class="df-label">Case Type</div>
+      <div class="df-value">{{ case.case_type.replace('_', ' ').title() }}</div>
+    </div>
+    <div class="detail-field">
+      <div class="df-label">Building</div>
+      <div class="df-value {% if not case.building %}empty{% endif %}">{{ case.building or 'Not extracted' }}</div>
+    </div>
+    <div class="detail-field">
+      <div class="df-label">Device</div>
+      <div class="df-value {% if not case.device %}empty{% endif %}">{{ case.device or 'Not extracted' }}</div>
+    </div>
+    <div class="detail-field">
+      <div class="df-label">Contractor</div>
+      <div class="df-value {% if not case.contractor %}empty{% endif %}">{{ case.contractor or 'Not extracted' }}</div>
+    </div>
+    <div class="detail-field">
+      <div class="df-label">Due Date</div>
+      <div class="df-value {% if not case.due_date %}empty{% endif %}">{{ case.due_date or 'Not extracted' }}</div>
+    </div>
+    <div class="detail-field">
+      <div class="df-label">Period</div>
+      <div class="df-value {% if not case.period %}empty{% endif %}">{{ case.period or 'N/A' }}</div>
+    </div>
+    <div class="detail-field">
+      <div class="df-label">Created</div>
+      <div class="df-value">{{ case.created_at[:16].replace('T', ' ') if case.created_at else '—' }}</div>
+    </div>
+    <div class="detail-field">
+      <div class="df-label">Updated</div>
+      <div class="df-value">{{ case.updated_at[:16].replace('T', ' ') if case.updated_at else '—' }}</div>
+    </div>
+  </div>
+</div>
+
+<!-- Extracted Fields -->
+{% if fields %}
+<div class="card">
+  <h2>Extracted Fields</h2>
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr><th>Field</th><th>Value</th><th>Confidence</th></tr>
+      </thead>
+      <tbody>
+        {% for f in fields %}
+        <tr>
+          <td style="font-size:0.8rem;font-weight:600;text-transform:capitalize">{{ f.field_name.replace('_', ' ') }}</td>
+          <td style="font-size:0.875rem">{{ f.field_value or '—' }}</td>
+          <td style="font-size:0.8rem;color:#6b7280">
+            {% if f.confidence_score %}{{ "%.0f"|format(f.confidence_score * 100) }}%{% else %}—{% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endif %}
+
+<!-- Follow-up Status -->
+{% if followup %}
+<div class="card">
+  <h2>Follow-up Status</h2>
+  <div class="detail-grid">
+    <div class="detail-field">
+      <div class="df-label">Status</div>
+      <div class="df-value"><span class="badge badge-{{ followup.status }}">{{ followup.status }}</span></div>
+    </div>
+    <div class="detail-field">
+      <div class="df-label">Deadline</div>
+      <div class="df-value">{{ followup.deadline[:16].replace('T', ' ') if followup.deadline else '—' }}</div>
+    </div>
+    <div class="detail-field">
+      <div class="df-label">Follow-up Count</div>
+      <div class="df-value" style="{% if followup.follow_count >= 3 %}color:#ef4444{% endif %}">
+        {{ followup.follow_count }}{% if followup.follow_count >= 3 %} (escalated){% endif %}
+      </div>
+    </div>
+    <div class="detail-field">
+      <div class="df-label">Last Check</div>
+      <div class="df-value {% if not followup.last_check %}empty{% endif %}">
+        {{ followup.last_check[:16].replace('T', ' ') if followup.last_check else 'Not yet checked' }}
+      </div>
+    </div>
+  </div>
+</div>
+{% endif %}
+
+<!-- Outbound Messages -->
+{% if messages %}
+<div class="card">
+  <h2>Outbound Messages ({{ messages | length }})</h2>
+  {% for msg in messages %}
+  <div style="border:1px solid #e5e7eb;border-radius:8px;padding:14px 16px;margin-bottom:12px">
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px;flex-wrap:wrap">
+      <span style="font-size:0.8rem;font-weight:600">{{ msg.subject }}</span>
+      <span class="badge badge-{{ msg.status }}">{{ msg.status.replace('_', ' ') }}</span>
+      {% if msg.sent_at %}
+      <span style="font-size:0.75rem;color:#9ca3af;margin-left:auto">Sent: {{ msg.sent_at[:16].replace('T', ' ') }}</span>
+      {% endif %}
+    </div>
+    <div style="font-size:0.78rem;color:#6b7280;margin-bottom:8px">
+      Intended To: {{ msg.intended_to or '—' }} &nbsp;|&nbsp;
+      Actual To: {{ msg.actual_to or '—' }}
+    </div>
+    <div class="msg-body">{{ msg.body }}</div>
+  </div>
+  {% endfor %}
+</div>
+{% endif %}
+
+<!-- Event Timeline -->
+<div class="card">
+  <h2>Event Timeline ({{ events | length }})</h2>
+  {% if events %}
+  <ul class="timeline">
+    {% for ev in events %}
+    <li>
+      <div class="ev-type">{{ ev.event_type.replace('_', ' ') }}</div>
+      <div class="ev-desc">{{ ev.description or '' }}</div>
+      <div class="ev-time">{{ ev.created_at[:16].replace('T', ' ') if ev.created_at else '' }}</div>
+    </li>
+    {% endfor %}
+  </ul>
+  {% else %}
+  <div class="empty-state">No events recorded.</div>
+  {% endif %}
+</div>
+
+{% endblock %}

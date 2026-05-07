@@ -1,0 +1,262 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{% block title %}Solucore Alert Triage{% endblock %}</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      background: #f0f2f5;
+      color: #1a1a2e;
+      min-height: 100vh;
+    }
+
+    /* ---- Nav ---- */
+    nav {
+      background: #1a1a2e;
+      color: #fff;
+      display: flex;
+      align-items: center;
+      padding: 0 24px;
+      height: 56px;
+      gap: 0;
+    }
+    nav .brand {
+      font-weight: 700;
+      font-size: 1.05rem;
+      letter-spacing: 0.02em;
+      color: #7ee8fa;
+      margin-right: 32px;
+      white-space: nowrap;
+    }
+    nav .brand span { color: #fff; }
+    nav a {
+      color: #c9d6e3;
+      text-decoration: none;
+      font-size: 0.88rem;
+      padding: 0 14px;
+      height: 56px;
+      display: flex;
+      align-items: center;
+      transition: background 0.15s, color 0.15s;
+    }
+    nav a:hover, nav a.active { background: rgba(255,255,255,0.1); color: #7ee8fa; }
+    nav .demo-badge {
+      margin-left: auto;
+      background: #f59e0b;
+      color: #1a1a2e;
+      font-size: 0.72rem;
+      font-weight: 700;
+      padding: 2px 10px;
+      border-radius: 99px;
+      letter-spacing: 0.05em;
+    }
+
+    /* ---- Layout ---- */
+    .page-wrap { max-width: 1200px; margin: 0 auto; padding: 28px 24px; }
+
+    h1 { font-size: 1.45rem; font-weight: 700; margin-bottom: 20px; color: #1a1a2e; }
+    h2 { font-size: 1.1rem; font-weight: 600; margin-bottom: 12px; color: #1a1a2e; }
+
+    /* ---- Cards ---- */
+    .card {
+      background: #fff;
+      border-radius: 10px;
+      box-shadow: 0 1px 4px rgba(0,0,0,0.07);
+      padding: 20px 24px;
+      margin-bottom: 20px;
+    }
+
+    /* ---- Tables ---- */
+    .table-wrap { overflow-x: auto; }
+    table { width: 100%; border-collapse: collapse; font-size: 0.875rem; }
+    thead th {
+      background: #f7f8fa;
+      text-align: left;
+      padding: 10px 14px;
+      font-weight: 600;
+      font-size: 0.78rem;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: #6b7280;
+      border-bottom: 1px solid #e5e7eb;
+    }
+    tbody tr { border-bottom: 1px solid #f3f4f6; transition: background 0.1s; }
+    tbody tr:last-child { border-bottom: none; }
+    tbody tr:hover { background: #f9fafb; }
+    tbody td { padding: 10px 14px; vertical-align: middle; }
+    tbody td a { color: #2563eb; text-decoration: none; }
+    tbody td a:hover { text-decoration: underline; }
+
+    /* ---- Badges ---- */
+    .badge {
+      display: inline-block;
+      padding: 2px 9px;
+      border-radius: 99px;
+      font-size: 0.72rem;
+      font-weight: 600;
+      letter-spacing: 0.03em;
+    }
+    .badge-open     { background: #dbeafe; color: #1d4ed8; }
+    .badge-closed   { background: #d1fae5; color: #065f46; }
+    .badge-critical { background: #fee2e2; color: #991b1b; }
+    .badge-high     { background: #fef3c7; color: #92400e; }
+    .badge-medium   { background: #e0e7ff; color: #3730a3; }
+    .badge-low      { background: #f3f4f6; color: #374151; }
+    .badge-draft    { background: #fef3c7; color: #92400e; }
+    .badge-sent     { background: #d1fae5; color: #065f46; }
+    .badge-sent_dry_run { background: #e0e7ff; color: #3730a3; }
+
+    /* ---- Priority color strip on table rows ---- */
+    .pri-critical td:first-child { border-left: 3px solid #ef4444; }
+    .pri-high     td:first-child { border-left: 3px solid #f59e0b; }
+    .pri-medium   td:first-child { border-left: 3px solid #6366f1; }
+    .pri-low      td:first-child { border-left: 3px solid #d1d5db; }
+
+    /* ---- Filters bar ---- */
+    .filter-bar {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      margin-bottom: 16px;
+      align-items: center;
+    }
+    .filter-bar a {
+      padding: 5px 14px;
+      border-radius: 99px;
+      font-size: 0.8rem;
+      background: #e5e7eb;
+      color: #374151;
+      text-decoration: none;
+      transition: background 0.15s;
+    }
+    .filter-bar a:hover { background: #d1d5db; }
+    .filter-bar a.active { background: #1a1a2e; color: #fff; }
+
+    /* ---- Stat pills ---- */
+    .stat-row { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 20px; }
+    .stat {
+      background: #fff;
+      border-radius: 8px;
+      padding: 12px 20px;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.07);
+      min-width: 110px;
+    }
+    .stat .label { font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.05em; color: #6b7280; margin-bottom: 4px; }
+    .stat .value { font-size: 1.4rem; font-weight: 700; color: #1a1a2e; }
+
+    /* ---- Timeline ---- */
+    .timeline { list-style: none; position: relative; }
+    .timeline::before {
+      content: "";
+      position: absolute;
+      left: 11px; top: 4px; bottom: 4px;
+      width: 2px;
+      background: #e5e7eb;
+    }
+    .timeline li {
+      position: relative;
+      padding: 0 0 18px 32px;
+    }
+    .timeline li::before {
+      content: "";
+      position: absolute;
+      left: 6px; top: 5px;
+      width: 12px; height: 12px;
+      border-radius: 50%;
+      background: #6366f1;
+      border: 2px solid #fff;
+      box-shadow: 0 0 0 2px #6366f1;
+    }
+    .timeline .ev-type {
+      font-size: 0.72rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: #6366f1;
+      margin-bottom: 2px;
+    }
+    .timeline .ev-desc { font-size: 0.875rem; color: #374151; }
+    .timeline .ev-time { font-size: 0.72rem; color: #9ca3af; margin-top: 2px; }
+
+    /* ---- Buttons ---- */
+    .btn {
+      display: inline-block;
+      padding: 7px 18px;
+      border-radius: 6px;
+      font-size: 0.85rem;
+      font-weight: 600;
+      cursor: pointer;
+      border: none;
+      transition: background 0.15s;
+      text-decoration: none;
+    }
+    .btn-primary { background: #1a1a2e; color: #fff; }
+    .btn-primary:hover { background: #2d2d4e; }
+    .btn-danger  { background: #ef4444; color: #fff; }
+    .btn-danger:hover { background: #dc2626; }
+    .btn-sm { padding: 4px 12px; font-size: 0.78rem; }
+
+    /* ---- Alerts ---- */
+    .alert {
+      padding: 10px 16px;
+      border-radius: 6px;
+      margin-bottom: 16px;
+      font-size: 0.875rem;
+    }
+    .alert-success { background: #d1fae5; color: #065f46; }
+    .alert-error   { background: #fee2e2; color: #991b1b; }
+
+    /* ---- Detail grid ---- */
+    .detail-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+      gap: 16px;
+      margin-bottom: 8px;
+    }
+    .detail-field { }
+    .detail-field .df-label { font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.05em; color: #9ca3af; margin-bottom: 2px; }
+    .detail-field .df-value { font-size: 0.9rem; color: #1a1a2e; font-weight: 500; }
+    .detail-field .df-value.empty { color: #d1d5db; font-style: italic; }
+
+    /* ---- Empty state ---- */
+    .empty-state { text-align: center; padding: 48px 24px; color: #9ca3af; font-size: 0.9rem; }
+
+    /* ---- Message body ---- */
+    .msg-body {
+      background: #f9fafb;
+      border: 1px solid #e5e7eb;
+      border-radius: 6px;
+      padding: 12px 16px;
+      font-size: 0.8rem;
+      white-space: pre-wrap;
+      font-family: monospace;
+      max-height: 220px;
+      overflow-y: auto;
+      color: #374151;
+    }
+  </style>
+</head>
+<body>
+  <nav>
+    <span class="brand">Solucore <span>/ Alert Triage</span></span>
+    <a href="/cases" {% if request.path.startswith('/cases') %}class="active"{% endif %}>Cases</a>
+    <a href="/reviews" {% if request.path == '/reviews' %}class="active"{% endif %}>Reviews</a>
+    <a href="/events" {% if request.path == '/events' %}class="active"{% endif %}>Events</a>
+    <span class="demo-badge">DEMO</span>
+  </nav>
+
+  <div class="page-wrap">
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% for category, message in messages %}
+        <div class="alert alert-{{ category }}">{{ message }}</div>
+      {% endfor %}
+    {% endwith %}
+
+    {% block content %}{% endblock %}
+  </div>
+</body>
+</html>

@@ -1,0 +1,755 @@
+"""
+database.py — SQLite schema creation and all database query helpers.
+Uses a module-level write lock for thread safety with Flask + APScheduler.
+"""
+
+import sqlite3
+import threading
+from datetime import datetime
+from pathlib import Path
+from typing import Any, Dict, List, Optional
+
+from config import config
+
+# Thread-local storage for connections — each thread gets its own connection
+_local = threading.local()
+_write_lock = threading.Lock()
+
+
+def get_connection() -> sqlite3.Connection:
+    """Return a per-thread SQLite connection, creating it on first call.
+
+    Uses ``threading.local`` so each thread (Flask request handler, APScheduler
+    job, IMAP polling loop) gets its own isolated connection, satisfying
+    SQLite's single-thread requirement without disabling the check entirely.
+
+    Configures each new connection with WAL journal mode for concurrent
+    read access and ``PRAGMA foreign_keys=ON`` for referential integrity.
+
+    Returns:
+        An open ``sqlite3.Connection`` with ``row_factory = sqlite3.Row``.
+    """
+    if not hasattr(_local, "conn") or _local.conn is None:
+        config.DATABASE_PATH.parent.mkdir(parents=True, exist_ok=True)
+        _local.conn = sqlite3.connect(
+            str(config.DATABASE_PATH),
+            check_same_thread=False,
+            timeout=30,
+        )
+        _local.conn.row_factory = sqlite3.Row
+        # WAL mode lets readers proceed concurrently with the single writer —
+        # critical when Flask, APScheduler, and the IMAP thread run simultaneously.
+        _local.conn.execute("PRAGMA journal_mode=WAL")
+        _local.conn.execute("PRAGMA foreign_keys=ON")
+    return _local.conn
+
+
+def close_connection() -> None:
+    """Close the per-thread connection if open."""
+    if hasattr(_local, "conn") and _local.conn is not None:
+        _local.conn.close()
+        _local.conn = None
+
+
+def _execute_write(sql: str, params: tuple = ()) -> sqlite3.Cursor:
+    """Execute a write statement under the module-level write lock.
+
+    Serialises all INSERT/UPDATE/DELETE operations across threads. Read
+    operations bypass this function and run directly on their thread-local
+    connection, benefiting from WAL concurrent read support.
+
+    Args:
+        sql: SQL statement to execute (INSERT, UPDATE, or DELETE).
+        params: Positional bind parameters for the statement.
+
+    Returns:
+        The ``sqlite3.Cursor`` from the executed statement.
+
+    Raises:
+        sqlite3.OperationalError: On SQL syntax errors or schema mismatches
+            (e.g. invalid column name in UPDATE).
+        sqlite3.DatabaseError: On database-level errors such as disk full.
+    """
+    # Single write lock serialises all INSERT/UPDATE/DELETE across threads.
+    # SQLite supports only one writer at a time; this prevents IntegrityErrors
+    # under concurrent access from Flask routes and the APScheduler job.
+    with _write_lock:
+        conn = get_connection()
+        cursor = conn.execute(sql, params)
+        conn.commit()
+        return cursor
+
+
+def init_schema() -> None:
+    """Create all tables and indexes if they do not yet exist.
+
+    Safe to call on every startup — all statements use ``IF NOT EXISTS``.
+    Creates seven tables and five performance indexes in a single
+    ``executescript`` call under the write lock.
+    """
+    conn = get_connection()
+    with _write_lock:
+        conn.executescript("""
+            CREATE TABLE IF NOT EXISTS emails (
+                email_id     TEXT PRIMARY KEY,
+                message_id   TEXT UNIQUE,
+                thread_id    TEXT,
+                subject      TEXT NOT NULL,
+                from_addr    TEXT,
+                to_addr      TEXT,
+                received_at  TEXT NOT NULL,
+                raw_body     TEXT,
+                normalized_text TEXT,
+                processed    INTEGER DEFAULT 0
+            );
+
+            CREATE TABLE IF NOT EXISTS cases (
+                case_id      TEXT PRIMARY KEY,
+                case_type    TEXT NOT NULL,
+                status       TEXT NOT NULL DEFAULT 'open',
+                owner        TEXT,
+                priority     TEXT NOT NULL DEFAULT 'medium',
+                grouping_key TEXT UNIQUE,
+                building     TEXT,
+                device       TEXT,
+                contractor   TEXT,
+                due_date     TEXT,
+                period       TEXT,
+                created_at   TEXT NOT NULL,
+                updated_at   TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS case_events (
+                event_id        TEXT PRIMARY KEY,
+                case_id         TEXT NOT NULL,
+                event_type      TEXT NOT NULL,
+                description     TEXT,
+                source_email_id TEXT,
+                created_at      TEXT NOT NULL,
+                FOREIGN KEY (case_id) REFERENCES cases(case_id)
+            );
+
+            CREATE TABLE IF NOT EXISTS extracted_fields (
+                field_id         TEXT PRIMARY KEY,
+                case_id          TEXT NOT NULL,
+                email_id         TEXT NOT NULL,
+                field_name       TEXT NOT NULL,
+                field_value      TEXT,
+                confidence_score REAL,
+                FOREIGN KEY (case_id) REFERENCES cases(case_id),
+                FOREIGN KEY (email_id) REFERENCES emails(email_id)
+            );
+
+            CREATE TABLE IF NOT EXISTS outbound_messages (
+                msg_id       TEXT PRIMARY KEY,
+                case_id      TEXT NOT NULL,
+                intended_to  TEXT,
+                intended_cc  TEXT,
+                actual_to    TEXT,
+                subject      TEXT,
+                body         TEXT,
+                status       TEXT NOT NULL DEFAULT 'draft',
+                sent_at      TEXT,
+                FOREIGN KEY (case_id) REFERENCES cases(case_id)
+            );
+
+            CREATE TABLE IF NOT EXISTS followups (
+                followup_id  TEXT PRIMARY KEY,
+                case_id      TEXT NOT NULL UNIQUE,
+                deadline     TEXT NOT NULL,
+                last_check   TEXT,
+                status       TEXT NOT NULL DEFAULT 'pending',
+                follow_count INTEGER NOT NULL DEFAULT 0,
+                FOREIGN KEY (case_id) REFERENCES cases(case_id)
+            );
+
+            CREATE TABLE IF NOT EXISTS manual_reviews (
+                review_id  TEXT PRIMARY KEY,
+                case_id    TEXT NOT NULL,
+                email_id   TEXT,
+                reason     TEXT,
+                flagged_at TEXT NOT NULL,
+                resolved   INTEGER DEFAULT 0,
+                FOREIGN KEY (case_id) REFERENCES cases(case_id)
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_cases_grouping_key ON cases(grouping_key);
+            CREATE INDEX IF NOT EXISTS idx_cases_status ON cases(status);
+            CREATE INDEX IF NOT EXISTS idx_case_events_case_id ON case_events(case_id);
+            CREATE INDEX IF NOT EXISTS idx_followups_status ON followups(status);
+            CREATE INDEX IF NOT EXISTS idx_manual_reviews_resolved ON manual_reviews(resolved);
+        """)
+        conn.commit()
+    print("[DB] Schema initialized.")
+
+
+# ---------------------------------------------------------------------------
+# emails table
+# ---------------------------------------------------------------------------
+
+def insert_email(
+    email_id: str,
+    message_id: str,
+    thread_id: Optional[str],
+    subject: str,
+    from_addr: str,
+    to_addr: str,
+    received_at: str,
+    raw_body: str,
+    normalized_text: str,
+) -> None:
+    """Insert an inbound KPI alert email record.
+
+    Uses ``INSERT OR IGNORE`` on the unique ``message_id`` column — calling
+    this twice with the same email is safe; the second call is silently
+    ignored rather than raising ``IntegrityError``.
+
+    Args:
+        email_id: Application UUID for internal references.
+        message_id: RFC 2822 Message-ID header value (unique per email server).
+        thread_id: IMAP thread ID, or None.
+        subject: Decoded subject line.
+        from_addr: Decoded sender address.
+        to_addr: Decoded recipient address.
+        received_at: ISO 8601 receipt timestamp.
+        raw_body: Original body (may contain HTML).
+        normalized_text: HTML-stripped, whitespace-normalised body.
+    """
+    _execute_write(
+        """
+        INSERT OR IGNORE INTO emails
+            (email_id, message_id, thread_id, subject, from_addr, to_addr,
+             received_at, raw_body, normalized_text, processed)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
+        """,
+        (email_id, message_id, thread_id, subject, from_addr, to_addr,
+         received_at, raw_body, normalized_text),
+    )
+
+
+def mark_email_processed(email_id: str) -> None:
+    """Set the ``processed`` flag to 1 for the given email.
+
+    Called at the end of ``case_manager.process_email`` once the email has
+    been fully classified and its case created or updated.
+
+    Args:
+        email_id: UUID of the email to mark as processed.
+    """
+    _execute_write(
+        "UPDATE emails SET processed = 1 WHERE email_id = ?",
+        (email_id,),
+    )
+
+
+def get_unprocessed_emails() -> List[sqlite3.Row]:
+    """Return all emails not yet processed by the case pipeline.
+
+    Ordered by ``received_at`` ascending (oldest first — FIFO processing).
+
+    Returns:
+        List of ``sqlite3.Row`` objects. Empty list if all emails are processed.
+    """
+    conn = get_connection()
+    return conn.execute(
+        "SELECT * FROM emails WHERE processed = 0 ORDER BY received_at ASC"
+    ).fetchall()
+
+
+def get_email_by_id(email_id: str) -> Optional[sqlite3.Row]:
+    """Return a single email row by its application UUID.
+
+    Args:
+        email_id: UUID assigned when the email was inserted.
+
+    Returns:
+        Matching ``sqlite3.Row``, or None if not found.
+    """
+    conn = get_connection()
+    return conn.execute(
+        "SELECT * FROM emails WHERE email_id = ?", (email_id,)
+    ).fetchone()
+
+
+# ---------------------------------------------------------------------------
+# cases table
+# ---------------------------------------------------------------------------
+
+def get_case_by_grouping_key(grouping_key: str) -> Optional[sqlite3.Row]:
+    """Return an existing case with the given grouping key, or None.
+
+    The grouping key is the deduplication gate: if a case exists for this
+    building/device/period combination, the new email updates it rather than
+    creating a duplicate.
+
+    Args:
+        grouping_key: Normalised key from ``extractor.generate_grouping_key``.
+
+    Returns:
+        Matching ``sqlite3.Row``, or None if no case exists yet.
+    """
+    conn = get_connection()
+    return conn.execute(
+        "SELECT * FROM cases WHERE grouping_key = ?", (grouping_key,)
+    ).fetchone()
+
+
+def get_case_by_id(case_id: str) -> Optional[sqlite3.Row]:
+    """Return a case by its UUID.
+
+    Args:
+        case_id: UUID of the case.
+
+    Returns:
+        Matching ``sqlite3.Row``, or None if not found.
+    """
+    conn = get_connection()
+    return conn.execute(
+        "SELECT * FROM cases WHERE case_id = ?", (case_id,)
+    ).fetchone()
+
+
+def insert_case(
+    case_id: str,
+    case_type: str,
+    grouping_key: str,
+    building: Optional[str],
+    device: Optional[str],
+    contractor: Optional[str],
+    due_date: Optional[str],
+    period: Optional[str],
+    priority: str = "medium",
+) -> None:
+    """Insert a new compliance case record.
+
+    Sets ``status`` to ``'open'`` and both timestamps to the current UTC time.
+
+    Args:
+        case_id: Application UUID.
+        case_type: One of the six KPI case type constants.
+        grouping_key: Normalised deduplication key.
+        building: Building address/name, or None.
+        device: Device identifier, or None.
+        contractor: Contractor name, or None.
+        due_date: Compliance deadline string, or None.
+        period: Reporting period string, or None.
+        priority: One of ``'low'``, ``'medium'``, ``'high'``, ``'critical'``.
+
+    Raises:
+        sqlite3.IntegrityError: If a case with the same ``grouping_key``
+            already exists (UNIQUE constraint violation).
+    """
+    now = datetime.utcnow().isoformat()
+    _execute_write(
+        """
+        INSERT INTO cases
+            (case_id, case_type, status, priority, grouping_key,
+             building, device, contractor, due_date, period, created_at, updated_at)
+        VALUES (?, ?, 'open', ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (case_id, case_type, priority, grouping_key,
+         building, device, contractor, due_date, period, now, now),
+    )
+
+
+def update_case(case_id: str, updates: Dict[str, Any]) -> None:
+    """Update arbitrary fields on an existing case.
+
+    Always appends ``updated_at = <now>`` to ``updates`` regardless of what
+    other fields are included. Builds the SET clause dynamically from the
+    dict keys.
+
+    Note: ``updates`` is modified in-place — ``updated_at`` is added to the
+    dict before the SQL statement executes.
+
+    Args:
+        case_id: UUID of the case to update.
+        updates: Dict mapping column names to new values.
+    """
+    updates["updated_at"] = datetime.utcnow().isoformat()
+    set_clause = ", ".join(f"{k} = ?" for k in updates)
+    values = list(updates.values()) + [case_id]
+    _execute_write(
+        f"UPDATE cases SET {set_clause} WHERE case_id = ?",
+        tuple(values),
+    )
+
+
+def get_all_cases(status_filter: Optional[str] = None) -> List[sqlite3.Row]:
+    """Return all cases, optionally filtered by status.
+
+    Ordered by ``created_at`` descending (newest first).
+
+    Args:
+        status_filter: ``'open'`` or ``'closed'`` to filter, or None for all.
+
+    Returns:
+        List of ``sqlite3.Row`` objects. Empty list if no cases match.
+    """
+    conn = get_connection()
+    if status_filter:
+        return conn.execute(
+            "SELECT * FROM cases WHERE status = ? ORDER BY created_at DESC",
+            (status_filter,),
+        ).fetchall()
+    return conn.execute(
+        "SELECT * FROM cases ORDER BY created_at DESC"
+    ).fetchall()
+
+
+# ---------------------------------------------------------------------------
+# case_events table
+# ---------------------------------------------------------------------------
+
+def insert_case_event(
+    event_id: str,
+    case_id: str,
+    event_type: str,
+    description: str,
+    source_email_id: Optional[str] = None,
+) -> None:
+    """Append an immutable event to a case's audit trail.
+
+    Events are never updated or deleted. Every state change is recorded here:
+    creation, new email, reply, follow-up, escalation, closure.
+
+    Args:
+        event_id: Application UUID.
+        case_id: UUID of the owning case.
+        event_type: Short machine-readable label (e.g. ``'case_created'``,
+            ``'reply_received'``, ``'email_sent'``, ``'escalated'``).
+        description: Human-readable description.
+        source_email_id: UUID of the triggering email, or None for system events.
+    """
+    now = datetime.utcnow().isoformat()
+    _execute_write(
+        """
+        INSERT INTO case_events
+            (event_id, case_id, event_type, description, source_email_id, created_at)
+        VALUES (?, ?, ?, ?, ?, ?)
+        """,
+        (event_id, case_id, event_type, description, source_email_id, now),
+    )
+
+
+def get_events_for_case(case_id: str) -> List[sqlite3.Row]:
+    """Return all events for a case ordered chronologically (oldest first).
+
+    Args:
+        case_id: UUID of the case.
+
+    Returns:
+        List of ``sqlite3.Row`` objects. Empty list if no events exist.
+    """
+    conn = get_connection()
+    return conn.execute(
+        "SELECT * FROM case_events WHERE case_id = ? ORDER BY created_at ASC",
+        (case_id,),
+    ).fetchall()
+
+
+# ---------------------------------------------------------------------------
+# extracted_fields table
+# ---------------------------------------------------------------------------
+
+def insert_extracted_field(
+    field_id: str,
+    case_id: str,
+    email_id: str,
+    field_name: str,
+    field_value: Optional[str],
+    confidence_score: float,
+) -> None:
+    """Store a single field extracted from a KPI alert email.
+
+    Keeps raw extraction data separate from the case row so the source of
+    each field value can be audited independently.
+
+    Args:
+        field_id: Application UUID.
+        case_id: UUID of the case the field was extracted for.
+        email_id: UUID of the email the field was extracted from.
+        field_name: Field key (e.g. ``'building'``, ``'due_date'``).
+        field_value: Extracted string, or None.
+        confidence_score: Float 0.0–1.0.
+    """
+    _execute_write(
+        """
+        INSERT INTO extracted_fields
+            (field_id, case_id, email_id, field_name, field_value, confidence_score)
+        VALUES (?, ?, ?, ?, ?, ?)
+        """,
+        (field_id, case_id, email_id, field_name, field_value, confidence_score),
+    )
+
+
+def get_fields_for_case(case_id: str) -> List[sqlite3.Row]:
+    """Return all extracted fields for a case, ordered alphabetically by name.
+
+    Args:
+        case_id: UUID of the case.
+
+    Returns:
+        List of ``sqlite3.Row`` objects.
+    """
+    conn = get_connection()
+    return conn.execute(
+        "SELECT * FROM extracted_fields WHERE case_id = ? ORDER BY field_name ASC",
+        (case_id,),
+    ).fetchall()
+
+
+# ---------------------------------------------------------------------------
+# outbound_messages table
+# ---------------------------------------------------------------------------
+
+def insert_outbound_message(
+    msg_id: str,
+    case_id: str,
+    intended_to: str,
+    intended_cc: str,
+    actual_to: str,
+    subject: str,
+    body: str,
+    status: str = "draft",
+) -> None:
+    """Insert a draft or sent outbound email record.
+
+    Stores both the intended production recipient (``intended_to``) and the
+    actual demo recipient (``actual_to``) separately. In DEMO_MODE these
+    will differ — ``actual_to`` is always the demo address.
+
+    Args:
+        msg_id: Application UUID.
+        case_id: UUID of the associated case.
+        intended_to: Production recipient (audit only in DEMO_MODE).
+        intended_cc: Production CC addresses (audit only in DEMO_MODE).
+        actual_to: Address the email was actually sent to.
+        subject: Final subject (includes ``[DEMO]`` prefix in DEMO_MODE).
+        body: Final body (includes disclaimer footer in DEMO_MODE).
+        status: ``'draft'`` or ``'sent'``.
+    """
+    _execute_write(
+        """
+        INSERT INTO outbound_messages
+            (msg_id, case_id, intended_to, intended_cc, actual_to,
+             subject, body, status)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (msg_id, case_id, intended_to, intended_cc, actual_to, subject, body, status),
+    )
+
+
+def update_outbound_message_status(msg_id: str, status: str, sent_at: Optional[str] = None) -> None:
+    """Update the delivery status of an outbound message.
+
+    Args:
+        msg_id: UUID of the message.
+        status: New value — typically ``'sent'``, ``'sent_dry_run'``, or ``'failed'``.
+        sent_at: ISO 8601 delivery timestamp. If None, ``sent_at`` column unchanged.
+    """
+    if sent_at:
+        _execute_write(
+            "UPDATE outbound_messages SET status = ?, sent_at = ? WHERE msg_id = ?",
+            (status, sent_at, msg_id),
+        )
+    else:
+        _execute_write(
+            "UPDATE outbound_messages SET status = ? WHERE msg_id = ?",
+            (status, msg_id),
+        )
+
+
+def get_messages_for_case(case_id: str) -> List[sqlite3.Row]:
+    """Return all outbound messages for a case in insertion order.
+
+    Args:
+        case_id: UUID of the case.
+
+    Returns:
+        List of ``sqlite3.Row`` objects ordered by ``rowid`` ascending.
+    """
+    conn = get_connection()
+    return conn.execute(
+        "SELECT * FROM outbound_messages WHERE case_id = ? ORDER BY rowid ASC",
+        (case_id,),
+    ).fetchall()
+
+
+# ---------------------------------------------------------------------------
+# followups table
+# ---------------------------------------------------------------------------
+
+def upsert_followup(
+    followup_id: str,
+    case_id: str,
+    deadline: str,
+) -> None:
+    """Insert a follow-up deadline for a case, ignoring duplicates.
+
+    Uses ``INSERT OR IGNORE`` — if a record already exists for this ``case_id``
+    (UNIQUE constraint), the call is a no-op. This ensures re-processing an
+    email for an existing case never resets the follow-up counter.
+
+    Args:
+        followup_id: Application UUID.
+        case_id: UUID of the case.
+        deadline: ISO 8601 timestamp after which the follow-up should fire.
+    """
+    _execute_write(
+        """
+        INSERT OR IGNORE INTO followups
+            (followup_id, case_id, deadline, status, follow_count)
+        VALUES (?, ?, ?, 'pending', 0)
+        """,
+        (followup_id, case_id, deadline),
+    )
+
+
+def get_overdue_followups() -> List[sqlite3.Row]:
+    """Return all follow-up records whose deadline has passed and are not closed.
+
+    Joins with ``cases`` to exclude follow-ups for already-closed cases.
+    Ordered by deadline ascending (most overdue first).
+
+    Returns:
+        Rows with all ``followups`` columns plus ``case_status`` from the join.
+    """
+    now = datetime.utcnow().isoformat()
+    conn = get_connection()
+    return conn.execute(
+        """
+        SELECT f.*, c.status as case_status
+        FROM followups f
+        JOIN cases c ON f.case_id = c.case_id
+        WHERE f.deadline <= ?
+          AND f.status != 'closed'
+          AND c.status != 'closed'
+        ORDER BY f.deadline ASC
+        """,
+        (now,),
+    ).fetchall()
+
+
+def increment_followup_count(case_id: str) -> int:
+    """Increment the follow-up counter and record the current check time.
+
+    Thread-safe: acquires the write lock for the read-modify-write sequence.
+
+    Args:
+        case_id: UUID of the case.
+
+    Returns:
+        New ``follow_count`` value after incrementing, or 0 if not found.
+    """
+    now = datetime.utcnow().isoformat()
+    with _write_lock:
+        conn = get_connection()
+        conn.execute(
+            """
+            UPDATE followups
+            SET follow_count = follow_count + 1,
+                last_check = ?
+            WHERE case_id = ?
+            """,
+            (now, case_id),
+        )
+        conn.commit()
+        row = conn.execute(
+            "SELECT follow_count FROM followups WHERE case_id = ?", (case_id,)
+        ).fetchone()
+    return row["follow_count"] if row else 0
+
+
+def close_followup(case_id: str) -> None:
+    """Mark the follow-up record for a case as closed.
+
+    Called when a case is closed so the scheduler stops generating reminders.
+
+    Args:
+        case_id: UUID of the case.
+    """
+    _execute_write(
+        "UPDATE followups SET status = 'closed' WHERE case_id = ?",
+        (case_id,),
+    )
+
+
+def get_followup_for_case(case_id: str) -> Optional[sqlite3.Row]:
+    """Return the follow-up record for a case.
+
+    Args:
+        case_id: UUID of the case.
+
+    Returns:
+        Matching ``sqlite3.Row``, or None if no follow-up has been scheduled.
+    """
+    conn = get_connection()
+    return conn.execute(
+        "SELECT * FROM followups WHERE case_id = ?", (case_id,)
+    ).fetchone()
+
+
+# ---------------------------------------------------------------------------
+# manual_reviews table
+# ---------------------------------------------------------------------------
+
+def insert_manual_review(
+    review_id: str,
+    case_id: str,
+    email_id: Optional[str],
+    reason: str,
+) -> None:
+    """Flag a case for manual human review.
+
+    Used in four situations: low classification confidence, injection detected,
+    reply suggests possible resolution, escalation threshold reached.
+
+    Args:
+        review_id: Application UUID.
+        case_id: UUID of the case to flag.
+        email_id: UUID of the triggering email, or None for system-triggered reviews.
+        reason: Human-readable explanation of why review is required.
+    """
+    now = datetime.utcnow().isoformat()
+    _execute_write(
+        """
+        INSERT INTO manual_reviews
+            (review_id, case_id, email_id, reason, flagged_at, resolved)
+        VALUES (?, ?, ?, ?, ?, 0)
+        """,
+        (review_id, case_id, email_id, reason, now),
+    )
+
+
+def get_open_manual_reviews() -> List[sqlite3.Row]:
+    """Return all unresolved manual review records with case context.
+
+    Joins with ``cases`` for ``case_type``, ``building``, and ``status``.
+    Ordered by ``flagged_at`` descending (most recently flagged first).
+
+    Returns:
+        List of ``sqlite3.Row`` objects. Empty if all reviews are resolved.
+    """
+    conn = get_connection()
+    return conn.execute(
+        """
+        SELECT mr.*, c.case_type, c.building, c.status as case_status
+        FROM manual_reviews mr
+        JOIN cases c ON mr.case_id = c.case_id
+        WHERE mr.resolved = 0
+        ORDER BY mr.flagged_at DESC
+        """
+    ).fetchall()
+
+
+def resolve_manual_review(review_id: str) -> None:
+    """Mark a manual review item as resolved.
+
+    Args:
+        review_id: UUID of the review record.
+    """
+    _execute_write(
+        "UPDATE manual_reviews SET resolved = 1 WHERE review_id = ?",
+        (review_id,),
+    )

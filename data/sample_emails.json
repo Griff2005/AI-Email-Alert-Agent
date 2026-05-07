@@ -1,0 +1,58 @@
+[
+  {
+    "id": "sample-001",
+    "subject": "CAT1 Tests Reminder",
+    "from": "alerts@placeholder-elevator-system.com",
+    "to": "agent@placeholder.com",
+    "date": "2026-05-06T08:00:00",
+    "body": "CAT1 Reminder - Daily Alert\n\nThis is an automated reminder that a CAT1 test is due.\n\nBuilding: 123 Example Road\nDevice: B-4 #731842\nTest Type: CAT1 Full Load Safety Test\nDate Logged: 14 May 2026\n\nPlease ensure the scheduled CAT1 test is completed and results are submitted to the regulator within the required timeframe.\n\nIf you have already completed this test, please disregard this notice and update the system accordingly.\n\nThis alert will continue to be sent daily until the test record is submitted.\n\nRegards,\nAutomated Compliance System"
+  },
+  {
+    "id": "sample-002",
+    "subject": "CAT5 Tests Reminder",
+    "from": "alerts@placeholder-elevator-system.com",
+    "to": "agent@placeholder.com",
+    "date": "2026-05-06T08:05:00",
+    "body": "CAT5 Reminder - Daily Alert\n\nThis is an automated reminder that a CAT5 test is due.\n\nBuilding: 456 Sample Street\nDevice: S-1 #492706\nTest Type: CAT5 Full Load Overspeed Safety Test\nDate Logged: 02 Sep 2022\n\nThe CAT5 test for this device is overdue. Immediate action is required to schedule and complete the required safety test.\n\nPlease coordinate with the assigned contractor and submit results as soon as possible.\n\nThis alert will continue to be sent daily until the test record is submitted.\n\nRegards,\nAutomated Compliance System"
+  },
+  {
+    "id": "sample-003",
+    "subject": "Maintenance Data is not up to date",
+    "from": "alerts@placeholder-elevator-system.com",
+    "to": "agent@placeholder.com",
+    "date": "2026-05-06T08:10:00",
+    "body": "Data Absence Alert\n\nMaintenance data has never been submitted for the following device.\n\nBuilding: 789 Demo Avenue\nContractor: Example Elevator Contractor Ltd.\nStatus: No maintenance records have ever been submitted for this device.\n\nThis device appears to have no maintenance history on record. Please contact the contractor immediately to investigate and submit all outstanding maintenance records.\n\nAction Required:\n- Verify contractor assignment\n- Request immediate submission of all maintenance records\n- Escalate if no response within 48 hours\n\nThis alert will continue to be sent daily until maintenance data is submitted.\n\nRegards,\nAutomated Compliance System"
+  },
+  {
+    "id": "sample-004",
+    "subject": "Maintenance Data is not up to date",
+    "from": "alerts@placeholder-elevator-system.com",
+    "to": "agent@placeholder.com",
+    "date": "2026-05-06T08:15:00",
+    "body": "Data Absence Alert\n\nMaintenance data is significantly out of date for the following device.\n\nBuilding: 321 Placeholder Boulevard\nLast Activity: 15-Oct-2025\nElapsed: 203 days since last maintenance record\n\nThe most recent maintenance record for this device is 203 days old. This exceeds the acceptable threshold for maintenance data currency.\n\nAction Required:\n- Contact the assigned contractor to determine reason for data gap\n- Request submission of all outstanding maintenance records\n- If contractor is unresponsive, escalate to management\n\nThis alert will continue to be sent daily until maintenance data is brought up to date.\n\nRegards,\nAutomated Compliance System"
+  },
+  {
+    "id": "sample-005",
+    "subject": "Maintenance Hours Less Than Required",
+    "from": "alerts@placeholder-elevator-system.com",
+    "to": "agent@placeholder.com",
+    "date": "2026-05-06T08:20:00",
+    "body": "Maintenance Hours Shortfall Alert\n\nThe following building has maintenance hours below the required threshold for the current period.\n\nBuilding: 654 Example Lane\nPeriod: May 2026\n\nHours Summary:\n  Car 1: Required 1.50 hrs | Actual 0.00 hrs | Shortfall: 1.50 hrs\n  Car 2: Required 1.50 hrs | Actual 0.25 hrs | Shortfall: 1.25 hrs\n  Car 3: Required 1.50 hrs | Actual 0.00 hrs | Shortfall: 1.50 hrs\n\nTotal Required: 4.50 hrs\nTotal Actual: 0.25 hrs\nTotal Shortfall: 4.25 hrs\n\nPlease contact the maintenance contractor to arrange catch-up visits and ensure compliance with the maintenance schedule.\n\nRegards,\nAutomated Compliance System"
+  },
+  {
+    "id": "sample-006",
+    "subject": "Scheduled Work is Overdue or Outstanding",
+    "from": "alerts@placeholder-elevator-system.com",
+    "to": "agent@placeholder.com",
+    "date": "2026-05-06T08:25:00",
+    "body": "Major Scheduled Work Overdue Alert\n\nThe following major scheduled work item is overdue and requires immediate attention.\n\nBuilding: 987 Sample Road\nDevice: Service Car #604118\nScheduled Date: 12-Mar-2026\nWork Description: Replace worn drive sheave\nStatus: Overdue\n\nThis critical maintenance item was scheduled for 12-Mar-2026 and has not been completed or updated. Drive sheave replacement is a safety-critical task and its delay may affect device compliance status.\n\nAction Required:\n- Contact contractor to determine current status\n- Reschedule if required with immediate priority\n- Obtain written confirmation of completion date\n- Flag for compliance review if further delayed\n\nRegards,\nAutomated Compliance System"
+  },
+  {
+    "id": "sample-007",
+    "subject": "Outstanding Government Directive - Daily Alert",
+    "from": "alerts@placeholder-elevator-system.com",
+    "to": "agent@placeholder.com",
+    "date": "2026-05-06T08:30:00",
+    "body": "Outstanding Government Directive Alert\n\nThe following device has outstanding government directives that require action.\n\nBuilding: 246 Example Street\nDevice: 2 #514903\nCompliance Due Date: 20-Apr-2026\n\nOutstanding Tasks:\n1. Brake-monitoring adjustment - Required by government directive\n2. Emergency lighting installation/upgrade - Required by government directive\n\nThese directives are now overdue as of the due date above. Immediate action is required to achieve compliance.\n\nAction Required:\n- Schedule contractor visit within 7 days\n- Complete all listed directive items\n- Submit compliance documentation to regulator\n- Notify building owner of directive status\n\nThis alert will continue to be sent daily until all directive items are resolved.\n\nRegards,\nAutomated Compliance System"
+  }
+]
