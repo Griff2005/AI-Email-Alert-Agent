@@ -1,0 +1,48 @@
+{% extends "base.html" %}
+{% block title %}Patterns — Solucore Alert Triage{% endblock %}
+
+{% block content %}
+<h1>Active Patterns</h1>
+<p class="section-note">Deterministic memory flags generated from stored case, reply, and follow-up observations.</p>
+
+<div class="card" style="padding:0">
+  <div class="table-wrap">
+    <table class="mini-table">
+      <thead>
+        <tr>
+          <th>Pattern Type</th>
+          <th>Severity</th>
+          <th>Summary</th>
+          <th>Case</th>
+          <th>Created</th>
+          <th>Status</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for pattern in patterns %}
+        <tr>
+          <td style="white-space:nowrap">{{ pattern.pattern_type.replace('_', ' ').title() }}</td>
+          <td><span class="badge badge-{{ pattern.severity }}">{{ pattern.severity }}</span></td>
+          <td style="font-size:0.84rem">{{ pattern.summary }}</td>
+          <td style="white-space:nowrap">
+            {% if pattern.case_id %}
+            <a href="/cases/{{ pattern.case_id }}">Case {{ pattern.case_id[:8] }}…</a>
+            {% else %}
+            —
+            {% endif %}
+          </td>
+          <td style="font-size:0.78rem;color:#6b7280">{{ pattern.created_at[:16].replace('T', ' ') if pattern.created_at else '—' }}</td>
+          <td><span class="badge badge-{{ pattern.status }}">{{ pattern.status }}</span></td>
+        </tr>
+        {% else %}
+        <tr>
+          <td colspan="6">
+            <div class="empty-state">No active pattern flags.</div>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

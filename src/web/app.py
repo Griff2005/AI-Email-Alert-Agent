@@ -19,9 +19,36 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from flask import Flask, redirect, render_template, request, url_for, flash
 import database as db
+import memory
 
 app = Flask(__name__, template_folder="templates")
 app.secret_key = "solucore-demo-secret-not-for-production"
+
+
+_SEVERITY_RANK = {
+    "info": 1,
+    "medium": 2,
+    "high": 3,
+    "review": 4,
+}
+
+
+def _pattern_indicator(case_id: str):
+    flags = [dict(row) for row in db.get_active_pattern_flags_for_case(case_id)]
+    if not flags:
+        return None
+    highest = max(flags, key=lambda flag: _SEVERITY_RANK.get(flag["severity"], 0))
+    label = {
+        "review": "Review",
+        "high": "Repeated",
+        "medium": "Pattern",
+        "info": "Memory",
+    }.get(highest["severity"], "Pattern")
+    return {
+        "count": len(flags),
+        "severity": highest["severity"],
+        "label": label,
+    }
 
 
 @app.route("/")
@@ -38,7 +65,11 @@ def cases():
     """
     status_filter = request.args.get("status")
     all_cases = db.get_all_cases(status_filter=status_filter)
-    cases_list = [dict(c) for c in all_cases]
+    cases_list = []
+    for case in all_cases:
+        case_dict = dict(case)
+        case_dict["memory_indicator"] = _pattern_indicator(case_dict["case_id"])
+        cases_list.append(case_dict)
     return render_template("cases.html", cases=cases_list, status_filter=status_filter)
 
 
@@ -58,6 +89,7 @@ def case_detail(case_id):
     messages = db.get_messages_for_case(case_id)
     fields = db.get_fields_for_case(case_id)
     followup = db.get_followup_for_case(case_id)
+    memory_context = memory.get_memory_context_for_case(case_id)
 
     return render_template(
         "case_detail.html",
@@ -66,6 +98,8 @@ def case_detail(case_id):
         messages=[dict(m) for m in messages],
         fields=[dict(f) for f in fields],
         followup=dict(followup) if followup else None,
+        memory_context=memory_context,
+        memory_summary=memory_context["summary"],
     )
 
 
@@ -128,6 +162,13 @@ def events():
         """
     ).fetchall()
     return render_template("events.html", events=[dict(e) for e in recent_events])
+
+
+@app.route("/patterns")
+def patterns():
+    """Render active memory/pattern flags across all cases."""
+    active_patterns = [dict(row) for row in db.get_active_pattern_flags()]
+    return render_template("patterns.html", patterns=active_patterns)
 
 
 def create_app():

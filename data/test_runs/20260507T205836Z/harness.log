@@ -1,0 +1,118 @@
+[DB] Schema initialized.
+[CONFIG] IMAP credentials are placeholder — inbox polling will be disabled.
+[CONFIG] SMTP credentials are placeholder — email sending will be disabled.
+[CONFIG] DEMO_MODE=true — all outbound email redirected to demo-recipient@example.test
+[EMAIL_SENDER] Draft created: 9e17215c-828c-4edb-9acf-40b7de30f142 | To (actual): demo-recipient@example.test
+[EMAIL_SENDER] SMTP not configured — dry run send:
+  To: demo-recipient@example.test
+  Subject: [DEMO] Attention Required: Maintenance Data Gap Identified — 123 Example Road, Example City
+  Body preview: We are writing to follow up on the outstanding maintenance documentation for the elevator system at 123 Example Road, Ex...
+[EMAIL_SENDER] Draft created: 3984ea94-9d4a-4855-baf0-50e00fd81e1e | To (actual): demo-recipient@example.test
+[EMAIL_SENDER] SMTP not configured — dry run send:
+  To: demo-recipient@example.test
+  Subject: [DEMO] Action Required: CAT1 Annual Test Compliance — 123 Example Road, Example City
+  Body preview: We are writing regarding a compliance matter that requires your attention for the elevator system at 123 Example Road, E...
+[EMAIL_SENDER] Draft created: 938d74a0-b592-4a98-8f2d-1f14505b1be8 | To (actual): demo-recipient@example.test
+[EMAIL_SENDER] SMTP not configured — dry run send:
+  To: demo-recipient@example.test
+  Subject: [DEMO] Action Required: Maintenance Hours Shortfall — 123 Example Road, Example City
+  Body preview: We are writing to advise that the elevator system at 123 Example Road, Example City did not meet the required compliance...
+[EMAIL_SENDER] Draft created: af67d861-e6b1-4606-854f-8792242be9d3 | To (actual): demo-recipient@example.test
+[EMAIL_SENDER] SMTP not configured — dry run send:
+  To: demo-recipient@example.test
+  Subject: [DEMO] Urgent: Major Scheduled Work Overdue — 123 Example Road, Example City
+  Body preview: We are writing to follow up on the scheduled elevator compliance work at 123 Example Road, Example City, for device B-1 ...
+[EMAIL_SENDER] Draft created: cd4781c4-5ec7-45a2-8005-5a30f836918c | To (actual): demo-recipient@example.test
+[EMAIL_SENDER] SMTP not configured — dry run send:
+  To: demo-recipient@example.test
+  Subject: [DEMO] Action Required: Maintenance Hours Shortfall — 456 Sample Avenue, Demo City
+  Body preview: We are writing regarding a compliance issue identified for the elevator equipment at 456 Sample Avenue, Demo City. Our r...
+[EMAIL_SENDER] Draft created: f7c3f7c2-2cd3-4aa2-99b5-ade8bc0ed494 | To (actual): demo-recipient@example.test
+[EMAIL_SENDER] SMTP not configured — dry run send:
+  To: demo-recipient@example.test
+  Subject: [DEMO] Attention Required: Maintenance Data Gap Identified — 456 Sample Avenue, Demo City
+  Body preview: We are writing regarding the ongoing compliance requirements for the elevator equipment at 456 Sample Avenue, Demo City....
+[EMAIL_SENDER] Draft created: 3b59fd62-3323-4f80-aa51-44454a34b271 | To (actual): demo-recipient@example.test
+[EMAIL_SENDER] SMTP not configured — dry run send:
+  To: demo-recipient@example.test
+  Subject: [DEMO] Action Required: Maintenance Hours Shortfall — 789 Demo Street, Sample City
+  Body preview: We are writing to notify you of a compliance shortfall identified during our review of elevator maintenance records for ...
+[EMAIL_SENDER] Draft created: c474350b-f940-405a-8b41-9fdbcb0948e9 | To (actual): demo-recipient@example.test
+[EMAIL_SENDER] SMTP not configured — dry run send:
+  To: demo-recipient@example.test
+  Subject: [DEMO] Urgent: Outstanding Government Directive — 123 Example Road, Example City
+  Body preview: We are writing to request confirmation that the required corrective action for the elevator system at 123 Example Road, ...
+[EMAIL_SENDER] Draft created: 3acc6e7d-8466-43c6-bf11-7a0dde3fc74d | To (actual): demo-recipient@example.test
+[EMAIL_SENDER] SMTP not configured — dry run send:
+  To: demo-recipient@example.test
+  Subject: [DEMO] Action Required: CAT5 Five-Year Test Compliance — 456 Sample Avenue, Demo City
+  Body preview: We are writing regarding an open elevator compliance matter at 456 Sample Avenue, Demo City, for device B-1 #700021.
+
+Ou...
+[EMAIL_SENDER] Draft created: d5ea602e-50bc-4144-9a8c-1254d3bdd11f | To (actual): demo-recipient@example.test
+[EMAIL_SENDER] SMTP not configured — dry run send:
+  To: demo-recipient@example.test
+  Subject: [DEMO] Urgent: Major Scheduled Work Overdue — 456 Sample Avenue, Demo City
+  Body preview: I'm writing to follow up on the compliance requirement for the elevator system at 456 Sample Avenue, Demo City. Our reco...
+[FOLLOWUP] Checking follow-up deadlines at 2026-05-07T21:06:06.813443
+[FOLLOWUP] Found 8 overdue follow-up(s).
+[FOLLOWUP] Processing case 8de930b5-7921-4bde-977a-13ee03ad571c — follow count now 1
+[EMAIL_SENDER] Draft created: 52844131-a6cb-4856-9a7a-f5142cdbd17d | To (actual): demo-recipient@example.test
+[FOLLOWUP] Processing case 4503588b-f079-47af-9f6e-ebaa2d0c300b — follow count now 1
+[EMAIL_SENDER] Draft created: 812a123c-e427-4486-93db-3c4d75dd781f | To (actual): demo-recipient@example.test
+[FOLLOWUP] Processing case bb67ad8f-65f9-4ec7-86b0-3d662c8bb4fc — follow count now 1
+[EMAIL_SENDER] Draft created: 5ca52e7c-5d88-4073-80f5-d068798c61c8 | To (actual): demo-recipient@example.test
+[FOLLOWUP] Processing case 13ec4417-7129-4e89-a9ce-0570adefdff0 — follow count now 1
+[EMAIL_SENDER] Draft created: f62a3e96-4ed2-4fe6-82a4-6beb9b1655d3 | To (actual): demo-recipient@example.test
+[FOLLOWUP] Processing case 5a6a3bd0-4c13-4421-9a16-47b3e57889c2 — follow count now 1
+[EMAIL_SENDER] Draft created: b8b6aa5e-8f33-4ee8-92a4-bdc5efb4b815 | To (actual): demo-recipient@example.test
+[FOLLOWUP] Processing case c10d6686-6122-4f99-a2e4-168f34fabe62 — follow count now 1
+[EMAIL_SENDER] Draft created: 22d2db28-b0a1-4728-8908-ced8783479c7 | To (actual): demo-recipient@example.test
+[FOLLOWUP] Processing case e02ed060-e53f-4de4-84f3-4e28f6c853b4 — follow count now 1
+[EMAIL_SENDER] Draft created: 2f017f89-bea5-4c1d-9275-1fdc756b030f | To (actual): demo-recipient@example.test
+[FOLLOWUP] Processing case 93aefa1b-7eb0-4e07-b9f9-71da16e14fa1 — follow count now 1
+[EMAIL_SENDER] Draft created: 4fb167bb-aa49-4b07-b190-36bb5ef328bc | To (actual): demo-recipient@example.test
+[FOLLOWUP] Checking follow-up deadlines at 2026-05-07T21:07:52.665185
+[FOLLOWUP] Found 8 overdue follow-up(s).
+[FOLLOWUP] Processing case 8de930b5-7921-4bde-977a-13ee03ad571c — follow count now 2
+[EMAIL_SENDER] Draft created: 133028fd-3c25-4a6a-b3ac-c88d5e80fdc5 | To (actual): demo-recipient@example.test
+[FOLLOWUP] Processing case 4503588b-f079-47af-9f6e-ebaa2d0c300b — follow count now 2
+[EMAIL_SENDER] Draft created: d9f81d59-d9c8-408e-a3eb-39ee10d0dc56 | To (actual): demo-recipient@example.test
+[FOLLOWUP] Processing case bb67ad8f-65f9-4ec7-86b0-3d662c8bb4fc — follow count now 2
+[EMAIL_SENDER] Draft created: e434fa3a-a7ec-46ef-b1fe-0e9b3f4b3131 | To (actual): demo-recipient@example.test
+[FOLLOWUP] Processing case 13ec4417-7129-4e89-a9ce-0570adefdff0 — follow count now 2
+[EMAIL_SENDER] Draft created: 3fd9b12f-94de-43dd-ac64-7f5225a8735e | To (actual): demo-recipient@example.test
+[FOLLOWUP] Processing case 5a6a3bd0-4c13-4421-9a16-47b3e57889c2 — follow count now 2
+[EMAIL_SENDER] Draft created: fb35fde3-19db-4606-a778-0dcc22a06a75 | To (actual): demo-recipient@example.test
+[FOLLOWUP] Processing case c10d6686-6122-4f99-a2e4-168f34fabe62 — follow count now 2
+[EMAIL_SENDER] Draft created: a6b23434-bb6c-49fa-845d-c65e378922d4 | To (actual): demo-recipient@example.test
+[FOLLOWUP] Processing case e02ed060-e53f-4de4-84f3-4e28f6c853b4 — follow count now 2
+[EMAIL_SENDER] Draft created: c1b27079-d436-436b-a74f-5da2cdceadd2 | To (actual): demo-recipient@example.test
+[FOLLOWUP] Processing case 93aefa1b-7eb0-4e07-b9f9-71da16e14fa1 — follow count now 2
+[EMAIL_SENDER] Draft created: ec84e7d8-cad2-44aa-835f-c0cf9196bffc | To (actual): demo-recipient@example.test
+[FOLLOWUP] Checking follow-up deadlines at 2026-05-07T21:09:23.090970
+[FOLLOWUP] Found 8 overdue follow-up(s).
+[FOLLOWUP] Processing case 8de930b5-7921-4bde-977a-13ee03ad571c — follow count now 3
+[EMAIL_SENDER] Draft created: 92cea099-00c1-43f1-856c-22cc4ce56542 | To (actual): demo-recipient@example.test
+[FOLLOWUP] Case 8de930b5-7921-4bde-977a-13ee03ad571c reached escalation threshold (3 follow-ups).
+[FOLLOWUP] Processing case 4503588b-f079-47af-9f6e-ebaa2d0c300b — follow count now 3
+[EMAIL_SENDER] Draft created: 66c84c09-9619-4682-a17f-5a7160fb83dd | To (actual): demo-recipient@example.test
+[FOLLOWUP] Case 4503588b-f079-47af-9f6e-ebaa2d0c300b reached escalation threshold (3 follow-ups).
+[FOLLOWUP] Processing case bb67ad8f-65f9-4ec7-86b0-3d662c8bb4fc — follow count now 3
+[EMAIL_SENDER] Draft created: cf2eefd1-52d6-41a2-92de-8ba14f9cb06c | To (actual): demo-recipient@example.test
+[FOLLOWUP] Case bb67ad8f-65f9-4ec7-86b0-3d662c8bb4fc reached escalation threshold (3 follow-ups).
+[FOLLOWUP] Processing case 13ec4417-7129-4e89-a9ce-0570adefdff0 — follow count now 3
+[EMAIL_SENDER] Draft created: 77f6b598-5d40-46af-b6b8-4b7feca9aa2f | To (actual): demo-recipient@example.test
+[FOLLOWUP] Case 13ec4417-7129-4e89-a9ce-0570adefdff0 reached escalation threshold (3 follow-ups).
+[FOLLOWUP] Processing case 5a6a3bd0-4c13-4421-9a16-47b3e57889c2 — follow count now 3
+[EMAIL_SENDER] Draft created: 6f2e23cf-c7f2-4f71-932e-16390af5c42b | To (actual): demo-recipient@example.test
+[FOLLOWUP] Case 5a6a3bd0-4c13-4421-9a16-47b3e57889c2 reached escalation threshold (3 follow-ups).
+[FOLLOWUP] Processing case c10d6686-6122-4f99-a2e4-168f34fabe62 — follow count now 3
+[EMAIL_SENDER] Draft created: fab3a190-d051-4414-a026-30ecaa8b1c96 | To (actual): demo-recipient@example.test
+[FOLLOWUP] Case c10d6686-6122-4f99-a2e4-168f34fabe62 reached escalation threshold (3 follow-ups).
+[FOLLOWUP] Processing case e02ed060-e53f-4de4-84f3-4e28f6c853b4 — follow count now 3
+[EMAIL_SENDER] Draft created: ca94dd91-2cf1-4d21-aa05-30bdd567b63d | To (actual): demo-recipient@example.test
+[FOLLOWUP] Case e02ed060-e53f-4de4-84f3-4e28f6c853b4 reached escalation threshold (3 follow-ups).
+[FOLLOWUP] Processing case 93aefa1b-7eb0-4e07-b9f9-71da16e14fa1 — follow count now 3
+[EMAIL_SENDER] Draft created: da1ac869-a85f-4547-83dd-cb93dcde6a30 | To (actual): demo-recipient@example.test
+[FOLLOWUP] Case 93aefa1b-7eb0-4e07-b9f9-71da16e14fa1 reached escalation threshold (3 follow-ups).

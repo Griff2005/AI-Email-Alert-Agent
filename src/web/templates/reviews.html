@@ -6,7 +6,7 @@
 
 {% if reviews %}
 <p style="font-size:0.875rem;color:#6b7280;margin-bottom:16px">
-  {{ reviews | length }} open review item{% if reviews | length != 1 %}s{% endif %} requiring attention.
+  {{ reviews | length }} open review item{% if reviews | length != 1 %}s{% endif %} requiring attention, including high-severity memory patterns when detected.
 </p>
 
 {% for r in reviews %}

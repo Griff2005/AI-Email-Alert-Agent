@@ -1,0 +1,69 @@
+{
+  "overall_result": "FAIL",
+  "mode": {
+    "requested_offline": false,
+    "requested_require_ai": true,
+    "used_offline_shim": false,
+    "used_ai": false,
+    "ai_probe_successful": false,
+    "ai_dependent_checks_skipped": false
+  },
+  "dataset": {
+    "seed_used": 42,
+    "emails_generated": 10,
+    "replies_generated": 9,
+    "clients": 8,
+    "buildings": 25,
+    "devices": 100,
+    "contractors": 5,
+    "case_type_distribution": {
+      "CAT1_COMPLIANCE": 1,
+      "CAT5_COMPLIANCE": 1,
+      "DATA_ABSENCE": 2,
+      "GOVERNMENT_DIRECTIVE": 1,
+      "MAINTENANCE_HOURS_SHORTFALL": 3,
+      "MAJOR_WORK_OVERDUE": 2
+    },
+    "scenario_tag_distribution": {
+      "data_gap": 2,
+      "normal_new_case": 10,
+      "overdue": 3,
+      "recurring_building_issue": 5,
+      "recurring_device_issue": 2,
+      "repeated_contractor_issue": 3
+    }
+  },
+  "processing": {},
+  "safety": {
+    "real_smtp_calls_attempted": 0,
+    "real_imap_calls_attempted": 0,
+    "actual_recipient_violations": 0,
+    "disallowed_domain_violations": 0,
+    "intended_recipient_rewrites": 0,
+    "production_database_used": false,
+    "safe_demo_recipient": "demo-recipient@example.test"
+  },
+  "quality_checks": {
+    "classification": "SKIPPED",
+    "extraction": "SKIPPED",
+    "grouping": "SKIPPED",
+    "reply_handling": "SKIPPED",
+    "followup_handling": "SKIPPED",
+    "prompt_injection_handling": "SKIPPED",
+    "flask_ui_smoke": "SKIPPED"
+  },
+  "memory_readiness": {
+    "status": "Not executed."
+  },
+  "warnings": [],
+  "failures": [
+    "Claude CLI required but unavailable: Claude CLI returned non-zero exit code 1.\nstderr: "
+  ],
+  "paths": {
+    "run_dir": "/Users/griffinrobinson/evolve.solucore.com/AI Email Alert Agent/data/test_runs/20260507T205733Z",
+    "database": "/Users/griffinrobinson/evolve.solucore.com/AI Email Alert Agent/data/test_runs/20260507T205733Z/test_agent.db",
+    "harness_log": "/Users/griffinrobinson/evolve.solucore.com/AI Email Alert Agent/data/test_runs/20260507T205733Z/harness.log",
+    "report_json": "/Users/griffinrobinson/evolve.solucore.com/AI Email Alert Agent/data/test_runs/20260507T205733Z/report.json",
+    "report_markdown": "/Users/griffinrobinson/evolve.solucore.com/AI Email Alert Agent/data/test_runs/20260507T205733Z/report.md"
+  }
+}

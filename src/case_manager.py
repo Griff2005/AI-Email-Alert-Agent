@@ -17,6 +17,7 @@ from typing import Any, Dict, Optional, Tuple
 
 import database as db
 import email_sender
+import memory
 from classifier import classify_email, quick_filter
 from extractor import extract_fields, generate_grouping_key, generate_email_body
 
@@ -57,6 +58,65 @@ _DEFAULT_FOLLOWUP_DAYS = 7
 def _new_id() -> str:
     """Generate a new UUID4 string."""
     return str(uuid.uuid4())
+
+
+def _ensure_manual_review(case_id: str, reason: str, email_id: Optional[str] = None) -> None:
+    """Insert a manual review item only when the same reason is not already open."""
+    if db.has_open_manual_review(case_id, reason):
+        return
+    db.insert_manual_review(
+        review_id=_new_id(),
+        case_id=case_id,
+        email_id=email_id,
+        reason=reason,
+    )
+
+
+def _record_memory_event(
+    case_id: str,
+    pattern_flags: list,
+    source_email_id: Optional[str] = None,
+) -> None:
+    """Log a case event summarizing the latest memory update."""
+    changed_flags = [flag for flag in pattern_flags if flag.get("created") or flag.get("updated")]
+    if changed_flags:
+        details = ", ".join(
+            f"{flag['pattern_type']} ({flag['severity']})" for flag in changed_flags
+        )
+        description = f"Memory updated. Pattern flags detected or refreshed: {details}."
+    else:
+        description = "Memory updated. No new pattern flags detected."
+
+    db.insert_case_event(
+        event_id=_new_id(),
+        case_id=case_id,
+        event_type="memory_updated",
+        description=description,
+        source_email_id=source_email_id,
+    )
+
+    for flag in changed_flags:
+        if flag["severity"] not in ("high", "review"):
+            continue
+        reason = (
+            f"Pattern review: {flag['summary']} "
+            f"(severity: {flag['severity']})."
+        )
+        _ensure_manual_review(case_id=case_id, reason=reason, email_id=source_email_id)
+
+
+def _record_inbound_memory(case_id: str, email_id: str, case_type: str, fields: Dict[str, Any]) -> Dict[str, Any]:
+    """Record inbound-email memory observations and return the current memory context."""
+    memory.record_case_observations(
+        case_id=case_id,
+        email_id=email_id,
+        case_type=case_type,
+        fields=fields,
+        source="inbound_email",
+    )
+    pattern_flags = memory.detect_patterns_for_case(case_id)
+    _record_memory_event(case_id=case_id, pattern_flags=pattern_flags, source_email_id=email_id)
+    return memory.get_memory_context_for_case(case_id)
 
 
 def process_email(
@@ -188,7 +248,7 @@ def process_email(
         case_id = existing_case["case_id"]
         if verbose:
             print(f"[CASE_MGR] Existing case found: {case_id} — updating.")
-        _update_existing_case(case_id, email_id, fields, subject)
+        _update_existing_case(case_id, email_id, case_type, fields, subject)
         action = "updated"
     else:
         case_id = _new_id()
@@ -199,8 +259,9 @@ def process_email(
 
     # Step 7: Flag for injection review if needed
     if injection_detected:
-        db.insert_manual_review(
-            review_id=_new_id(), case_id=case_id, email_id=email_id,
+        _ensure_manual_review(
+            case_id=case_id,
+            email_id=email_id,
             reason="Possible prompt injection content detected in email body.",
         )
 
@@ -290,8 +351,15 @@ def _create_new_case(
         deadline=deadline,
     )
 
+    memory_context = _record_inbound_memory(
+        case_id=case_id,
+        email_id=email_id,
+        case_type=case_type,
+        fields=fields,
+    )
+
     # Generate and send outbound email
-    email_body = generate_email_body(case_type, fields, case_id)
+    email_body = generate_email_body(case_type, fields, case_id, memory_context=memory_context)
     subject = _case_subject(case_type, fields)
     email_sender.create_and_send(
         case_id=case_id,
@@ -305,6 +373,7 @@ def _create_new_case(
 def _update_existing_case(
     case_id: str,
     email_id: str,
+    case_type: str,
     fields: Dict[str, Any],
     subject: str,
 ) -> None:
@@ -336,6 +405,13 @@ def _update_existing_case(
             updates[field] = val
     if updates:
         db.update_case(case_id, updates)
+
+    _record_inbound_memory(
+        case_id=case_id,
+        email_id=email_id,
+        case_type=case_type,
+        fields=fields,
+    )
 
 
 def process_reply(
@@ -429,8 +505,7 @@ Respond with ONLY valid JSON:
             event_type="action_indicated",
             description="Reply suggests corrective action may have been taken. Manual review required before closing.",
         )
-        db.insert_manual_review(
-            review_id=_new_id(),
+        _ensure_manual_review(
             case_id=case_id,
             email_id=None,
             reason="Reply indicates possible resolution. Manual confirmation required before case closure.",
@@ -438,12 +513,15 @@ Respond with ONLY valid JSON:
         flag_for_review = True
 
     elif flag_for_review:
-        db.insert_manual_review(
-            review_id=_new_id(),
+        _ensure_manual_review(
             case_id=case_id,
             email_id=None,
             reason=f"Reply flagged by AI for manual review. Summary: {summary}",
         )
+
+    memory.record_reply_observations(case_id=case_id, reply_text=reply_text, analysis=result)
+    pattern_flags = memory.detect_patterns_for_case(case_id)
+    _record_memory_event(case_id=case_id, pattern_flags=pattern_flags, source_email_id=None)
 
     if verbose:
         print(f"[CASE_MGR] Reply analysis: satisfies_action={satisfies_action}, flag_for_review={flag_for_review}")

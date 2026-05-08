@@ -45,6 +45,7 @@
           <th>Priority</th>
           <th>Building</th>
           <th>Device</th>
+          <th>Memory</th>
           <th>Created</th>
           <th>Updated</th>
         </tr>
@@ -58,12 +59,20 @@
           <td><span class="badge badge-{{ c.priority }}">{{ c.priority }}</span></td>
           <td style="font-size:0.85rem">{{ c.building or '—' }}</td>
           <td style="font-size:0.85rem">{{ c.device or '—' }}</td>
+          <td style="font-size:0.8rem;white-space:nowrap">
+            {% if c.memory_indicator %}
+            <span class="badge badge-{{ c.memory_indicator.severity }}">{{ c.memory_indicator.label }}</span>
+            <span style="color:#6b7280">{{ c.memory_indicator.count }}</span>
+            {% else %}
+            <span style="color:#9ca3af">—</span>
+            {% endif %}
+          </td>
           <td style="font-size:0.78rem;color:#6b7280">{{ c.created_at[:16].replace('T',' ') if c.created_at else '—' }}</td>
           <td style="font-size:0.78rem;color:#6b7280">{{ c.updated_at[:16].replace('T',' ') if c.updated_at else '—' }}</td>
         </tr>
         {% else %}
         <tr>
-          <td colspan="8">
+          <td colspan="9">
             <div class="empty-state">No cases found. Run <code>python src/agent.py ingest</code> to load sample emails.</div>
           </td>
         </tr>

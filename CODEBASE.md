@@ -35,9 +35,10 @@ The Email Alert Triage Agent is a Python application that automates the triage o
 3. Extracts structured data fields (building, device, contractor, dates, hours)
 4. Checks for a duplicate case using a deterministic grouping key
 5. Creates a new case or updates an existing one in SQLite
-6. Generates a professional follow-up email using Claude AI and sends it to the demo recipient
-7. Schedules a follow-up deadline; if the case remains unresolved, sends escalating reminders
-8. Provides a web dashboard to view and manage all cases
+6. Records deterministic memory observations, related case links, and pattern candidates in SQLite
+7. Generates a professional follow-up email using Claude AI and sends it to the demo recipient
+8. Schedules a follow-up deadline; if the case remains unresolved, sends escalating reminders
+9. Provides a web dashboard to view and manage all cases, including Memory / Intelligence details
 
 The AI brain is **Claude Haiku**, invoked via the `claude` CLI in headless (`--print`) mode. Every AI call is a subprocess — there is no direct Anthropic SDK dependency.
 
@@ -56,15 +57,19 @@ AI Email Alert Agent/
 ├── data/
 │   ├── sample_emails.json      # 7 demo KPI alert emails
 │   ├── agent.db                # SQLite database (auto-created on first run)
+│   ├── test_runs/              # Scale harness reports, logs, and optional kept test DBs
 │   └── claude_cache.json       # On-disk prompt/response cache (auto-created)
 │
 └── src/
-    ├── agent.py                # CLI entry point (ingest / demo / run / reply)
+    ├── agent.py                # CLI entry point (ingest / demo / run / reply / memory tools / test-demo-scale)
     ├── config.py               # Environment variable loading
     ├── database.py             # SQLite schema + all query helpers
     ├── claude_client.py        # claude --print subprocess wrapper
     ├── classifier.py           # Email → case type classification
     ├── extractor.py            # Field extraction + email body generation
+    ├── demo_fixtures.py        # Deterministic synthetic KPI email, reply, and follow-up generation
+    ├── demo_scale_harness.py   # Safe large-scale harness, offline Claude shim, hard SMTP/IMAP blocking
+    ├── memory.py               # Deterministic entities, observations, patterns
     ├── case_manager.py         # Full pipeline orchestration
     ├── email_reader.py         # IMAP inbox polling
     ├── email_sender.py         # SMTP outbound with demo guardrails
@@ -75,7 +80,8 @@ AI Email Alert Agent/
         └── templates/
             ├── base.html       # Shared layout
             ├── cases.html      # Case list table
-            ├── case_detail.html # Case detail + event timeline
+            ├── case_detail.html # Case detail + memory + event timeline
+            ├── patterns.html   # Active memory / pattern overview
             ├── reviews.html    # Manual review queue
             └── events.html     # Global event feed
 ```
@@ -112,6 +118,8 @@ case_manager.process_email()
      │         ▼ new
      ├─► database.insert_case()        ← Create case record
      ├─► database.upsert_followup()    ← Schedule deadline
+     ├─► memory.record_case_observations()  ← Deterministic facts
+     ├─► memory.detect_patterns_for_case()  ← Recurrence rules + case links
      │
      ├─► extractor.generate_email_body()  ← Claude: write outbound email
      └─► email_sender.create_and_send()   ← SMTP → demo recipient
@@ -120,12 +128,25 @@ Background (every 5 min):
 followup.check_and_process_followups()
      │
      └─► For each overdue open case:
+             memory.record_no_response() → detect_patterns_for_case()
              generate_email_body() → create_draft() → escalate if 3+ attempts
 
 User action:
 agent.py reply → case_manager.process_reply()
      │
-     └─► Claude: analyze reply → update case_events → flag for manual review
+     └─► Claude: analyze reply → deterministic reply observations → update case_events → flag for manual review
+
+Scale harness action:
+agent.py test-demo-scale → demo_scale_harness.run_demo_scale_test()
+     │
+     ├─► demo_fixtures.generate_synthetic_dataset()  ← Generic KPI alerts, reply plans, follow-up targets
+     ├─► runtime config override                     ← Per-run DB + cache under data/test_runs/<timestamp>/
+     ├─► SMTP / IMAP hard block                      ← Monkeypatch smtplib + imaplib to fail immediately
+     ├─► optional offline Claude shim                ← Deterministic classification / extraction / reply analysis
+     ├─► case_manager.process_email()                ← Real inbound KPI pipeline
+     ├─► case_manager.process_reply()                ← Real reply handling
+     ├─► followup.check_and_process_followups()      ← Real follow-up logic on backdated deadlines
+     └─► Flask test_client() + report writers        ← UI smoke checks + JSON / Markdown output
 ```
 
 ---
@@ -192,7 +213,7 @@ def _execute_write(sql, params=()):
 
 SQLite is also configured with `PRAGMA journal_mode=WAL` (Write-Ahead Logging), which allows concurrent readers even while a write is in progress.
 
-### Schema — 7 tables
+### Schema — 12 tables
 
 **`emails`** — Every inbound KPI alert email received. Stores the raw body, HTML-stripped normalized text, sender/recipient addresses, and a `processed` flag. `INSERT OR IGNORE` on `message_id` prevents duplicate ingestion.
 
@@ -208,15 +229,29 @@ SQLite is also configured with `PRAGMA journal_mode=WAL` (Write-Ahead Logging), 
 
 **`manual_reviews`** — Cases flagged for human attention. Created when: classification confidence is low, prompt injection is detected, a reply suggests possible resolution, or a case has been follow-uped 3+ times without resolution.
 
+**`entities`** — Canonical memory entities. Normalized names are unique within an entity type (`building`, `device`, `contractor`, `mechanic`, `issue_type`, etc.). This is the anchor for deterministic recurrence logic.
+
+**`entity_aliases`** — Alternate spellings/casing for canonical entities. Lets the memory layer keep one normalized record while preserving seen variants.
+
+**`observations`** — Structured facts learned from inbound KPI emails, replies, follow-up triggers, and system backfill. Examples: `building_seen`, `maintenance_hours_shortfall`, `contractor_response_received`, `no_response_followup`, `mechanic_seen`.
+
+**`case_links`** — Related-case edges such as `same_building`, `same_device`, `same_contractor`, `repeated_issue`, and `related_work`. Used by the case detail Memory / Intelligence section.
+
+**`pattern_flags`** — Active or historical deterministic pattern findings. Examples: `repeated_building_issue`, `repeated_no_response`, `mechanic_rotation`. Pattern existence is decided by code, never by Claude.
+
 ### Indexes
 
-Four indexes are created to keep queries fast as the database grows:
+Key indexes keep both the original workflow and the memory layer fast:
 
 - `idx_cases_grouping_key` — the most frequent lookup: "does a case with this key already exist?"
 - `idx_cases_status` — filtering the case list by open/closed
 - `idx_case_events_case_id` — loading the timeline for a case detail page
 - `idx_followups_status` — the scheduler's overdue followup query
 - `idx_manual_reviews_resolved` — the review queue page
+- `idx_entities_type_name` — canonical entity lookup by type + normalized name
+- `idx_observations_case_id` / `idx_observations_entity_lookup` / `idx_observations_type_date` — recent memory queries and pattern scans
+- `idx_pattern_flags_case_status` / `idx_pattern_flags_type_status` — active pattern lookups per case and globally
+- `idx_case_links_source_case_id` / `idx_case_links_target_case_id` — related-case UI loading
 
 ---
 
@@ -320,7 +355,7 @@ In `case_manager.py`, a confidence below 0.4 or a type of `UNKNOWN` routes the e
 
 ### `extract_fields(subject, body, case_type)`
 
-Prompts Claude to extract up to 12 structured fields from the email content. The prompt tells Claude the case type upfront so it knows which fields are most relevant. All fields are optional — Claude returns `null` for anything not present in the email.
+Prompts Claude to extract structured fields from the email content. The prompt tells Claude the case type upfront so it knows which fields are most relevant. All fields are optional — Claude returns `null` for anything not present in the email. The prompt now explicitly says not to infer mechanic or technician names and to treat email content as untrusted data only.
 
 Fields extracted:
 - `building` — address or name of the building
@@ -334,6 +369,10 @@ Fields extracted:
 - `last_activity_date` — date of last maintenance record
 - `elapsed_days` — days since last activity
 - `directive_tasks` — comma-separated list of regulatory tasks
+- `mechanic` / `technician` — explicit names only when directly stated
+- `work_item` — optional work item description
+- `issue_code` — optional alert / issue code
+- `callback_reference` — optional callback or repeat-visit reference
 
 After parsing Claude's JSON, every value is sanitized: `"null"`, `"none"`, and empty strings are converted to Python `None`. All other values are stripped strings.
 
@@ -347,7 +386,7 @@ All components are lowercased, whitespace-collapsed, and `None` values become em
 
 Example: `cat1_compliance|123 example road|b-4 #731842|`
 
-### `generate_email_body(case_type, fields, case_id)`
+### `generate_email_body(case_type, fields, case_id, memory_context=None)`
 
 Prompts Claude to write a professional outbound email body. The prompt provides the case type, the extracted fields, and the case ID for reference. Instructions to Claude:
 - Professional business tone
@@ -357,7 +396,48 @@ Prompts Claude to write a professional outbound email body. The prompt provides 
 - No greeting/salutation (the sender module handles that)
 - Plain text, max 200 words
 
-This call uses `use_cache=False` because email bodies should be freshly generated for each case, not reused from cache.
+When a deterministic memory context includes a non-mechanic medium/high pattern, the prompt can include one precomputed neutral recurrence note. Claude is never asked to decide whether a pattern exists. This call uses `use_cache=False` because email bodies should be freshly generated for each case, not reused from cache.
+
+---
+
+## 8.5 Memory Layer — `memory.py`
+
+**Purpose:** The deterministic intelligence layer. It normalizes entities, stores observations, links related cases, detects recurring patterns, and prepares factual summaries for the UI and outbound email prompts.
+
+### Core functions
+
+**`normalize_text()`** — Lowercases, trims, collapses whitespace, removes punctuation noise, and preserves useful identifiers such as `#731842` or `B-4`.
+
+**`upsert_entity()`** — Canonicalizes buildings, devices, contractors, mechanics/technicians when available, issue types, and optional work items.
+
+**`add_observation()`** — Writes structured facts to `observations`, automatically linking to canonical entities when both `entity_type` and `entity_value` are present.
+
+**`record_case_observations()`** — Records case/email facts such as `building_seen`, `device_seen`, `contractor_seen`, `issue_seen`, and case-type-specific observations like `data_absence` or `major_work_overdue`.
+
+**`record_reply_observations()`** — Records deterministic reply facts such as `contractor_response_received`, explicit `mechanic_seen`, `completion_claimed`, `scheduled_date_provided`, and `manual_review_required`.
+
+**`record_no_response()`** — Records a `no_response_followup` observation when the scheduler triggers a missed-response reminder.
+
+**`detect_patterns_for_case()`** — Applies the Advanced Memory v1 rules and persists active pattern flags. This function also refreshes `case_links`.
+
+**`get_memory_context_for_case()`** — Returns active pattern flags, related-case counts, related cases, recent observations, mechanic observations when available, and an outbound-safe recurrence note.
+
+**`rebuild_memory_from_existing_cases()`** — Backfills memory from existing `cases`, `extracted_fields`, and relevant case events. Safe to run multiple times because observation inserts are fingerprinted to avoid severe duplication.
+
+### Pattern rules
+
+The v1 rule set is deterministic and database-backed:
+- `repeated_building_issue`
+- `repeated_device_issue`
+- `repeated_contractor_issue`
+- `repeated_no_response`
+- `repeated_data_absence`
+- `repeated_major_work_overdue`
+- `repeated_maintenance_shortfall`
+- `mechanic_recurrence`
+- `mechanic_rotation`
+
+Mechanic rules only run when explicit mechanic or technician data exists in emails, replies, or extracted fields. The code does not invent mechanic identities.
 
 ---
 
@@ -377,15 +457,17 @@ The main pipeline function. Called for every email that enters the system. Retur
 
 3. **Route low-confidence emails** — If `case_type == "UNKNOWN"` or `confidence < 0.4`, create a placeholder case with type UNKNOWN and insert a manual review record. Return `action="review_flagged"`.
 
-4. **Extract fields** — `extractor.extract_fields(subject, body, case_type)`. Returns the 12-field dict.
+4. **Extract fields** — `extractor.extract_fields(subject, body, case_type)`. Returns the structured field dict, now including optional mechanic / work-item fields when explicitly present.
 
 5. **Generate grouping key** — `extractor.generate_grouping_key(case_type, building, device, period)`.
 
 6. **Check for duplicate** — `database.get_case_by_grouping_key(grouping_key)`. If a case exists with this key, call `_update_existing_case()`. If not, call `_create_new_case()`.
 
-7. **Flag injection** — If `injection_detected`, insert a manual review record (even if the case was successfully created).
+7. **Memory update** — For created and updated cases, record observations, run deterministic pattern detection, log a `memory_updated` case event, and add high/review pattern findings to manual review.
 
-8. **Mark processed** — `database.mark_email_processed(email_id)`.
+8. **Flag injection** — If `injection_detected`, insert a manual review record (even if the case was successfully created).
+
+9. **Mark processed** — `database.mark_email_processed(email_id)`.
 
 ### `_create_new_case(case_id, case_type, grouping_key, email_id, fields, received_at)`
 
@@ -394,7 +476,8 @@ Called for genuinely new compliance scenarios. It:
 - Stores each extracted field as a separate row in `extracted_fields`
 - Logs a `case_created` event in `case_events`
 - Schedules a follow-up deadline 7 days out via `database.upsert_followup()`
-- Generates an outbound email body using Claude
+- Records initial memory observations and pattern flags
+- Generates an outbound email body using Claude, optionally with a deterministic recurrence note
 - Sends the email to the demo recipient via `email_sender.create_and_send()`
 
 Priority levels by case type:
@@ -404,7 +487,7 @@ Priority levels by case type:
 
 ### `_update_existing_case(case_id, email_id, fields, subject)`
 
-Called when a second alert arrives for a case that already exists. It logs an `email_received` event on the existing case and updates any case fields where the new email provides fresher values (building, device, contractor, due_date, period). No new case is created, no new email is sent — the case is already being tracked.
+Called when a second alert arrives for a case that already exists. It logs an `email_received` event on the existing case, updates any case fields where the new email provides fresher values (building, device, contractor, due_date, period), records new observations, and reruns deterministic pattern detection. No new case is created, no new outbound email is sent — the case is already being tracked.
 
 ### `process_reply(case_id, reply_text, verbose)`
 
@@ -415,7 +498,7 @@ Called by the `reply` CLI command. It sanitizes the reply text, asks Claude to a
 - `flag_for_review` — whether human review is warranted
 - `summary` — one-sentence summary
 
-If `satisfies_action` is true, the case is flagged for manual review. Cases are **never** auto-closed by this function — only a human can close a case (via CLI prompt or web UI).
+If `satisfies_action` is true, the case is flagged for manual review. Reply handling also records deterministic observations such as `contractor_response_received`, explicit mechanic mentions, completion claims, and schedule dates before rerunning pattern detection. Cases are **never** auto-closed by this function — only a human can close a case (via CLI prompt or web UI).
 
 ### Subject line generation
 
@@ -522,11 +605,12 @@ Called by the scheduler on every tick. It:
    - Skips if the case has since been closed (and closes the followup record)
    - Calls `database.increment_followup_count()` to track how many reminders have been sent
    - Logs a `followup_triggered` event
+   - Records a deterministic `no_response_followup` observation and reruns pattern detection
    - Reconstructs the case's field dict by merging `extracted_fields` rows with the case's own columns
-   - Calls `extractor.generate_email_body()` to write a fresh follow-up email (with a fallback plaintext body if Claude fails)
+   - Calls `extractor.generate_email_body()` to write a fresh follow-up email, including deterministic recurrence context when available (with a fallback plaintext body if Claude fails)
    - Calls `email_sender.create_draft()` to save the email — note: creates a draft, not a live send, to avoid spamming during development
 
-3. **Escalation:** If `follow_count >= 3` (the `_ESCALATION_THRESHOLD`), logs an `escalated` event and inserts a manual review record flagging the case for senior attention.
+3. **Escalation:** If `follow_count >= 3` (the `_ESCALATION_THRESHOLD`), logs an `escalated` event and inserts a manual review record flagging the case for senior attention. High/review memory patterns are also surfaced through the manual review queue.
 
 ### Follow-up subject format
 
@@ -550,13 +634,15 @@ Start it at `http://localhost:5000` by running `python3 src/agent.py run`.
 
 **`GET /cases`** — The main case list. Accepts an optional `?status=open` or `?status=closed` query parameter for filtering. Renders `cases.html` with a table of all matching cases.
 
-**`GET /cases/<case_id>`** — Case detail page. Loads the case record, its full event timeline (chronological), all outbound messages sent for this case, all extracted fields (with confidence scores), and the follow-up status. Renders `case_detail.html`.
+**`GET /cases/<case_id>`** — Case detail page. Loads the case record, its full event timeline (chronological), all outbound messages sent for this case, all extracted fields (with confidence scores), the follow-up status, and the deterministic Memory / Intelligence context. Renders `case_detail.html`.
 
 **`POST /cases/<case_id>/close`** — Manually closes a case. Updates `status="closed"`, closes the followup record, and logs a `case_closed` event. Redirects back to the case detail page with a flash message.
 
 **`POST /cases/<case_id>/resolve-review`** — Marks a specific manual review item as resolved. The `review_id` comes from a hidden form field on the case detail page.
 
-**`GET /reviews`** — The manual review queue. Shows all unresolved review records joined with their case details (case type, building, case status). Renders `reviews.html`.
+**`GET /reviews`** — The manual review queue. Shows all unresolved review records joined with their case details (case type, building, case status). This now includes high-severity or review-level memory findings when applicable. Renders `reviews.html`.
+
+**`GET /patterns`** — Global active pattern overview. Shows deterministic pattern flags across all cases. Renders `patterns.html`.
 
 **`GET /events`** — A global feed of the 100 most recent case events across all cases, joined with case type and building for context. Renders `events.html`.
 
@@ -570,7 +656,7 @@ Start it at `http://localhost:5000` by running `python3 src/agent.py run`.
 
 ## 14. CLI Entry Point — `agent.py`
 
-**Purpose:** The user-facing command-line interface. Parses arguments and dispatches to one of four commands.
+**Purpose:** The user-facing command-line interface. Parses arguments and dispatches to the demo, ingest, run, reply, memory reporting, and safe scale-harness workflows.
 
 ### Commands
 
@@ -601,11 +687,72 @@ The IMAP polling thread is a `daemon=True` thread, so it exits automatically whe
 
 Interactive reply handler. Looks up the case, prints its details, then prompts the user to paste reply content terminated by `---END---`. Calls `case_manager.process_reply()` and prints the analysis result. If the reply satisfies the action requirement, prompts the user to confirm whether to close the case or leave it open for review.
 
+**`python3 src/agent.py memory-rebuild`**
+
+Backfills Advanced Memory v1 from existing cases, extracted fields, and relevant case events, then reruns pattern detection for open cases.
+
+**`python3 src/agent.py patterns`**
+
+Prints active pattern flags grouped by severity and pattern type.
+
+**`python3 src/agent.py memory-report --case-id <UUID>`**
+
+Prints the stored memory context for one case as formatted JSON.
+
+**`python3 src/agent.py test-demo-scale --offline --emails 250`**
+
+Runs the safe large-scale synthetic harness. This command:
+
+1. Generates deterministic KPI alert emails from placeholder-only data
+2. Redirects the database and Claude cache into `data/test_runs/<timestamp>/`
+3. Forces `DEMO_MODE=true` and `DEMO_RECIPIENT_EMAIL=demo-recipient@example.test`
+4. Hard-blocks `smtplib.SMTP`, `smtplib.SMTP_SSL`, and `imaplib.IMAP4_SSL`
+5. Uses either the real Claude CLI or a deterministic offline shim
+6. Processes synthetic emails through the real `case_manager`, `email_sender`, `followup`, and Flask routes
+7. Writes `report.json`, `report.md`, and `harness.log`
+8. Retains `test_agent.db` by default for post-run inspection
+
+Use `--offline` for fast structural runs. Use `--require-ai` when you want the command to fail instead of falling back when Claude is unavailable.
+Use `--validate-memory-connections` to run the deterministic memory audit.
+Use `--include-mechanics` only when you want synthetic replies to carry explicit mechanic or technician names.
+
+The validation for this code update was run offline only. AI-enabled harness runs remain available for manual use later.
+
 ### Helper functions
 
 **`_load_sample_emails()`** — Reads and parses `data/sample_emails.json`. Exits with an error if the file is missing.
 
 **`_store_email(em)`** — Inserts a sample email dict into the database. Sanitizes the body via `claude_client.sanitize_email_content()` before storing the normalized version.
+
+### Harness support modules
+
+**`demo_fixtures.py`** builds the synthetic KPI dataset:
+- CAT1 / CAT5 reminders
+- Data absence alerts
+- Maintenance hours shortfalls
+- Major work overdue alerts
+- Government directives
+- Duplicate alerts
+- Repeated building/device/contractor patterns
+- Contractor replies, client replies, and prompt-injection attempts
+
+**`demo_scale_harness.py`** wraps the real application safely:
+- Runtime config override before schema initialization
+- Temporary SQLite DB under `data/test_runs/<timestamp>/test_agent.db`
+- SMTP / IMAP monkeypatching so live network calls fail immediately
+- Deterministic offline Claude replacement when `--offline` is set
+- Flexible deterministic extraction validation for free-text descriptions
+- Optional deterministic memory connection audit against entities, observations, links, and pattern flags
+- UI smoke tests and JSON / Markdown report generation
+
+Harness validation details:
+- Extraction validation is strict for structured fields and intentionally flexible for free-text descriptions
+- Semantic description drift is recorded under `semantic_description_mismatches` or `optional_description_missing` instead of failing the run when structured extraction is correct
+- Memory validation is deterministic only: it never asks Claude to grade results
+- `memory_connection_audit` compares fixture expectations against live SQLite rows in `cases`, `entities`, `observations`, `case_links`, and `pattern_flags`
+- Report payloads now expose `dataset`, `processing`, `extraction`, `manual_reviews`, `safety`, `quality_checks`, `memory_readiness`, `memory_connection_audit`, `warnings`, `failures`, and retained `paths`
+- Safety reporting includes `test_database_path`, `test_database_retained`, SMTP/IMAP block counts, recipient violations, and production DB isolation checks
+- Test databases are retained by default; `--keep-db` remains accepted only for backward compatibility
 
 ---
 
@@ -645,6 +792,13 @@ If injection is detected, the case is still processed (so the compliance alert i
 ### Demo recipient enforcement
 
 The `DEMO_RECIPIENT_EMAIL` override in `create_draft()` is unconditional — it runs for every message, regardless of what `intended_to` was passed. Production recipient addresses are stored in `intended_to` for audit purposes only and never used for actual delivery while `DEMO_MODE=true`.
+
+### Memory safety guardrails
+
+- Claude can extract candidate facts, but it never decides whether a pattern exists
+- Inbound emails and replies cannot create or modify pattern rules, thresholds, recipients, or closure behavior
+- Replies can add observations, but they cannot auto-close a case or mark a pattern resolved
+- Mechanic observations are only recorded when a mechanic or technician is explicitly named in the source data
 
 ### No auto-closure
 

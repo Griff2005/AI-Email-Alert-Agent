@@ -16,11 +16,47 @@ from apscheduler.schedulers.background import BackgroundScheduler
 
 import database as db
 import email_sender
+import memory
 from config import config
 from extractor import generate_email_body
 
 # After this many unanswered follow-ups, the case is flagged for senior manual review.
 _ESCALATION_THRESHOLD = 3
+
+
+def _ensure_manual_review(case_id: str, reason: str) -> None:
+    """Insert a manual review item once for a specific case/reason pair."""
+    if db.has_open_manual_review(case_id, reason):
+        return
+    db.insert_manual_review(
+        review_id=str(uuid.uuid4()),
+        case_id=case_id,
+        email_id=None,
+        reason=reason,
+    )
+
+
+def _record_memory_event(case_id: str, pattern_flags: list) -> None:
+    """Log scheduler-triggered memory updates and surface high-severity patterns."""
+    changed_flags = [flag for flag in pattern_flags if flag.get("created") or flag.get("updated")]
+    if changed_flags:
+        description = "Memory updated after follow-up. Pattern flags: " + ", ".join(
+            f"{flag['pattern_type']} ({flag['severity']})" for flag in changed_flags
+        )
+    else:
+        description = "Memory updated after follow-up. No new pattern flags detected."
+    db.insert_case_event(
+        event_id=str(uuid.uuid4()),
+        case_id=case_id,
+        event_type="memory_updated",
+        description=description,
+    )
+    for flag in changed_flags:
+        if flag["severity"] in ("high", "review"):
+            _ensure_manual_review(
+                case_id=case_id,
+                reason=f"Pattern review: {flag['summary']} (severity: {flag['severity']}).",
+            )
 
 
 def _build_followup_subject(case: dict, follow_count: int) -> str:
@@ -81,18 +117,24 @@ def check_and_process_followups() -> None:
             description=f"Follow-up #{new_count} triggered. Deadline was {row['deadline']}.",
         )
 
+        memory.record_no_response(case_id)
+        pattern_flags = memory.detect_patterns_for_case(case_id)
+        _record_memory_event(case_id, pattern_flags)
+
         # Generate follow-up email body
         fields = {f["field_name"]: f["field_value"] for f in db.get_fields_for_case(case_id)}
         case_dict = dict(case)
         for k in ("building", "device", "contractor", "due_date", "period"):
             if case_dict.get(k):
                 fields[k] = case_dict[k]
+        memory_context = memory.get_memory_context_for_case(case_id)
 
         try:
             email_body = generate_email_body(
                 case_type=case_dict["case_type"],
                 fields=fields,
                 case_id=case_id,
+                memory_context=memory_context,
             )
         except Exception as exc:
             print(f"[FOLLOWUP] Failed to generate email body for case {case_id}: {exc}")

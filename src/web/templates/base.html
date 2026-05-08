@@ -106,9 +106,14 @@
     .badge-high     { background: #fef3c7; color: #92400e; }
     .badge-medium   { background: #e0e7ff; color: #3730a3; }
     .badge-low      { background: #f3f4f6; color: #374151; }
+    .badge-info     { background: #dbeafe; color: #1d4ed8; }
+    .badge-review   { background: #fee2e2; color: #991b1b; }
     .badge-draft    { background: #fef3c7; color: #92400e; }
     .badge-sent     { background: #d1fae5; color: #065f46; }
     .badge-sent_dry_run { background: #e0e7ff; color: #3730a3; }
+    .badge-active   { background: #dbeafe; color: #1d4ed8; }
+    .badge-resolved { background: #d1fae5; color: #065f46; }
+    .badge-dismissed { background: #f3f4f6; color: #374151; }
 
     /* ---- Priority color strip on table rows ---- */
     .pri-critical td:first-child { border-left: 3px solid #ef4444; }
@@ -238,6 +243,56 @@
       overflow-y: auto;
       color: #374151;
     }
+
+    .subtle-list {
+      display: grid;
+      gap: 10px;
+    }
+    .subtle-item {
+      background: #fbfcfe;
+      border: 1px solid #e5e7eb;
+      border-radius: 8px;
+      padding: 12px 14px;
+    }
+    .subtle-item .title {
+      font-size: 0.82rem;
+      font-weight: 700;
+      color: #1f2937;
+      margin-bottom: 4px;
+    }
+    .subtle-item .body {
+      font-size: 0.85rem;
+      color: #374151;
+    }
+    .subtle-item .meta {
+      font-size: 0.75rem;
+      color: #6b7280;
+      margin-top: 4px;
+    }
+
+    .pill-row {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      margin-bottom: 12px;
+    }
+
+    .section-note {
+      font-size: 0.84rem;
+      color: #6b7280;
+      margin-bottom: 14px;
+    }
+
+    .split-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      gap: 16px;
+    }
+
+    .mini-table td, .mini-table th {
+      padding: 8px 10px;
+      font-size: 0.8rem;
+    }
   </style>
 </head>
 <body>
@@ -245,6 +300,7 @@
     <span class="brand">Solucore <span>/ Alert Triage</span></span>
     <a href="/cases" {% if request.path.startswith('/cases') %}class="active"{% endif %}>Cases</a>
     <a href="/reviews" {% if request.path == '/reviews' %}class="active"{% endif %}>Reviews</a>
+    <a href="/patterns" {% if request.path == '/patterns' %}class="active"{% endif %}>Patterns</a>
     <a href="/events" {% if request.path == '/events' %}class="active"{% endif %}>Events</a>
     <span class="demo-badge">DEMO</span>
   </nav>

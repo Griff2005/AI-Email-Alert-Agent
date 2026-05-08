@@ -110,6 +110,107 @@
 </div>
 {% endif %}
 
+<!-- Memory / Intelligence -->
+<div class="card">
+  <h2>Memory / Intelligence</h2>
+  <div class="section-note">{{ memory_summary }}</div>
+
+  {% if memory_context.active_pattern_flags %}
+  <div style="margin-bottom:16px">
+    <div class="pill-row">
+      {% for flag in memory_context.active_pattern_flags %}
+      <span class="badge badge-{{ flag.severity }}">{{ flag.pattern_type.replace('_', ' ') }}</span>
+      {% endfor %}
+    </div>
+    <div class="subtle-list">
+      {% for flag in memory_context.active_pattern_flags %}
+      <div class="subtle-item">
+        <div class="title">{{ flag.pattern_type.replace('_', ' ').title() }}</div>
+        <div class="body">{{ flag.summary }}</div>
+        <div class="meta">
+          Severity: <span class="badge badge-{{ flag.severity }}">{{ flag.severity }}</span>
+          &nbsp;|&nbsp; Created: {{ flag.created_at[:16].replace('T', ' ') if flag.created_at else '—' }}
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+  {% else %}
+  <div class="empty-state" style="padding:24px 12px">No recurring pattern detected.</div>
+  {% endif %}
+
+  <div class="split-grid">
+    <div>
+      <h2 style="font-size:1rem;margin-bottom:10px">Related Cases</h2>
+      {% if memory_context.related_cases %}
+      <div class="subtle-list">
+        {% for related in memory_context.related_cases %}
+        <div class="subtle-item">
+          <div class="title">
+            <a href="/cases/{{ related.case_id }}">Case {{ related.case_id[:8] }}…</a>
+          </div>
+          <div class="body">
+            {{ related.case_type.replace('_', ' ').title() }}
+            {% if related.building %} · {{ related.building }}{% endif %}
+            {% if related.device %} · {{ related.device }}{% endif %}
+          </div>
+          <div class="meta">
+            Link: {{ related.link_type.replace('_', ' ') }}
+            {% if related.reason %} &nbsp;|&nbsp; {{ related.reason }}{% endif %}
+          </div>
+        </div>
+        {% endfor %}
+      </div>
+      {% else %}
+      <div class="empty-state" style="padding:24px 12px">No related cases linked yet.</div>
+      {% endif %}
+    </div>
+
+    <div>
+      <h2 style="font-size:1rem;margin-bottom:10px">Recent Observations</h2>
+      {% if memory_context.recent_observations %}
+      <div class="subtle-list">
+        {% for obs in memory_context.recent_observations %}
+        <div class="subtle-item">
+          <div class="title">{{ obs.observation_type.replace('_', ' ').title() }}</div>
+          <div class="body">
+            {{ obs.entity_value or obs.value_text or 'Recorded observation.' }}
+          </div>
+          <div class="meta">
+            {{ obs.source or 'system' }}
+            {% if obs.observed_at %} &nbsp;|&nbsp; {{ obs.observed_at[:16].replace('T', ' ') }}{% endif %}
+          </div>
+        </div>
+        {% endfor %}
+      </div>
+      {% else %}
+      <div class="empty-state" style="padding:24px 12px">No observations recorded.</div>
+      {% endif %}
+    </div>
+  </div>
+
+  {% if memory_context.mechanic_observations %}
+  <div style="margin-top:18px">
+    <h2 style="font-size:1rem;margin-bottom:10px">Mechanic / Technician Notes</h2>
+    <div class="section-note">Shown only when an explicit mechanic or technician reference appears in email or reply data.</div>
+    <div class="subtle-list">
+      {% for obs in memory_context.mechanic_observations %}
+      <div class="subtle-item">
+        <div class="title">{{ obs.entity_value or 'Mechanic reference' }}</div>
+        <div class="body">
+          {% if obs.device %}Device: {{ obs.device }}{% else %}Explicit mechanic or technician reference captured.{% endif %}
+        </div>
+        <div class="meta">
+          {{ obs.source or 'system' }}
+          {% if obs.observed_at %} &nbsp;|&nbsp; {{ obs.observed_at[:16].replace('T', ' ') }}{% endif %}
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+  {% endif %}
+</div>
+
 <!-- Outbound Messages -->
 {% if messages %}
 <div class="card">

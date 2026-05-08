@@ -173,11 +173,92 @@ def init_schema() -> None:
                 FOREIGN KEY (case_id) REFERENCES cases(case_id)
             );
 
+            CREATE TABLE IF NOT EXISTS entities (
+                id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                entity_type     TEXT NOT NULL,
+                canonical_name  TEXT NOT NULL,
+                normalized_name TEXT NOT NULL,
+                metadata_json   TEXT,
+                first_seen      TEXT,
+                last_seen       TEXT,
+                created_at      TEXT DEFAULT CURRENT_TIMESTAMP,
+                updated_at      TEXT DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(entity_type, normalized_name)
+            );
+
+            CREATE TABLE IF NOT EXISTS entity_aliases (
+                id               INTEGER PRIMARY KEY AUTOINCREMENT,
+                entity_id        INTEGER NOT NULL,
+                alias            TEXT NOT NULL,
+                normalized_alias TEXT NOT NULL,
+                source           TEXT,
+                confidence       REAL DEFAULT 1.0,
+                first_seen       TEXT,
+                last_seen        TEXT,
+                created_at       TEXT DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(entity_id, normalized_alias),
+                FOREIGN KEY (entity_id) REFERENCES entities(id)
+            );
+
+            CREATE TABLE IF NOT EXISTS observations (
+                id               INTEGER PRIMARY KEY AUTOINCREMENT,
+                case_id          TEXT,
+                email_id         TEXT,
+                entity_id        INTEGER,
+                observation_type TEXT NOT NULL,
+                entity_type      TEXT,
+                entity_value     TEXT,
+                value_text       TEXT,
+                value_json       TEXT,
+                observed_at      TEXT,
+                source           TEXT,
+                confidence       REAL DEFAULT 1.0,
+                created_at       TEXT DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (case_id) REFERENCES cases(case_id),
+                FOREIGN KEY (email_id) REFERENCES emails(email_id),
+                FOREIGN KEY (entity_id) REFERENCES entities(id)
+            );
+
+            CREATE TABLE IF NOT EXISTS case_links (
+                id             INTEGER PRIMARY KEY AUTOINCREMENT,
+                source_case_id TEXT NOT NULL,
+                target_case_id TEXT NOT NULL,
+                link_type      TEXT NOT NULL,
+                reason         TEXT,
+                confidence     REAL DEFAULT 1.0,
+                created_at     TEXT DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(source_case_id, target_case_id, link_type),
+                FOREIGN KEY (source_case_id) REFERENCES cases(case_id),
+                FOREIGN KEY (target_case_id) REFERENCES cases(case_id)
+            );
+
+            CREATE TABLE IF NOT EXISTS pattern_flags (
+                id            INTEGER PRIMARY KEY AUTOINCREMENT,
+                case_id       TEXT,
+                pattern_type  TEXT NOT NULL,
+                severity      TEXT NOT NULL,
+                summary       TEXT NOT NULL,
+                evidence_json TEXT,
+                status        TEXT DEFAULT 'active',
+                created_at    TEXT DEFAULT CURRENT_TIMESTAMP,
+                updated_at    TEXT DEFAULT CURRENT_TIMESTAMP,
+                resolved_at   TEXT,
+                FOREIGN KEY (case_id) REFERENCES cases(case_id)
+            );
+
             CREATE INDEX IF NOT EXISTS idx_cases_grouping_key ON cases(grouping_key);
             CREATE INDEX IF NOT EXISTS idx_cases_status ON cases(status);
             CREATE INDEX IF NOT EXISTS idx_case_events_case_id ON case_events(case_id);
             CREATE INDEX IF NOT EXISTS idx_followups_status ON followups(status);
             CREATE INDEX IF NOT EXISTS idx_manual_reviews_resolved ON manual_reviews(resolved);
+            CREATE INDEX IF NOT EXISTS idx_entities_type_name ON entities(entity_type, normalized_name);
+            CREATE INDEX IF NOT EXISTS idx_observations_case_id ON observations(case_id);
+            CREATE INDEX IF NOT EXISTS idx_observations_entity_lookup ON observations(entity_type, entity_value);
+            CREATE INDEX IF NOT EXISTS idx_observations_type_date ON observations(observation_type, observed_at);
+            CREATE INDEX IF NOT EXISTS idx_pattern_flags_case_status ON pattern_flags(case_id, status);
+            CREATE INDEX IF NOT EXISTS idx_pattern_flags_type_status ON pattern_flags(pattern_type, status);
+            CREATE INDEX IF NOT EXISTS idx_case_links_source_case_id ON case_links(source_case_id);
+            CREATE INDEX IF NOT EXISTS idx_case_links_target_case_id ON case_links(target_case_id);
         """)
         conn.commit()
     print("[DB] Schema initialized.")
@@ -743,6 +824,23 @@ def get_open_manual_reviews() -> List[sqlite3.Row]:
     ).fetchall()
 
 
+def has_open_manual_review(case_id: str, reason: str) -> bool:
+    """Return True when an unresolved manual review already exists for the case/reason pair."""
+    conn = get_connection()
+    row = conn.execute(
+        """
+        SELECT 1
+        FROM manual_reviews
+        WHERE case_id = ?
+          AND reason = ?
+          AND resolved = 0
+        LIMIT 1
+        """,
+        (case_id, reason),
+    ).fetchone()
+    return row is not None
+
+
 def resolve_manual_review(review_id: str) -> None:
     """Mark a manual review item as resolved.
 
@@ -753,3 +851,485 @@ def resolve_manual_review(review_id: str) -> None:
         "UPDATE manual_reviews SET resolved = 1 WHERE review_id = ?",
         (review_id,),
     )
+
+
+# ---------------------------------------------------------------------------
+# memory tables
+# ---------------------------------------------------------------------------
+
+def upsert_entity_record(
+    entity_type: str,
+    canonical_name: str,
+    normalized_name: str,
+    metadata_json: Optional[str] = None,
+    seen_at: Optional[str] = None,
+) -> int:
+    """Insert or update a canonical entity record and return its integer ID."""
+    now = datetime.utcnow().isoformat()
+    seen_at = seen_at or now
+    with _write_lock:
+        conn = get_connection()
+        row = conn.execute(
+            """
+            SELECT *
+            FROM entities
+            WHERE entity_type = ? AND normalized_name = ?
+            """,
+            (entity_type, normalized_name),
+        ).fetchone()
+        if row:
+            conn.execute(
+                """
+                UPDATE entities
+                SET canonical_name = ?,
+                    metadata_json = COALESCE(?, metadata_json),
+                    last_seen = ?,
+                    updated_at = ?
+                WHERE id = ?
+                """,
+                (canonical_name, metadata_json, seen_at, now, row["id"]),
+            )
+            conn.commit()
+            return int(row["id"])
+
+        cursor = conn.execute(
+            """
+            INSERT INTO entities
+                (entity_type, canonical_name, normalized_name, metadata_json,
+                 first_seen, last_seen, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (entity_type, canonical_name, normalized_name, metadata_json, seen_at, seen_at, now, now),
+        )
+        conn.commit()
+        return int(cursor.lastrowid)
+
+
+def get_entity_by_normalized_name(entity_type: str, normalized_name: str) -> Optional[sqlite3.Row]:
+    """Return a canonical entity by type and normalized name."""
+    conn = get_connection()
+    return conn.execute(
+        """
+        SELECT *
+        FROM entities
+        WHERE entity_type = ? AND normalized_name = ?
+        """,
+        (entity_type, normalized_name),
+    ).fetchone()
+
+
+def upsert_entity_alias_record(
+    entity_id: int,
+    alias: str,
+    normalized_alias: str,
+    source: Optional[str] = None,
+    confidence: float = 1.0,
+    seen_at: Optional[str] = None,
+) -> int:
+    """Insert or refresh an alternate name for a canonical entity."""
+    now = datetime.utcnow().isoformat()
+    seen_at = seen_at or now
+    with _write_lock:
+        conn = get_connection()
+        row = conn.execute(
+            """
+            SELECT *
+            FROM entity_aliases
+            WHERE entity_id = ? AND normalized_alias = ?
+            """,
+            (entity_id, normalized_alias),
+        ).fetchone()
+        if row:
+            conn.execute(
+                """
+                UPDATE entity_aliases
+                SET alias = ?,
+                    source = COALESCE(?, source),
+                    confidence = ?,
+                    last_seen = ?
+                WHERE id = ?
+                """,
+                (alias, source, confidence, seen_at, row["id"]),
+            )
+            conn.commit()
+            return int(row["id"])
+
+        cursor = conn.execute(
+            """
+            INSERT INTO entity_aliases
+                (entity_id, alias, normalized_alias, source, confidence,
+                 first_seen, last_seen, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (entity_id, alias, normalized_alias, source, confidence, seen_at, seen_at, now),
+        )
+        conn.commit()
+        return int(cursor.lastrowid)
+
+
+def find_matching_observation(
+    case_id: Optional[str],
+    email_id: Optional[str],
+    entity_id: Optional[int],
+    observation_type: str,
+    entity_type: Optional[str],
+    entity_value: Optional[str],
+    value_text: Optional[str],
+    value_json: Optional[str],
+    observed_at: Optional[str],
+    source: Optional[str],
+) -> Optional[sqlite3.Row]:
+    """Return an existing observation row that matches the supplied fingerprint."""
+    conn = get_connection()
+    return conn.execute(
+        """
+        SELECT *
+        FROM observations
+        WHERE COALESCE(case_id, '') = COALESCE(?, '')
+          AND COALESCE(email_id, '') = COALESCE(?, '')
+          AND COALESCE(entity_id, -1) = COALESCE(?, -1)
+          AND observation_type = ?
+          AND COALESCE(entity_type, '') = COALESCE(?, '')
+          AND COALESCE(entity_value, '') = COALESCE(?, '')
+          AND COALESCE(value_text, '') = COALESCE(?, '')
+          AND COALESCE(value_json, '') = COALESCE(?, '')
+          AND COALESCE(observed_at, '') = COALESCE(?, '')
+          AND COALESCE(source, '') = COALESCE(?, '')
+        LIMIT 1
+        """,
+        (
+            case_id,
+            email_id,
+            entity_id,
+            observation_type,
+            entity_type,
+            entity_value,
+            value_text,
+            value_json,
+            observed_at,
+            source,
+        ),
+    ).fetchone()
+
+
+def insert_observation_record(
+    case_id: Optional[str],
+    email_id: Optional[str],
+    entity_id: Optional[int],
+    observation_type: str,
+    entity_type: Optional[str],
+    entity_value: Optional[str],
+    value_text: Optional[str],
+    value_json: Optional[str],
+    observed_at: Optional[str],
+    source: str,
+    confidence: float = 1.0,
+) -> int:
+    """Insert an observation row if it does not already exist and return its ID."""
+    existing = find_matching_observation(
+        case_id=case_id,
+        email_id=email_id,
+        entity_id=entity_id,
+        observation_type=observation_type,
+        entity_type=entity_type,
+        entity_value=entity_value,
+        value_text=value_text,
+        value_json=value_json,
+        observed_at=observed_at,
+        source=source,
+    )
+    if existing:
+        return int(existing["id"])
+
+    cursor = _execute_write(
+        """
+        INSERT INTO observations
+            (case_id, email_id, entity_id, observation_type, entity_type,
+             entity_value, value_text, value_json, observed_at, source, confidence)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            case_id,
+            email_id,
+            entity_id,
+            observation_type,
+            entity_type,
+            entity_value,
+            value_text,
+            value_json,
+            observed_at,
+            source,
+            confidence,
+        ),
+    )
+    return int(cursor.lastrowid)
+
+
+def get_observations_for_case(case_id: str, limit: Optional[int] = None) -> List[sqlite3.Row]:
+    """Return recent observations for a case, newest first."""
+    conn = get_connection()
+    sql = """
+        SELECT *
+        FROM observations
+        WHERE case_id = ?
+        ORDER BY COALESCE(observed_at, created_at) DESC, id DESC
+    """
+    params: tuple = (case_id,)
+    if limit is not None:
+        sql += " LIMIT ?"
+        params = (case_id, limit)
+    return conn.execute(sql, params).fetchall()
+
+
+def insert_case_link_record(
+    source_case_id: str,
+    target_case_id: str,
+    link_type: str,
+    reason: Optional[str] = None,
+    confidence: float = 1.0,
+) -> None:
+    """Insert a case-to-case relationship if it has not already been recorded."""
+    _execute_write(
+        """
+        INSERT OR IGNORE INTO case_links
+            (source_case_id, target_case_id, link_type, reason, confidence)
+        VALUES (?, ?, ?, ?, ?)
+        """,
+        (source_case_id, target_case_id, link_type, reason, confidence),
+    )
+
+
+def get_related_cases_for_case(case_id: str, limit: int = 10) -> List[sqlite3.Row]:
+    """Return related cases linked to the given case from either direction."""
+    conn = get_connection()
+    return conn.execute(
+        """
+        SELECT *
+        FROM (
+            SELECT
+                cl.link_type,
+                cl.reason,
+                cl.confidence,
+                cl.created_at AS linked_at,
+                c.case_id,
+                c.case_type,
+                c.status,
+                c.priority,
+                c.building,
+                c.device,
+                c.contractor,
+                c.created_at,
+                c.updated_at
+            FROM case_links cl
+            JOIN cases c ON c.case_id = cl.target_case_id
+            WHERE cl.source_case_id = ?
+
+            UNION ALL
+
+            SELECT
+                cl.link_type,
+                cl.reason,
+                cl.confidence,
+                cl.created_at AS linked_at,
+                c.case_id,
+                c.case_type,
+                c.status,
+                c.priority,
+                c.building,
+                c.device,
+                c.contractor,
+                c.created_at,
+                c.updated_at
+            FROM case_links cl
+            JOIN cases c ON c.case_id = cl.source_case_id
+            WHERE cl.target_case_id = ?
+        )
+        ORDER BY linked_at DESC, updated_at DESC
+        LIMIT ?
+        """,
+        (case_id, case_id, limit),
+    ).fetchall()
+
+
+def get_active_pattern_flags_for_case(case_id: str) -> List[sqlite3.Row]:
+    """Return active pattern flags for a specific case ordered by severity/date."""
+    conn = get_connection()
+    return conn.execute(
+        """
+        SELECT *
+        FROM pattern_flags
+        WHERE case_id = ? AND status = 'active'
+        ORDER BY
+            CASE severity
+                WHEN 'review' THEN 4
+                WHEN 'high' THEN 3
+                WHEN 'medium' THEN 2
+                ELSE 1
+            END DESC,
+            created_at DESC
+        """,
+        (case_id,),
+    ).fetchall()
+
+
+def get_active_pattern_flags(limit: Optional[int] = None) -> List[sqlite3.Row]:
+    """Return active pattern flags across all cases ordered by severity/date."""
+    conn = get_connection()
+    sql = """
+        SELECT pf.*, c.case_type, c.building, c.device
+        FROM pattern_flags pf
+        LEFT JOIN cases c ON c.case_id = pf.case_id
+        WHERE pf.status = 'active'
+        ORDER BY
+            CASE pf.severity
+                WHEN 'review' THEN 4
+                WHEN 'high' THEN 3
+                WHEN 'medium' THEN 2
+                ELSE 1
+            END DESC,
+            pf.created_at DESC
+    """
+    params: tuple = ()
+    if limit is not None:
+        sql += " LIMIT ?"
+        params = (limit,)
+    return conn.execute(sql, params).fetchall()
+
+
+def upsert_pattern_flag_record(
+    case_id: Optional[str],
+    pattern_type: str,
+    severity: str,
+    summary: str,
+    evidence_json: Optional[str],
+    status: str = "active",
+) -> Dict[str, Any]:
+    """Insert or refresh a pattern flag and report whether it was created or updated."""
+    now = datetime.utcnow().isoformat()
+    with _write_lock:
+        conn = get_connection()
+        if case_id is None:
+            row = conn.execute(
+                """
+                SELECT *
+                FROM pattern_flags
+                WHERE case_id IS NULL AND pattern_type = ? AND status = 'active'
+                ORDER BY id DESC
+                LIMIT 1
+                """,
+                (pattern_type,),
+            ).fetchone()
+        else:
+            row = conn.execute(
+                """
+                SELECT *
+                FROM pattern_flags
+                WHERE case_id = ? AND pattern_type = ? AND status = 'active'
+                ORDER BY id DESC
+                LIMIT 1
+                """,
+                (case_id, pattern_type),
+            ).fetchone()
+
+        if row:
+            changed = any(
+                row[key] != value
+                for key, value in {
+                    "severity": severity,
+                    "summary": summary,
+                    "evidence_json": evidence_json,
+                    "status": status,
+                }.items()
+            )
+            if changed:
+                conn.execute(
+                    """
+                    UPDATE pattern_flags
+                    SET severity = ?,
+                        summary = ?,
+                        evidence_json = ?,
+                        status = ?,
+                        updated_at = ?,
+                        resolved_at = CASE WHEN ? = 'resolved' THEN ? ELSE resolved_at END
+                    WHERE id = ?
+                    """,
+                    (
+                        severity,
+                        summary,
+                        evidence_json,
+                        status,
+                        now,
+                        status,
+                        now,
+                        row["id"],
+                    ),
+                )
+                conn.commit()
+            return {
+                "id": int(row["id"]),
+                "case_id": case_id,
+                "pattern_type": pattern_type,
+                "severity": severity,
+                "summary": summary,
+                "evidence_json": evidence_json,
+                "status": status,
+                "created": False,
+                "updated": changed,
+            }
+
+        cursor = conn.execute(
+            """
+            INSERT INTO pattern_flags
+                (case_id, pattern_type, severity, summary, evidence_json,
+                 status, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (case_id, pattern_type, severity, summary, evidence_json, status, now, now),
+        )
+        conn.commit()
+        return {
+            "id": int(cursor.lastrowid),
+            "case_id": case_id,
+            "pattern_type": pattern_type,
+            "severity": severity,
+            "summary": summary,
+            "evidence_json": evidence_json,
+            "status": status,
+            "created": True,
+            "updated": False,
+        }
+
+
+def resolve_missing_pattern_flags(case_id: str, active_pattern_types: List[str]) -> int:
+    """Resolve active pattern flags for a case that were not present in the latest run."""
+    now = datetime.utcnow().isoformat()
+    with _write_lock:
+        conn = get_connection()
+        if active_pattern_types:
+            placeholders = ", ".join("?" for _ in active_pattern_types)
+            cursor = conn.execute(
+                f"""
+                UPDATE pattern_flags
+                SET status = 'resolved',
+                    resolved_at = ?,
+                    updated_at = ?
+                WHERE case_id = ?
+                  AND status = 'active'
+                  AND pattern_type NOT IN ({placeholders})
+                """,
+                (now, now, case_id, *active_pattern_types),
+            )
+        else:
+            cursor = conn.execute(
+                """
+                UPDATE pattern_flags
+                SET status = 'resolved',
+                    resolved_at = ?,
+                    updated_at = ?
+                WHERE case_id = ?
+                  AND status = 'active'
+                """,
+                (now, now, case_id),
+            )
+        conn.commit()
+        return int(cursor.rowcount)

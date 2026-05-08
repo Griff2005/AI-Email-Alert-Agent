@@ -1,0 +1,91 @@
+{
+  "overall_result": "PASS WITH WARNINGS",
+  "mode": {
+    "requested_offline": true,
+    "requested_require_ai": false,
+    "used_offline_shim": true,
+    "used_ai": false,
+    "ai_probe_successful": false,
+    "ai_dependent_checks_skipped": false
+  },
+  "dataset": {
+    "seed_used": 42,
+    "emails_generated": 100,
+    "replies_generated": 9,
+    "clients": 8,
+    "buildings": 25,
+    "devices": 100,
+    "contractors": 5,
+    "case_type_distribution": {
+      "CAT1_COMPLIANCE": 12,
+      "CAT5_COMPLIANCE": 13,
+      "DATA_ABSENCE": 16,
+      "GOVERNMENT_DIRECTIVE": 16,
+      "MAINTENANCE_HOURS_SHORTFALL": 24,
+      "MAJOR_WORK_OVERDUE": 19
+    },
+    "scenario_tag_distribution": {
+      "data_gap": 16,
+      "distinct_similar_case": 6,
+      "duplicate_alert": 50,
+      "manual_review_expected": 1,
+      "normal_new_case": 93,
+      "overdue": 35,
+      "prompt_injection_attempt": 1,
+      "recurring_building_issue": 24,
+      "recurring_device_issue": 11,
+      "repeated_contractor_issue": 16
+    }
+  },
+  "processing": {
+    "emails_processed": 100,
+    "cases_created": 49,
+    "existing_cases_updated": 51,
+    "duplicate_alerts_grouped": 50,
+    "outbound_drafts_or_fake_sends_created": 73,
+    "replies_processed": 9,
+    "followups_triggered": 24,
+    "manual_reviews_created": 112,
+    "prompt_injection_items_flagged": 2,
+    "unique_case_keys": 49,
+    "followup_cases_touched": 8
+  },
+  "safety": {
+    "real_smtp_calls_attempted": 0,
+    "real_imap_calls_attempted": 0,
+    "actual_recipient_violations": 0,
+    "disallowed_domain_violations": 0,
+    "intended_recipient_rewrites": 49,
+    "production_database_used": false,
+    "safe_demo_recipient": "demo-recipient@example.test"
+  },
+  "quality_checks": {
+    "classification": "PASS",
+    "extraction": "PASS",
+    "grouping": "PASS",
+    "reply_handling": "PASS",
+    "followup_handling": "PASS",
+    "prompt_injection_handling": "PASS",
+    "flask_ui_smoke": "PASS"
+  },
+  "memory_readiness": {
+    "status": "Advanced memory detected.",
+    "pattern_flags_created": 99,
+    "repeated_building_flags": 8,
+    "repeated_device_flags": 9,
+    "repeated_contractor_flags": 43,
+    "repeated_no_response_flags": 8,
+    "mechanic_related_flags": 0
+  },
+  "warnings": [
+    "Rewrote 49 non-test intended recipient values to safe placeholder domains."
+  ],
+  "failures": [],
+  "paths": {
+    "run_dir": "/Users/griffinrobinson/evolve.solucore.com/AI Email Alert Agent/data/test_runs/20260507T204501Z",
+    "database": "/Users/griffinrobinson/evolve.solucore.com/AI Email Alert Agent/data/test_runs/20260507T204501Z/test_agent.db",
+    "harness_log": "/Users/griffinrobinson/evolve.solucore.com/AI Email Alert Agent/data/test_runs/20260507T204501Z/harness.log",
+    "report_json": "/Users/griffinrobinson/evolve.solucore.com/AI Email Alert Agent/data/test_runs/20260507T204501Z/report.json",
+    "report_markdown": "/Users/griffinrobinson/evolve.solucore.com/AI Email Alert Agent/data/test_runs/20260507T204501Z/report.md"
+  }
+}

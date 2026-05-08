@@ -6,6 +6,7 @@ Usage:
   python src/agent.py run            Start IMAP polling + scheduler + Flask web server
   python src/agent.py reply --case-id CASE_ID   Interactive reply handler
   python src/agent.py demo           Run all sample emails and display results
+  python src/agent.py test-demo-scale   Run the safe large-scale synthetic harness
 
 All paths are resolved relative to the project root (parent of src/).
 """
@@ -25,6 +26,7 @@ from config import config, PROJECT_ROOT
 import database as db
 from case_manager import process_email, process_reply
 from email_reader import poll_inbox
+import memory
 
 
 # ---------------------------------------------------------------------------
@@ -353,6 +355,91 @@ def cmd_reply(args):
     print(f"\n[AGENT] View case at http://localhost:{config.FLASK_PORT}/cases/{case_id}")
 
 
+def cmd_memory_rebuild(args):
+    """Backfill deterministic memory tables from existing cases and events."""
+    print("[AGENT] Rebuilding memory from existing records...")
+    db.init_schema()
+    config.validate()
+
+    summary = memory.rebuild_memory_from_existing_cases()
+    active_patterns = db.get_active_pattern_flags()
+
+    print("[AGENT] Memory rebuild complete.")
+    print(f"  Cases processed:          {summary['cases_processed']}")
+    print(f"  Email groups processed:   {summary['email_groups_processed']}")
+    print(f"  Reply events processed:   {summary['reply_events_processed']}")
+    print(f"  Follow-up events handled: {summary['followup_events_processed']}")
+    print(f"  Open cases rechecked:     {summary['open_cases_rechecked']}")
+    print(f"  Active pattern flags:     {len(active_patterns)}")
+
+
+def cmd_patterns(args):
+    """Print active pattern flags grouped by severity and pattern type."""
+    db.init_schema()
+    config.validate()
+
+    rows = [dict(row) for row in db.get_active_pattern_flags()]
+    if not rows:
+        print("[AGENT] No active pattern flags.")
+        return
+
+    grouped = {}
+    for row in rows:
+        grouped.setdefault(row["severity"], {}).setdefault(row["pattern_type"], []).append(row)
+
+    print("[AGENT] Active pattern flags")
+    for severity in ("review", "high", "medium", "info"):
+        severity_rows = grouped.get(severity)
+        if not severity_rows:
+            continue
+        print(f"\n[{severity.upper()}]")
+        for pattern_type, items in sorted(severity_rows.items()):
+            print(f"  {pattern_type} ({len(items)})")
+            for item in items:
+                case_ref = item["case_id"][:8] + "…" if item.get("case_id") else "N/A"
+                print(f"    - Case {case_ref}: {item['summary']}")
+
+
+def cmd_memory_report(args):
+    """Print memory context for a single case as formatted JSON."""
+    case_id = args.case_id
+    db.init_schema()
+    config.validate()
+
+    case = db.get_case_by_id(case_id)
+    if not case:
+        print(f"[AGENT] ERROR: Case '{case_id}' not found.")
+        sys.exit(1)
+
+    context = memory.get_memory_context_for_case(case_id)
+    print(json.dumps(context, indent=2, sort_keys=True))
+
+
+def cmd_test_demo_scale(args):
+    """Run the safe synthetic large-scale demo harness."""
+    from demo_scale_harness import ScaleTestOptions, format_result_summary, run_demo_scale_test
+
+    result = run_demo_scale_test(
+        ScaleTestOptions(
+            emails=args.emails,
+            clients=args.clients,
+            buildings=args.buildings,
+            devices_per_building=args.devices_per_building,
+            seed=args.seed,
+            offline=args.offline,
+            require_ai=args.require_ai,
+            keep_db=args.keep_db,
+            validate_memory_connections=args.validate_memory_connections,
+            include_mechanics=args.include_mechanics,
+            report_dir=args.report_dir,
+            verbose=args.verbose,
+        )
+    )
+    print(format_result_summary(result))
+    if result.overall_result == "FAIL":
+        sys.exit(1)
+
+
 # ---------------------------------------------------------------------------
 # Entry point
 # ---------------------------------------------------------------------------
@@ -367,12 +454,20 @@ Commands:
   demo         Run demo mode: ingest all samples and display results
   run          Start full agent (IMAP polling + scheduler + Flask)
   reply        Interactive reply handler
+  memory-rebuild  Backfill deterministic memory tables from existing records
+  patterns     Print active pattern flags
+  memory-report  Print detailed memory context for a case
+  test-demo-scale  Run the safe large-scale synthetic demo harness
 
 Examples:
   python src/agent.py ingest
   python src/agent.py demo
   python src/agent.py run
   python src/agent.py reply --case-id <CASE_ID>
+  python src/agent.py memory-rebuild
+  python src/agent.py patterns
+  python src/agent.py memory-report --case-id <CASE_ID>
+  python src/agent.py test-demo-scale --offline --emails 250 --validate-memory-connections
         """,
     )
     subparsers = parser.add_subparsers(dest="command")
@@ -380,12 +475,56 @@ Examples:
     subparsers.add_parser("ingest", help="Process sample emails")
     subparsers.add_parser("demo", help="Run demo with all sample emails")
     subparsers.add_parser("run", help="Start full agent")
+    subparsers.add_parser("memory-rebuild", help="Backfill deterministic memory tables")
+    subparsers.add_parser("patterns", help="Print active pattern flags")
 
     reply_parser = subparsers.add_parser("reply", help="Interactive reply handler")
     reply_parser.add_argument(
         "--case-id", required=True, metavar="CASE_ID",
         help="Case ID to process reply for"
     )
+    memory_report_parser = subparsers.add_parser("memory-report", help="Print memory context for a case")
+    memory_report_parser.add_argument(
+        "--case-id", required=True, metavar="CASE_ID",
+        help="Case ID to report on"
+    )
+    scale_parser = subparsers.add_parser("test-demo-scale", help="Run the safe large-scale demo harness")
+    scale_parser.add_argument("--emails", type=int, default=150, help="Number of synthetic KPI emails to generate")
+    scale_parser.add_argument("--clients", type=int, default=8, help="Number of synthetic clients")
+    scale_parser.add_argument("--buildings", type=int, default=25, help="Number of synthetic buildings")
+    scale_parser.add_argument(
+        "--devices-per-building",
+        type=int,
+        default=4,
+        dest="devices_per_building",
+        help="Number of synthetic devices per building",
+    )
+    scale_parser.add_argument("--seed", type=int, default=42, help="Deterministic random seed")
+    scale_parser.add_argument("--offline", action="store_true", help="Use the deterministic offline Claude shim")
+    scale_parser.add_argument("--require-ai", action="store_true", help="Fail if Claude CLI is unavailable")
+    scale_parser.add_argument(
+        "--keep-db",
+        action="store_true",
+        help="Backward-compatible no-op. Test databases are retained by default.",
+    )
+    scale_parser.add_argument(
+        "--validate-memory-connections",
+        action="store_true",
+        dest="validate_memory_connections",
+        help="Run deterministic memory connection auditing against entities, observations, links, and pattern flags",
+    )
+    scale_parser.add_argument(
+        "--include-mechanics",
+        action="store_true",
+        help="Include explicit mechanic or technician references in synthetic replies",
+    )
+    scale_parser.add_argument(
+        "--report-dir",
+        type=Path,
+        default=PROJECT_ROOT / "data" / "test_runs",
+        help="Directory where the harness writes report output",
+    )
+    scale_parser.add_argument("--verbose", action="store_true", help="Print verbose pipeline output during the harness run")
 
     args = parser.parse_args()
 
@@ -397,6 +536,14 @@ Examples:
         cmd_run(args)
     elif args.command == "reply":
         cmd_reply(args)
+    elif args.command == "memory-rebuild":
+        cmd_memory_rebuild(args)
+    elif args.command == "patterns":
+        cmd_patterns(args)
+    elif args.command == "memory-report":
+        cmd_memory_report(args)
+    elif args.command == "test-demo-scale":
+        cmd_test_demo_scale(args)
     else:
         parser.print_help()
         sys.exit(1)

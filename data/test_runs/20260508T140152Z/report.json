@@ -1,0 +1,3216 @@
+{
+  "overall_result": "FAIL",
+  "mode": {
+    "requested_offline": true,
+    "requested_require_ai": false,
+    "used_offline_shim": true,
+    "used_ai": false,
+    "ai_probe_successful": false,
+    "ai_dependent_checks_skipped": false
+  },
+  "dataset": {
+    "seed_used": 11,
+    "requested_emails": 24,
+    "generated_emails": 24,
+    "emails_generated": 24,
+    "replies_generated": 9,
+    "duplicate_scenarios_generated": 0,
+    "distinct_cases_expected": 24,
+    "distinct_cases_created": 24,
+    "reply_types_generated": [
+      "contractor_scheduled",
+      "contractor_completed",
+      "contractor_access_needed",
+      "contractor_vague",
+      "contractor_revised_date",
+      "client_access_confirmed",
+      "client_approval_pending",
+      "client_status_request",
+      "prompt_injection_reply"
+    ],
+    "reply_types_validated": [
+      "client_access_confirmed",
+      "client_approval_pending",
+      "client_status_request",
+      "contractor_access_needed",
+      "contractor_completed",
+      "contractor_revised_date",
+      "contractor_scheduled",
+      "contractor_vague",
+      "prompt_injection_reply"
+    ],
+    "clients": 9,
+    "buildings": 8,
+    "devices": 8,
+    "contractors": 5,
+    "case_type_distribution": {
+      "CAT1_COMPLIANCE": 5,
+      "CAT5_COMPLIANCE": 2,
+      "DATA_ABSENCE": 3,
+      "GOVERNMENT_DIRECTIVE": 3,
+      "MAINTENANCE_HOURS_SHORTFALL": 6,
+      "MAJOR_WORK_OVERDUE": 5
+    },
+    "scenario_tag_distribution": {
+      "ambiguous_device_identity": 2,
+      "data_gap": 3,
+      "device_identity_control": 2,
+      "distinct_similar_case": 4,
+      "normal_new_case": 20,
+      "overdue": 6,
+      "recurring_building_issue": 9,
+      "recurring_device_issue": 5,
+      "repeated_contractor_issue": 6
+    }
+  },
+  "processing": {
+    "requested_emails": 24,
+    "generated_emails": 24,
+    "duplicate_scenarios_generated": 0,
+    "distinct_cases_expected": 24,
+    "distinct_cases_created": 24,
+    "reply_types_generated": [
+      "contractor_scheduled",
+      "contractor_completed",
+      "contractor_access_needed",
+      "contractor_vague",
+      "contractor_revised_date",
+      "client_access_confirmed",
+      "client_approval_pending",
+      "client_status_request",
+      "prompt_injection_reply"
+    ],
+    "reply_types_validated": [
+      "client_access_confirmed",
+      "client_approval_pending",
+      "client_status_request",
+      "contractor_access_needed",
+      "contractor_completed",
+      "contractor_revised_date",
+      "contractor_scheduled",
+      "contractor_vague",
+      "prompt_injection_reply"
+    ],
+    "emails_processed": 24,
+    "cases_created": 24,
+    "existing_cases_updated": 0,
+    "duplicate_alerts_grouped": 0,
+    "outbound_drafts_or_fake_sends_created": 48,
+    "replies_processed": 9,
+    "followups_triggered": 24,
+    "normal_followups_triggered": 16,
+    "escalation_followups_triggered": 8,
+    "reply_handling_details": {
+      "client_access_confirmed": {
+        "processed": 1,
+        "flagged_for_review": 1,
+        "satisfies_action": 0
+      },
+      "client_approval_pending": {
+        "processed": 1,
+        "flagged_for_review": 1,
+        "satisfies_action": 0
+      },
+      "client_status_request": {
+        "processed": 1,
+        "flagged_for_review": 0,
+        "satisfies_action": 0
+      },
+      "contractor_access_needed": {
+        "processed": 1,
+        "flagged_for_review": 1,
+        "satisfies_action": 0
+      },
+      "contractor_completed": {
+        "processed": 1,
+        "flagged_for_review": 1,
+        "satisfies_action": 1
+      },
+      "contractor_revised_date": {
+        "processed": 1,
+        "flagged_for_review": 0,
+        "satisfies_action": 0
+      },
+      "contractor_scheduled": {
+        "processed": 1,
+        "flagged_for_review": 0,
+        "satisfies_action": 0
+      },
+      "contractor_vague": {
+        "processed": 1,
+        "flagged_for_review": 0,
+        "satisfies_action": 0
+      },
+      "prompt_injection_reply": {
+        "processed": 1,
+        "flagged_for_review": 1,
+        "satisfies_action": 0
+      }
+    },
+    "manual_reviews_created": 59,
+    "prompt_injection_items_flagged": 1,
+    "followup_cases_touched": 8
+  },
+  "extraction": {
+    "structured_field_failures": 0,
+    "semantic_description_mismatches": 0,
+    "optional_description_missing": 0,
+    "extraction_warnings": 0,
+    "extraction_failures": 0,
+    "validation_rows": []
+  },
+  "manual_reviews": {
+    "total": 59,
+    "open": 59,
+    "manual_review_reason_breakdown": {
+      "followup_escalation": 8,
+      "other": 1,
+      "pattern_review": 46,
+      "reply_requires_review": 4
+    },
+    "exact_reason_rows": [
+      {
+        "reason": "Escalated: 3 follow-ups sent with no resolution.",
+        "count": 8
+      },
+      {
+        "reason": "Pattern review: Recurring building-linked issues detected for 123 Example Road, Example City across 6 cases in the last 60 days. (severity: high).",
+        "count": 6
+      },
+      {
+        "reason": "Pattern review: Repeated no-response behavior detected based on follow-up history for this case and contractor Example Elevator Company. (severity: high).",
+        "count": 5
+      },
+      {
+        "reason": "Pattern review: Recurring building-linked issues detected for 456 Sample Avenue, Demo City across 6 cases in the last 60 days. (severity: high).",
+        "count": 4
+      },
+      {
+        "reason": "Pattern review: Recurring contractor-linked cases detected for Example Elevator Company based on 8 cases and 1 high-priority issue records in the last 60 days. (severity: high).",
+        "count": 3
+      },
+      {
+        "reason": "Pattern review: Recurring contractor-linked cases detected for Sample Lift Services based on 7 cases and 1 high-priority issue records in the last 60 days. (severity: high).",
+        "count": 3
+      },
+      {
+        "reason": "Pattern review: Recurring device-linked issues detected for B-1 #700001 across 5 cases in the last 90 days. (severity: high).",
+        "count": 3
+      },
+      {
+        "reason": "Pattern review: Recurring building-linked issues detected for 789 Demo Street, Sample City across 5 cases in the last 60 days. (severity: high).",
+        "count": 2
+      },
+      {
+        "reason": "Pattern review: Recurring device-linked issues detected for B-1 #700021 across 3 cases in the last 90 days. (severity: high).",
+        "count": 2
+      },
+      {
+        "reason": "Pattern review: Repeated no-response behavior detected based on follow-up history for this case and contractor Sample Lift Services. (severity: high).",
+        "count": 2
+      },
+      {
+        "reason": "Reply flagged by AI for manual review. Summary: Responder said access is required before work can proceed.",
+        "count": 2
+      },
+      {
+        "reason": "Pattern review: Recurring building-linked issues detected for 123 Example Road, Example City across 5 cases in the last 60 days. (severity: high).",
+        "count": 1
+      },
+      {
+        "reason": "Pattern review: Recurring building-linked issues detected for 456 Sample Avenue, Demo City across 5 cases in the last 60 days. (severity: high).",
+        "count": 1
+      },
+      {
+        "reason": "Pattern review: Recurring contractor-linked cases detected for Demo Vertical Transport based on 5 cases and 1 high-priority issue records in the last 60 days. (severity: high).",
+        "count": 1
+      },
+      {
+        "reason": "Pattern review: Recurring contractor-linked cases detected for Demo Vertical Transport based on 5 cases and 3 high-priority issue records in the last 60 days. (severity: high).",
+        "count": 1
+      },
+      {
+        "reason": "Pattern review: Recurring contractor-linked cases detected for Example Elevator Company based on 5 cases and 3 high-priority issue records in the last 60 days. (severity: high).",
+        "count": 1
+      },
+      {
+        "reason": "Pattern review: Recurring contractor-linked cases detected for Example Elevator Company based on 6 cases and 3 high-priority issue records in the last 60 days. (severity: high).",
+        "count": 1
+      },
+      {
+        "reason": "Pattern review: Recurring contractor-linked cases detected for Example Elevator Company based on 7 cases and 4 high-priority issue records in the last 60 days. (severity: high).",
+        "count": 1
+      },
+      {
+        "reason": "Pattern review: Recurring contractor-linked cases detected for Example Elevator Company based on 8 cases and 2 high-priority issue records in the last 60 days. (severity: high).",
+        "count": 1
+      },
+      {
+        "reason": "Pattern review: Recurring contractor-linked cases detected for Example Elevator Company based on 8 cases and 3 high-priority issue records in the last 60 days. (severity: high).",
+        "count": 1
+      },
+      {
+        "reason": "Pattern review: Recurring contractor-linked cases detected for Example Elevator Company based on 8 cases and 5 high-priority issue records in the last 60 days. (severity: high).",
+        "count": 1
+      },
+      {
+        "reason": "Pattern review: Recurring contractor-linked cases detected for Sample Lift Services based on 5 cases and 3 high-priority issue records in the last 60 days. (severity: high).",
+        "count": 1
+      },
+      {
+        "reason": "Pattern review: Recurring contractor-linked cases detected for Sample Lift Services based on 6 cases and 3 high-priority issue records in the last 60 days. (severity: high).",
+        "count": 1
+      },
+      {
+        "reason": "Pattern review: Recurring contractor-linked cases detected for Sample Lift Services based on 7 cases and 4 high-priority issue records in the last 60 days. (severity: high).",
+        "count": 1
+      },
+      {
+        "reason": "Pattern review: Recurring device-linked issues detected for B-1 #700001 across 3 cases in the last 90 days. (severity: high).",
+        "count": 1
+      },
+      {
+        "reason": "Pattern review: Recurring device-linked issues detected for B-1 #700001 across 4 cases in the last 90 days. (severity: high).",
+        "count": 1
+      },
+      {
+        "reason": "Pattern review: Repeated no-response behavior detected based on follow-up history for this case and contractor Demo Vertical Transport. (severity: high).",
+        "count": 1
+      },
+      {
+        "reason": "Reply flagged by AI for manual review. Summary: Client said approval is still pending.",
+        "count": 1
+      },
+      {
+        "reason": "Reply flagged by AI for manual review. Summary: Reply contained prompt-injection content and requires manual review.",
+        "count": 1
+      },
+      {
+        "reason": "Reply indicates possible resolution. Manual confirmation required before case closure.",
+        "count": 1
+      }
+    ]
+  },
+  "safety": {
+    "real_smtp_calls_attempted": 0,
+    "real_imap_calls_attempted": 0,
+    "actual_recipient_violations": 0,
+    "disallowed_domain_violations": 0,
+    "intended_recipient_rewrites": 24,
+    "production_database_used": false,
+    "safe_demo_recipient": "demo-recipient@example.test",
+    "test_database_path": "/Users/griffinrobinson/evolve.solucore.com/AI Email Alert Agent/data/test_runs/20260508T140152Z/test_agent.db",
+    "test_database_retained": true
+  },
+  "quality_checks": {
+    "classification": "PASS",
+    "extraction": "PASS",
+    "grouping": "PASS",
+    "reply_handling": "PASS",
+    "followup_handling": "PASS",
+    "prompt_injection_handling": "PASS",
+    "flask_ui_smoke": "PASS"
+  },
+  "memory_readiness": {
+    "status": "Advanced memory detected.",
+    "pattern_flags_created": 5,
+    "repeated_building_flags": 0,
+    "repeated_device_flags": 0,
+    "repeated_contractor_flags": 5,
+    "repeated_no_response_flags": 0,
+    "mechanic_related_flags": 0
+  },
+  "memory_connection_audit": {
+    "enabled": true,
+    "status": "FAIL",
+    "expected_pattern_flags": [
+      {
+        "pattern_type": "repeated_building_issue",
+        "entity_type": "building",
+        "entity_value": "123 Example Road, Example City",
+        "entity_key": [
+          "repeated_building_issue",
+          "building",
+          "123 example road example city"
+        ],
+        "supporting_case_keys": [
+          "data_absence|123 example road, example city||",
+          "government_directive|123 example road, example city|b-2 #700002|",
+          "major_work_overdue|123 example road, example city|b-1 #700001|"
+        ],
+        "supporting_case_ids": [
+          "5dbb5646-a85e-4f32-89ba-10eed05ab83c",
+          "7d5b7680-36c5-4921-9a76-707d3620e208",
+          "c904f53c-6b16-4f6a-82d5-ab2ef6f3d090"
+        ],
+        "reason": "Recurring building threshold met by 3 cases."
+      },
+      {
+        "pattern_type": "repeated_building_issue",
+        "entity_type": "building",
+        "entity_value": "456 Sample Avenue, Demo City",
+        "entity_key": [
+          "repeated_building_issue",
+          "building",
+          "456 sample avenue demo city"
+        ],
+        "supporting_case_keys": [
+          "data_absence|456 sample avenue, demo city||",
+          "government_directive|456 sample avenue, demo city|b-2 #700022|",
+          "major_work_overdue|456 sample avenue, demo city|b-1 #700021|"
+        ],
+        "supporting_case_ids": [
+          "354a0593-3842-4a0f-9238-7b32708554ff",
+          "5cf106b6-3b8a-4627-ae8b-db8322aa5b39",
+          "a35db2d3-c8b2-472c-99e7-3311c00e8497"
+        ],
+        "reason": "Recurring building threshold met by 3 cases."
+      },
+      {
+        "pattern_type": "repeated_building_issue",
+        "entity_type": "building",
+        "entity_value": "789 Demo Street, Sample City",
+        "entity_key": [
+          "repeated_building_issue",
+          "building",
+          "789 demo street sample city"
+        ],
+        "supporting_case_keys": [
+          "data_absence|789 demo street, sample city||",
+          "government_directive|789 demo street, sample city|b-2 #700042|",
+          "major_work_overdue|789 demo street, sample city|b-1 #700041|"
+        ],
+        "supporting_case_ids": [
+          "0ea18ab2-228c-49b6-b79c-0b5cd7677d75",
+          "aac7df85-faff-4bff-9244-6f0805f812b6",
+          "e204069b-c8a6-40bd-a266-17142c4f586e"
+        ],
+        "reason": "Recurring building threshold met by 3 cases."
+      },
+      {
+        "pattern_type": "repeated_device_issue",
+        "entity_type": "device",
+        "entity_value": "B-1 #700001",
+        "entity_key": [
+          "repeated_device_issue",
+          "device",
+          "b-1 #700001"
+        ],
+        "supporting_case_keys": [
+          "cat1_compliance|123 example road, example city|b-1 #700001|",
+          "cat5_compliance|123 example road, example city|b-1 #700001|"
+        ],
+        "supporting_case_ids": [
+          "09db5aa6-4b65-48d2-8b0e-0bee0721829a",
+          "c00de470-0467-4a84-a977-4c8b9afdc86e"
+        ],
+        "reason": "Recurring device threshold met by 2 cases."
+      },
+      {
+        "pattern_type": "repeated_device_issue",
+        "entity_type": "device",
+        "entity_value": "B-1 #700021",
+        "entity_key": [
+          "repeated_device_issue",
+          "device",
+          "b-1 #700021"
+        ],
+        "supporting_case_keys": [
+          "cat1_compliance|456 sample avenue, demo city|b-1 #700021|",
+          "cat5_compliance|456 sample avenue, demo city|b-1 #700021|"
+        ],
+        "supporting_case_ids": [
+          "ad72d928-09e9-4d00-92d0-bef447eb0f17",
+          "afa52be6-7aab-4fb8-a98c-1deb1ad74408"
+        ],
+        "reason": "Recurring device threshold met by 2 cases."
+      },
+      {
+        "pattern_type": "repeated_major_work_overdue",
+        "entity_type": "contractor",
+        "entity_value": "Example Elevator Company",
+        "entity_key": [
+          "repeated_major_work_overdue",
+          "contractor",
+          "example elevator company"
+        ],
+        "supporting_case_keys": [
+          "major_work_overdue|123 example road, example city|b-1 #700001|",
+          "major_work_overdue|610 example road, example city|b-1 #700001|"
+        ],
+        "supporting_case_ids": [
+          "0018ca42-620d-4820-8f33-12b05292e01b",
+          "c904f53c-6b16-4f6a-82d5-ab2ef6f3d090"
+        ],
+        "reason": "Repeated major work overdue threshold met by 2 cases."
+      },
+      {
+        "pattern_type": "repeated_major_work_overdue",
+        "entity_type": "contractor",
+        "entity_value": "Sample Lift Services",
+        "entity_key": [
+          "repeated_major_work_overdue",
+          "contractor",
+          "sample lift services"
+        ],
+        "supporting_case_keys": [
+          "major_work_overdue|456 sample avenue, demo city|b-1 #700021|",
+          "major_work_overdue|611 sample avenue, example city|b-1 #700001|"
+        ],
+        "supporting_case_ids": [
+          "069fa1f3-60a2-4cef-b20a-1ea01f4875ed",
+          "354a0593-3842-4a0f-9238-7b32708554ff"
+        ],
+        "reason": "Repeated major work overdue threshold met by 2 cases."
+      },
+      {
+        "pattern_type": "repeated_contractor_issue",
+        "entity_type": "contractor",
+        "entity_value": "Example Elevator Company",
+        "entity_key": [
+          "repeated_contractor_issue",
+          "contractor",
+          "example elevator company"
+        ],
+        "supporting_case_keys": [
+          "cat1_compliance|123 example road, example city|b-1 #700001|",
+          "cat5_compliance|123 example road, example city|b-1 #700001|",
+          "data_absence|123 example road, example city||",
+          "government_directive|123 example road, example city|b-2 #700002|",
+          "maintenance_hours_shortfall|102 example road, sample city||may 2026",
+          "maintenance_hours_shortfall|123 example road, example city||april 2026",
+          "major_work_overdue|123 example road, example city|b-1 #700001|",
+          "major_work_overdue|610 example road, example city|b-1 #700001|"
+        ],
+        "supporting_case_ids": [
+          "0018ca42-620d-4820-8f33-12b05292e01b",
+          "09db5aa6-4b65-48d2-8b0e-0bee0721829a",
+          "43e9735e-87c3-4542-a9d9-14063e84e493",
+          "5dbb5646-a85e-4f32-89ba-10eed05ab83c",
+          "619cdb39-afa2-416a-9200-e7bd2053f5d3",
+          "7d5b7680-36c5-4921-9a76-707d3620e208",
+          "c00de470-0467-4a84-a977-4c8b9afdc86e",
+          "c904f53c-6b16-4f6a-82d5-ab2ef6f3d090"
+        ],
+        "reason": "Recurring contractor threshold met by 8 cases and 5 high-priority cases."
+      },
+      {
+        "pattern_type": "repeated_contractor_issue",
+        "entity_type": "contractor",
+        "entity_value": "Sample Lift Services",
+        "entity_key": [
+          "repeated_contractor_issue",
+          "contractor",
+          "sample lift services"
+        ],
+        "supporting_case_keys": [
+          "cat1_compliance|456 sample avenue, demo city|b-1 #700021|",
+          "cat5_compliance|456 sample avenue, demo city|b-1 #700021|",
+          "data_absence|456 sample avenue, demo city||",
+          "government_directive|456 sample avenue, demo city|b-2 #700022|",
+          "maintenance_hours_shortfall|456 sample avenue, demo city||may 2026",
+          "major_work_overdue|456 sample avenue, demo city|b-1 #700021|",
+          "major_work_overdue|611 sample avenue, example city|b-1 #700001|"
+        ],
+        "supporting_case_ids": [
+          "069fa1f3-60a2-4cef-b20a-1ea01f4875ed",
+          "287c88d9-6a1d-4822-a3ec-7ff0c700f7c9",
+          "354a0593-3842-4a0f-9238-7b32708554ff",
+          "5cf106b6-3b8a-4627-ae8b-db8322aa5b39",
+          "a35db2d3-c8b2-472c-99e7-3311c00e8497",
+          "ad72d928-09e9-4d00-92d0-bef447eb0f17",
+          "afa52be6-7aab-4fb8-a98c-1deb1ad74408"
+        ],
+        "reason": "Recurring contractor threshold met by 7 cases and 4 high-priority cases."
+      },
+      {
+        "pattern_type": "repeated_contractor_issue",
+        "entity_type": "contractor",
+        "entity_value": "Demo Vertical Transport",
+        "entity_key": [
+          "repeated_contractor_issue",
+          "contractor",
+          "demo vertical transport"
+        ],
+        "supporting_case_keys": [
+          "cat1_compliance|789 demo street, sample city|b-1 #700041|",
+          "data_absence|789 demo street, sample city||",
+          "government_directive|789 demo street, sample city|b-2 #700042|",
+          "maintenance_hours_shortfall|789 demo street, sample city||april 2026",
+          "major_work_overdue|789 demo street, sample city|b-1 #700041|"
+        ],
+        "supporting_case_ids": [
+          "0ea18ab2-228c-49b6-b79c-0b5cd7677d75",
+          "7f82f222-8614-447c-b137-e0970a0ab85d",
+          "aac7df85-faff-4bff-9244-6f0805f812b6",
+          "cff9fa48-2219-4a50-85fc-6588442b2e4d",
+          "e204069b-c8a6-40bd-a266-17142c4f586e"
+        ],
+        "reason": "Recurring contractor threshold met by 5 cases and 3 high-priority cases."
+      },
+      {
+        "pattern_type": "repeated_contractor_issue",
+        "entity_type": "contractor",
+        "entity_value": "Generic Mobility Systems",
+        "entity_key": [
+          "repeated_contractor_issue",
+          "contractor",
+          "generic mobility systems"
+        ],
+        "supporting_case_keys": [
+          "cat1_compliance|101 example road, demo city|b-1 #700081|",
+          "cat1_compliance|101 example road, demo city|b-2 #700082|",
+          "maintenance_hours_shortfall|101 example road, demo city||april 2026"
+        ],
+        "supporting_case_ids": [
+          "6847ba26-9bce-45c0-9319-10106f4a2c49",
+          "95532d8f-f4ac-4ff2-a667-f974483caa74",
+          "f8c968e0-e3ac-4e2e-bb41-802c7745a151"
+        ],
+        "reason": "Recurring contractor threshold met by 3 cases and 1 high-priority cases."
+      },
+      {
+        "pattern_type": "repeated_no_response",
+        "entity_type": "contractor",
+        "entity_value": "Example Elevator Company",
+        "entity_key": [
+          "repeated_no_response",
+          "contractor",
+          "example elevator company"
+        ],
+        "supporting_case_keys": [],
+        "supporting_case_ids": [
+          "09db5aa6-4b65-48d2-8b0e-0bee0721829a",
+          "5dbb5646-a85e-4f32-89ba-10eed05ab83c",
+          "619cdb39-afa2-416a-9200-e7bd2053f5d3",
+          "7d5b7680-36c5-4921-9a76-707d3620e208",
+          "c904f53c-6b16-4f6a-82d5-ab2ef6f3d090"
+        ],
+        "reason": "No-response follow-up threshold met across 5 case(s)."
+      },
+      {
+        "pattern_type": "repeated_no_response",
+        "entity_type": "contractor",
+        "entity_value": "Sample Lift Services",
+        "entity_key": [
+          "repeated_no_response",
+          "contractor",
+          "sample lift services"
+        ],
+        "supporting_case_keys": [],
+        "supporting_case_ids": [
+          "287c88d9-6a1d-4822-a3ec-7ff0c700f7c9",
+          "a35db2d3-c8b2-472c-99e7-3311c00e8497"
+        ],
+        "reason": "No-response follow-up threshold met across 2 case(s)."
+      },
+      {
+        "pattern_type": "repeated_no_response",
+        "entity_type": "contractor",
+        "entity_value": "Demo Vertical Transport",
+        "entity_key": [
+          "repeated_no_response",
+          "contractor",
+          "demo vertical transport"
+        ],
+        "supporting_case_keys": [],
+        "supporting_case_ids": [
+          "cff9fa48-2219-4a50-85fc-6588442b2e4d"
+        ],
+        "reason": "No-response follow-up threshold met across 1 case(s)."
+      }
+    ],
+    "actual_pattern_flags": [
+      {
+        "flag_id": 56,
+        "case_id": "cff9fa48-2219-4a50-85fc-6588442b2e4d",
+        "pattern_type": "repeated_no_response",
+        "entity_type": "contractor",
+        "entity_value": "Demo Vertical Transport",
+        "severity": "high",
+        "supporting_case_ids": [
+          "cff9fa48-2219-4a50-85fc-6588442b2e4d"
+        ],
+        "supporting_observation_ids": [
+          205,
+          197,
+          189
+        ]
+      },
+      {
+        "flag_id": 55,
+        "case_id": "a35db2d3-c8b2-472c-99e7-3311c00e8497",
+        "pattern_type": "repeated_no_response",
+        "entity_type": "contractor",
+        "entity_value": "Sample Lift Services",
+        "severity": "high",
+        "supporting_case_ids": [
+          "a35db2d3-c8b2-472c-99e7-3311c00e8497",
+          "287c88d9-6a1d-4822-a3ec-7ff0c700f7c9"
+        ],
+        "supporting_observation_ids": [
+          204,
+          203,
+          196,
+          195,
+          188,
+          187
+        ]
+      },
+      {
+        "flag_id": 54,
+        "case_id": "287c88d9-6a1d-4822-a3ec-7ff0c700f7c9",
+        "pattern_type": "repeated_no_response",
+        "entity_type": "contractor",
+        "entity_value": "Sample Lift Services",
+        "severity": "high",
+        "supporting_case_ids": [
+          "287c88d9-6a1d-4822-a3ec-7ff0c700f7c9",
+          "a35db2d3-c8b2-472c-99e7-3311c00e8497"
+        ],
+        "supporting_observation_ids": [
+          203,
+          196,
+          195,
+          188,
+          187
+        ]
+      },
+      {
+        "flag_id": 53,
+        "case_id": "09db5aa6-4b65-48d2-8b0e-0bee0721829a",
+        "pattern_type": "repeated_no_response",
+        "entity_type": "contractor",
+        "entity_value": "Example Elevator Company",
+        "severity": "high",
+        "supporting_case_ids": [
+          "09db5aa6-4b65-48d2-8b0e-0bee0721829a",
+          "7d5b7680-36c5-4921-9a76-707d3620e208",
+          "5dbb5646-a85e-4f32-89ba-10eed05ab83c",
+          "c904f53c-6b16-4f6a-82d5-ab2ef6f3d090",
+          "619cdb39-afa2-416a-9200-e7bd2053f5d3"
+        ],
+        "supporting_observation_ids": [
+          200,
+          199,
+          198,
+          194,
+          193,
+          192,
+          191,
+          190,
+          186,
+          185,
+          184,
+          183
+        ]
+      },
+      {
+        "flag_id": 52,
+        "case_id": "7d5b7680-36c5-4921-9a76-707d3620e208",
+        "pattern_type": "repeated_no_response",
+        "entity_type": "contractor",
+        "entity_value": "Example Elevator Company",
+        "severity": "high",
+        "supporting_case_ids": [
+          "7d5b7680-36c5-4921-9a76-707d3620e208",
+          "5dbb5646-a85e-4f32-89ba-10eed05ab83c",
+          "c904f53c-6b16-4f6a-82d5-ab2ef6f3d090",
+          "619cdb39-afa2-416a-9200-e7bd2053f5d3",
+          "09db5aa6-4b65-48d2-8b0e-0bee0721829a"
+        ],
+        "supporting_observation_ids": [
+          199,
+          198,
+          194,
+          193,
+          192,
+          191,
+          190,
+          186,
+          185,
+          184,
+          183
+        ]
+      },
+      {
+        "flag_id": 51,
+        "case_id": "5dbb5646-a85e-4f32-89ba-10eed05ab83c",
+        "pattern_type": "repeated_no_response",
+        "entity_type": "contractor",
+        "entity_value": "Example Elevator Company",
+        "severity": "high",
+        "supporting_case_ids": [
+          "5dbb5646-a85e-4f32-89ba-10eed05ab83c",
+          "c904f53c-6b16-4f6a-82d5-ab2ef6f3d090",
+          "619cdb39-afa2-416a-9200-e7bd2053f5d3",
+          "09db5aa6-4b65-48d2-8b0e-0bee0721829a",
+          "7d5b7680-36c5-4921-9a76-707d3620e208"
+        ],
+        "supporting_observation_ids": [
+          206,
+          202,
+          201,
+          200,
+          199,
+          198,
+          194,
+          193,
+          192,
+          191,
+          190,
+          186,
+          185,
+          184,
+          183
+        ]
+      },
+      {
+        "flag_id": 50,
+        "case_id": "c904f53c-6b16-4f6a-82d5-ab2ef6f3d090",
+        "pattern_type": "repeated_no_response",
+        "entity_type": "contractor",
+        "entity_value": "Example Elevator Company",
+        "severity": "high",
+        "supporting_case_ids": [
+          "c904f53c-6b16-4f6a-82d5-ab2ef6f3d090",
+          "619cdb39-afa2-416a-9200-e7bd2053f5d3",
+          "09db5aa6-4b65-48d2-8b0e-0bee0721829a",
+          "7d5b7680-36c5-4921-9a76-707d3620e208",
+          "5dbb5646-a85e-4f32-89ba-10eed05ab83c"
+        ],
+        "supporting_observation_ids": [
+          202,
+          201,
+          200,
+          199,
+          198,
+          194,
+          193,
+          192,
+          191,
+          190,
+          186,
+          185,
+          184,
+          183
+        ]
+      },
+      {
+        "flag_id": 49,
+        "case_id": "619cdb39-afa2-416a-9200-e7bd2053f5d3",
+        "pattern_type": "repeated_no_response",
+        "entity_type": "contractor",
+        "entity_value": "Example Elevator Company",
+        "severity": "high",
+        "supporting_case_ids": [
+          "619cdb39-afa2-416a-9200-e7bd2053f5d3",
+          "09db5aa6-4b65-48d2-8b0e-0bee0721829a",
+          "7d5b7680-36c5-4921-9a76-707d3620e208",
+          "5dbb5646-a85e-4f32-89ba-10eed05ab83c",
+          "c904f53c-6b16-4f6a-82d5-ab2ef6f3d090"
+        ],
+        "supporting_observation_ids": [
+          201,
+          200,
+          199,
+          198,
+          194,
+          193,
+          192,
+          191,
+          190,
+          186,
+          185,
+          184,
+          183
+        ]
+      },
+      {
+        "flag_id": 48,
+        "case_id": "ad72d928-09e9-4d00-92d0-bef447eb0f17",
+        "pattern_type": "repeated_device_issue",
+        "entity_type": "device",
+        "entity_value": "B-1 #700021",
+        "severity": "high",
+        "supporting_case_ids": [
+          "ad72d928-09e9-4d00-92d0-bef447eb0f17"
+        ],
+        "supporting_observation_ids": [
+          56
+        ]
+      },
+      {
+        "flag_id": 47,
+        "case_id": "cff9fa48-2219-4a50-85fc-6588442b2e4d",
+        "pattern_type": "repeated_contractor_issue",
+        "entity_type": "contractor",
+        "entity_value": "Demo Vertical Transport",
+        "severity": "high",
+        "supporting_case_ids": [
+          "cff9fa48-2219-4a50-85fc-6588442b2e4d"
+        ],
+        "supporting_observation_ids": [
+          43,
+          45
+        ]
+      },
+      {
+        "flag_id": 46,
+        "case_id": "cff9fa48-2219-4a50-85fc-6588442b2e4d",
+        "pattern_type": "repeated_building_issue",
+        "entity_type": "building",
+        "entity_value": "789 Demo Street, Sample City",
+        "severity": "high",
+        "supporting_case_ids": [
+          "cff9fa48-2219-4a50-85fc-6588442b2e4d"
+        ],
+        "supporting_observation_ids": [
+          42
+        ]
+      },
+      {
+        "flag_id": 45,
+        "case_id": "a35db2d3-c8b2-472c-99e7-3311c00e8497",
+        "pattern_type": "repeated_contractor_issue",
+        "entity_type": "contractor",
+        "entity_value": "Sample Lift Services",
+        "severity": "high",
+        "supporting_case_ids": [
+          "a35db2d3-c8b2-472c-99e7-3311c00e8497",
+          "287c88d9-6a1d-4822-a3ec-7ff0c700f7c9"
+        ],
+        "supporting_observation_ids": [
+          37,
+          31,
+          33
+        ]
+      },
+      {
+        "flag_id": 44,
+        "case_id": "a35db2d3-c8b2-472c-99e7-3311c00e8497",
+        "pattern_type": "repeated_building_issue",
+        "entity_type": "building",
+        "entity_value": "456 Sample Avenue, Demo City",
+        "severity": "high",
+        "supporting_case_ids": [
+          "a35db2d3-c8b2-472c-99e7-3311c00e8497",
+          "287c88d9-6a1d-4822-a3ec-7ff0c700f7c9"
+        ],
+        "supporting_observation_ids": [
+          36,
+          30
+        ]
+      },
+      {
+        "flag_id": 43,
+        "case_id": "287c88d9-6a1d-4822-a3ec-7ff0c700f7c9",
+        "pattern_type": "repeated_contractor_issue",
+        "entity_type": "contractor",
+        "entity_value": "Sample Lift Services",
+        "severity": "high",
+        "supporting_case_ids": [
+          "287c88d9-6a1d-4822-a3ec-7ff0c700f7c9"
+        ],
+        "supporting_observation_ids": [
+          31,
+          33
+        ]
+      },
+      {
+        "flag_id": 42,
+        "case_id": "287c88d9-6a1d-4822-a3ec-7ff0c700f7c9",
+        "pattern_type": "repeated_building_issue",
+        "entity_type": "building",
+        "entity_value": "456 Sample Avenue, Demo City",
+        "severity": "high",
+        "supporting_case_ids": [
+          "287c88d9-6a1d-4822-a3ec-7ff0c700f7c9"
+        ],
+        "supporting_observation_ids": [
+          30
+        ]
+      },
+      {
+        "flag_id": 41,
+        "case_id": "09db5aa6-4b65-48d2-8b0e-0bee0721829a",
+        "pattern_type": "repeated_contractor_issue",
+        "entity_type": "contractor",
+        "entity_value": "Example Elevator Company",
+        "severity": "high",
+        "supporting_case_ids": [
+          "619cdb39-afa2-416a-9200-e7bd2053f5d3",
+          "09db5aa6-4b65-48d2-8b0e-0bee0721829a",
+          "7d5b7680-36c5-4921-9a76-707d3620e208"
+        ],
+        "supporting_observation_ids": [
+          17,
+          11,
+          4,
+          19
+        ]
+      },
+      {
+        "flag_id": 40,
+        "case_id": "09db5aa6-4b65-48d2-8b0e-0bee0721829a",
+        "pattern_type": "repeated_device_issue",
+        "entity_type": "device",
+        "entity_value": "B-1 #700001",
+        "severity": "high",
+        "supporting_case_ids": [
+          "09db5aa6-4b65-48d2-8b0e-0bee0721829a"
+        ],
+        "supporting_observation_ids": [
+          10
+        ]
+      },
+      {
+        "flag_id": 39,
+        "case_id": "09db5aa6-4b65-48d2-8b0e-0bee0721829a",
+        "pattern_type": "repeated_building_issue",
+        "entity_type": "building",
+        "entity_value": "123 Example Road, Example City",
+        "severity": "high",
+        "supporting_case_ids": [
+          "619cdb39-afa2-416a-9200-e7bd2053f5d3",
+          "09db5aa6-4b65-48d2-8b0e-0bee0721829a",
+          "7d5b7680-36c5-4921-9a76-707d3620e208"
+        ],
+        "supporting_observation_ids": [
+          16,
+          9,
+          3
+        ]
+      },
+      {
+        "flag_id": 38,
+        "case_id": "7d5b7680-36c5-4921-9a76-707d3620e208",
+        "pattern_type": "repeated_contractor_issue",
+        "entity_type": "contractor",
+        "entity_value": "Example Elevator Company",
+        "severity": "high",
+        "supporting_case_ids": [
+          "619cdb39-afa2-416a-9200-e7bd2053f5d3",
+          "09db5aa6-4b65-48d2-8b0e-0bee0721829a",
+          "7d5b7680-36c5-4921-9a76-707d3620e208"
+        ],
+        "supporting_observation_ids": [
+          17,
+          11,
+          4,
+          19
+        ]
+      },
+      {
+        "flag_id": 37,
+        "case_id": "7d5b7680-36c5-4921-9a76-707d3620e208",
+        "pattern_type": "repeated_building_issue",
+        "entity_type": "building",
+        "entity_value": "123 Example Road, Example City",
+        "severity": "high",
+        "supporting_case_ids": [
+          "619cdb39-afa2-416a-9200-e7bd2053f5d3",
+          "09db5aa6-4b65-48d2-8b0e-0bee0721829a",
+          "7d5b7680-36c5-4921-9a76-707d3620e208"
+        ],
+        "supporting_observation_ids": [
+          16,
+          9,
+          3
+        ]
+      },
+      {
+        "flag_id": 35,
+        "case_id": "069fa1f3-60a2-4cef-b20a-1ea01f4875ed",
+        "pattern_type": "repeated_contractor_issue",
+        "entity_type": "contractor",
+        "entity_value": "Sample Lift Services",
+        "severity": "high",
+        "supporting_case_ids": [
+          "069fa1f3-60a2-4cef-b20a-1ea01f4875ed",
+          "afa52be6-7aab-4fb8-a98c-1deb1ad74408",
+          "5cf106b6-3b8a-4627-ae8b-db8322aa5b39",
+          "354a0593-3842-4a0f-9238-7b32708554ff",
+          "ad72d928-09e9-4d00-92d0-bef447eb0f17",
+          "a35db2d3-c8b2-472c-99e7-3311c00e8497",
+          "287c88d9-6a1d-4822-a3ec-7ff0c700f7c9"
+        ],
+        "supporting_observation_ids": [
+          161,
+          146,
+          97,
+          64,
+          57,
+          37,
+          31,
+          164,
+          99,
+          67,
+          33
+        ]
+      },
+      {
+        "flag_id": 34,
+        "case_id": "069fa1f3-60a2-4cef-b20a-1ea01f4875ed",
+        "pattern_type": "repeated_device_issue",
+        "entity_type": "device",
+        "entity_value": "B-1 #700001",
+        "severity": "high",
+        "supporting_case_ids": [
+          "069fa1f3-60a2-4cef-b20a-1ea01f4875ed",
+          "0018ca42-620d-4820-8f33-12b05292e01b",
+          "c00de470-0467-4a84-a977-4c8b9afdc86e",
+          "c904f53c-6b16-4f6a-82d5-ab2ef6f3d090",
+          "09db5aa6-4b65-48d2-8b0e-0bee0721829a"
+        ],
+        "supporting_observation_ids": [
+          160,
+          152,
+          83,
+          23,
+          10
+        ]
+      },
+      {
+        "flag_id": 32,
+        "case_id": "0018ca42-620d-4820-8f33-12b05292e01b",
+        "pattern_type": "repeated_contractor_issue",
+        "entity_type": "contractor",
+        "entity_value": "Example Elevator Company",
+        "severity": "high",
+        "supporting_case_ids": [
+          "0018ca42-620d-4820-8f33-12b05292e01b",
+          "43e9735e-87c3-4542-a9d9-14063e84e493",
+          "c00de470-0467-4a84-a977-4c8b9afdc86e",
+          "5dbb5646-a85e-4f32-89ba-10eed05ab83c",
+          "c904f53c-6b16-4f6a-82d5-ab2ef6f3d090",
+          "619cdb39-afa2-416a-9200-e7bd2053f5d3",
+          "09db5aa6-4b65-48d2-8b0e-0bee0721829a",
+          "7d5b7680-36c5-4921-9a76-707d3620e208"
+        ],
+        "supporting_observation_ids": [
+          153,
+          111,
+          84,
+          50,
+          24,
+          17,
+          11,
+          4,
+          156,
+          113,
+          52,
+          27,
+          19
+        ]
+      },
+      {
+        "flag_id": 31,
+        "case_id": "0018ca42-620d-4820-8f33-12b05292e01b",
+        "pattern_type": "repeated_device_issue",
+        "entity_type": "device",
+        "entity_value": "B-1 #700001",
+        "severity": "high",
+        "supporting_case_ids": [
+          "0018ca42-620d-4820-8f33-12b05292e01b",
+          "c00de470-0467-4a84-a977-4c8b9afdc86e",
+          "c904f53c-6b16-4f6a-82d5-ab2ef6f3d090",
+          "09db5aa6-4b65-48d2-8b0e-0bee0721829a"
+        ],
+        "supporting_observation_ids": [
+          152,
+          83,
+          23,
+          10
+        ]
+      },
+      {
+        "flag_id": 30,
+        "case_id": "afa52be6-7aab-4fb8-a98c-1deb1ad74408",
+        "pattern_type": "repeated_contractor_issue",
+        "entity_type": "contractor",
+        "entity_value": "Sample Lift Services",
+        "severity": "high",
+        "supporting_case_ids": [
+          "afa52be6-7aab-4fb8-a98c-1deb1ad74408",
+          "5cf106b6-3b8a-4627-ae8b-db8322aa5b39",
+          "354a0593-3842-4a0f-9238-7b32708554ff",
+          "ad72d928-09e9-4d00-92d0-bef447eb0f17",
+          "a35db2d3-c8b2-472c-99e7-3311c00e8497",
+          "287c88d9-6a1d-4822-a3ec-7ff0c700f7c9"
+        ],
+        "supporting_observation_ids": [
+          146,
+          97,
+          64,
+          57,
+          37,
+          31,
+          99,
+          67,
+          33
+        ]
+      },
+      {
+        "flag_id": 29,
+        "case_id": "afa52be6-7aab-4fb8-a98c-1deb1ad74408",
+        "pattern_type": "repeated_device_issue",
+        "entity_type": "device",
+        "entity_value": "B-1 #700021",
+        "severity": "high",
+        "supporting_case_ids": [
+          "afa52be6-7aab-4fb8-a98c-1deb1ad74408",
+          "354a0593-3842-4a0f-9238-7b32708554ff",
+          "ad72d928-09e9-4d00-92d0-bef447eb0f17"
+        ],
+        "supporting_observation_ids": [
+          145,
+          63,
+          56
+        ]
+      },
+      {
+        "flag_id": 28,
+        "case_id": "afa52be6-7aab-4fb8-a98c-1deb1ad74408",
+        "pattern_type": "repeated_building_issue",
+        "entity_type": "building",
+        "entity_value": "456 Sample Avenue, Demo City",
+        "severity": "high",
+        "supporting_case_ids": [
+          "afa52be6-7aab-4fb8-a98c-1deb1ad74408",
+          "5cf106b6-3b8a-4627-ae8b-db8322aa5b39",
+          "354a0593-3842-4a0f-9238-7b32708554ff",
+          "ad72d928-09e9-4d00-92d0-bef447eb0f17",
+          "a35db2d3-c8b2-472c-99e7-3311c00e8497",
+          "287c88d9-6a1d-4822-a3ec-7ff0c700f7c9"
+        ],
+        "supporting_observation_ids": [
+          144,
+          95,
+          62,
+          55,
+          36,
+          30
+        ]
+      },
+      {
+        "flag_id": 27,
+        "case_id": "0ea18ab2-228c-49b6-b79c-0b5cd7677d75",
+        "pattern_type": "repeated_contractor_issue",
+        "entity_type": "contractor",
+        "entity_value": "Demo Vertical Transport",
+        "severity": "high",
+        "supporting_case_ids": [
+          "0ea18ab2-228c-49b6-b79c-0b5cd7677d75",
+          "7f82f222-8614-447c-b137-e0970a0ab85d",
+          "aac7df85-faff-4bff-9244-6f0805f812b6",
+          "e204069b-c8a6-40bd-a266-17142c4f586e",
+          "cff9fa48-2219-4a50-85fc-6588442b2e4d"
+        ],
+        "supporting_observation_ids": [
+          139,
+          132,
+          104,
+          77,
+          43,
+          141,
+          107,
+          45
+        ]
+      },
+      {
+        "flag_id": 26,
+        "case_id": "0ea18ab2-228c-49b6-b79c-0b5cd7677d75",
+        "pattern_type": "repeated_building_issue",
+        "entity_type": "building",
+        "entity_value": "789 Demo Street, Sample City",
+        "severity": "high",
+        "supporting_case_ids": [
+          "0ea18ab2-228c-49b6-b79c-0b5cd7677d75",
+          "7f82f222-8614-447c-b137-e0970a0ab85d",
+          "aac7df85-faff-4bff-9244-6f0805f812b6",
+          "e204069b-c8a6-40bd-a266-17142c4f586e",
+          "cff9fa48-2219-4a50-85fc-6588442b2e4d"
+        ],
+        "supporting_observation_ids": [
+          137,
+          130,
+          102,
+          76,
+          42
+        ]
+      },
+      {
+        "flag_id": 20,
+        "case_id": "43e9735e-87c3-4542-a9d9-14063e84e493",
+        "pattern_type": "repeated_contractor_issue",
+        "entity_type": "contractor",
+        "entity_value": "Example Elevator Company",
+        "severity": "high",
+        "supporting_case_ids": [
+          "43e9735e-87c3-4542-a9d9-14063e84e493",
+          "c00de470-0467-4a84-a977-4c8b9afdc86e",
+          "5dbb5646-a85e-4f32-89ba-10eed05ab83c",
+          "c904f53c-6b16-4f6a-82d5-ab2ef6f3d090",
+          "619cdb39-afa2-416a-9200-e7bd2053f5d3",
+          "09db5aa6-4b65-48d2-8b0e-0bee0721829a",
+          "7d5b7680-36c5-4921-9a76-707d3620e208"
+        ],
+        "supporting_observation_ids": [
+          111,
+          84,
+          50,
+          24,
+          17,
+          11,
+          4,
+          113,
+          52,
+          27,
+          19
+        ]
+      },
+      {
+        "flag_id": 17,
+        "case_id": "5cf106b6-3b8a-4627-ae8b-db8322aa5b39",
+        "pattern_type": "repeated_contractor_issue",
+        "entity_type": "contractor",
+        "entity_value": "Sample Lift Services",
+        "severity": "high",
+        "supporting_case_ids": [
+          "5cf106b6-3b8a-4627-ae8b-db8322aa5b39",
+          "354a0593-3842-4a0f-9238-7b32708554ff",
+          "ad72d928-09e9-4d00-92d0-bef447eb0f17",
+          "a35db2d3-c8b2-472c-99e7-3311c00e8497",
+          "287c88d9-6a1d-4822-a3ec-7ff0c700f7c9"
+        ],
+        "supporting_observation_ids": [
+          97,
+          64,
+          57,
+          37,
+          31,
+          99,
+          67,
+          33
+        ]
+      },
+      {
+        "flag_id": 16,
+        "case_id": "5cf106b6-3b8a-4627-ae8b-db8322aa5b39",
+        "pattern_type": "repeated_building_issue",
+        "entity_type": "building",
+        "entity_value": "456 Sample Avenue, Demo City",
+        "severity": "high",
+        "supporting_case_ids": [
+          "5cf106b6-3b8a-4627-ae8b-db8322aa5b39",
+          "354a0593-3842-4a0f-9238-7b32708554ff",
+          "ad72d928-09e9-4d00-92d0-bef447eb0f17",
+          "a35db2d3-c8b2-472c-99e7-3311c00e8497",
+          "287c88d9-6a1d-4822-a3ec-7ff0c700f7c9"
+        ],
+        "supporting_observation_ids": [
+          95,
+          62,
+          55,
+          36,
+          30
+        ]
+      },
+      {
+        "flag_id": 15,
+        "case_id": "c00de470-0467-4a84-a977-4c8b9afdc86e",
+        "pattern_type": "repeated_contractor_issue",
+        "entity_type": "contractor",
+        "entity_value": "Example Elevator Company",
+        "severity": "high",
+        "supporting_case_ids": [
+          "c00de470-0467-4a84-a977-4c8b9afdc86e",
+          "5dbb5646-a85e-4f32-89ba-10eed05ab83c",
+          "c904f53c-6b16-4f6a-82d5-ab2ef6f3d090",
+          "619cdb39-afa2-416a-9200-e7bd2053f5d3",
+          "09db5aa6-4b65-48d2-8b0e-0bee0721829a",
+          "7d5b7680-36c5-4921-9a76-707d3620e208"
+        ],
+        "supporting_observation_ids": [
+          84,
+          50,
+          24,
+          17,
+          11,
+          4,
+          52,
+          27,
+          19
+        ]
+      },
+      {
+        "flag_id": 14,
+        "case_id": "c00de470-0467-4a84-a977-4c8b9afdc86e",
+        "pattern_type": "repeated_device_issue",
+        "entity_type": "device",
+        "entity_value": "B-1 #700001",
+        "severity": "high",
+        "supporting_case_ids": [
+          "c00de470-0467-4a84-a977-4c8b9afdc86e",
+          "c904f53c-6b16-4f6a-82d5-ab2ef6f3d090",
+          "09db5aa6-4b65-48d2-8b0e-0bee0721829a"
+        ],
+        "supporting_observation_ids": [
+          83,
+          23,
+          10
+        ]
+      },
+      {
+        "flag_id": 13,
+        "case_id": "c00de470-0467-4a84-a977-4c8b9afdc86e",
+        "pattern_type": "repeated_building_issue",
+        "entity_type": "building",
+        "entity_value": "123 Example Road, Example City",
+        "severity": "high",
+        "supporting_case_ids": [
+          "c00de470-0467-4a84-a977-4c8b9afdc86e",
+          "5dbb5646-a85e-4f32-89ba-10eed05ab83c",
+          "c904f53c-6b16-4f6a-82d5-ab2ef6f3d090",
+          "619cdb39-afa2-416a-9200-e7bd2053f5d3",
+          "09db5aa6-4b65-48d2-8b0e-0bee0721829a",
+          "7d5b7680-36c5-4921-9a76-707d3620e208"
+        ],
+        "supporting_observation_ids": [
+          82,
+          48,
+          22,
+          16,
+          9,
+          3
+        ]
+      },
+      {
+        "flag_id": 9,
+        "case_id": "ad72d928-09e9-4d00-92d0-bef447eb0f17",
+        "pattern_type": "repeated_contractor_issue",
+        "entity_type": "contractor",
+        "entity_value": "Sample Lift Services",
+        "severity": "high",
+        "supporting_case_ids": [
+          "ad72d928-09e9-4d00-92d0-bef447eb0f17",
+          "a35db2d3-c8b2-472c-99e7-3311c00e8497",
+          "287c88d9-6a1d-4822-a3ec-7ff0c700f7c9"
+        ],
+        "supporting_observation_ids": [
+          57,
+          37,
+          31,
+          33
+        ]
+      },
+      {
+        "flag_id": 8,
+        "case_id": "ad72d928-09e9-4d00-92d0-bef447eb0f17",
+        "pattern_type": "repeated_building_issue",
+        "entity_type": "building",
+        "entity_value": "456 Sample Avenue, Demo City",
+        "severity": "high",
+        "supporting_case_ids": [
+          "ad72d928-09e9-4d00-92d0-bef447eb0f17",
+          "a35db2d3-c8b2-472c-99e7-3311c00e8497",
+          "287c88d9-6a1d-4822-a3ec-7ff0c700f7c9"
+        ],
+        "supporting_observation_ids": [
+          55,
+          36,
+          30
+        ]
+      },
+      {
+        "flag_id": 7,
+        "case_id": "5dbb5646-a85e-4f32-89ba-10eed05ab83c",
+        "pattern_type": "repeated_contractor_issue",
+        "entity_type": "contractor",
+        "entity_value": "Example Elevator Company",
+        "severity": "high",
+        "supporting_case_ids": [
+          "5dbb5646-a85e-4f32-89ba-10eed05ab83c",
+          "c904f53c-6b16-4f6a-82d5-ab2ef6f3d090",
+          "619cdb39-afa2-416a-9200-e7bd2053f5d3",
+          "09db5aa6-4b65-48d2-8b0e-0bee0721829a",
+          "7d5b7680-36c5-4921-9a76-707d3620e208"
+        ],
+        "supporting_observation_ids": [
+          50,
+          24,
+          17,
+          11,
+          4,
+          52,
+          27,
+          19
+        ]
+      },
+      {
+        "flag_id": 6,
+        "case_id": "5dbb5646-a85e-4f32-89ba-10eed05ab83c",
+        "pattern_type": "repeated_building_issue",
+        "entity_type": "building",
+        "entity_value": "123 Example Road, Example City",
+        "severity": "high",
+        "supporting_case_ids": [
+          "5dbb5646-a85e-4f32-89ba-10eed05ab83c",
+          "c904f53c-6b16-4f6a-82d5-ab2ef6f3d090",
+          "619cdb39-afa2-416a-9200-e7bd2053f5d3",
+          "09db5aa6-4b65-48d2-8b0e-0bee0721829a",
+          "7d5b7680-36c5-4921-9a76-707d3620e208"
+        ],
+        "supporting_observation_ids": [
+          48,
+          22,
+          16,
+          9,
+          3
+        ]
+      },
+      {
+        "flag_id": 5,
+        "case_id": "c904f53c-6b16-4f6a-82d5-ab2ef6f3d090",
+        "pattern_type": "repeated_contractor_issue",
+        "entity_type": "contractor",
+        "entity_value": "Example Elevator Company",
+        "severity": "high",
+        "supporting_case_ids": [
+          "c904f53c-6b16-4f6a-82d5-ab2ef6f3d090",
+          "619cdb39-afa2-416a-9200-e7bd2053f5d3",
+          "09db5aa6-4b65-48d2-8b0e-0bee0721829a",
+          "7d5b7680-36c5-4921-9a76-707d3620e208"
+        ],
+        "supporting_observation_ids": [
+          24,
+          17,
+          11,
+          4,
+          27,
+          19
+        ]
+      },
+      {
+        "flag_id": 4,
+        "case_id": "c904f53c-6b16-4f6a-82d5-ab2ef6f3d090",
+        "pattern_type": "repeated_device_issue",
+        "entity_type": "device",
+        "entity_value": "B-1 #700001",
+        "severity": "high",
+        "supporting_case_ids": [
+          "c904f53c-6b16-4f6a-82d5-ab2ef6f3d090",
+          "09db5aa6-4b65-48d2-8b0e-0bee0721829a"
+        ],
+        "supporting_observation_ids": [
+          23,
+          10
+        ]
+      },
+      {
+        "flag_id": 3,
+        "case_id": "c904f53c-6b16-4f6a-82d5-ab2ef6f3d090",
+        "pattern_type": "repeated_building_issue",
+        "entity_type": "building",
+        "entity_value": "123 Example Road, Example City",
+        "severity": "high",
+        "supporting_case_ids": [
+          "c904f53c-6b16-4f6a-82d5-ab2ef6f3d090",
+          "619cdb39-afa2-416a-9200-e7bd2053f5d3",
+          "09db5aa6-4b65-48d2-8b0e-0bee0721829a",
+          "7d5b7680-36c5-4921-9a76-707d3620e208"
+        ],
+        "supporting_observation_ids": [
+          22,
+          16,
+          9,
+          3
+        ]
+      },
+      {
+        "flag_id": 2,
+        "case_id": "619cdb39-afa2-416a-9200-e7bd2053f5d3",
+        "pattern_type": "repeated_contractor_issue",
+        "entity_type": "contractor",
+        "entity_value": "Example Elevator Company",
+        "severity": "high",
+        "supporting_case_ids": [
+          "619cdb39-afa2-416a-9200-e7bd2053f5d3",
+          "09db5aa6-4b65-48d2-8b0e-0bee0721829a",
+          "7d5b7680-36c5-4921-9a76-707d3620e208"
+        ],
+        "supporting_observation_ids": [
+          17,
+          11,
+          4,
+          19
+        ]
+      },
+      {
+        "flag_id": 1,
+        "case_id": "619cdb39-afa2-416a-9200-e7bd2053f5d3",
+        "pattern_type": "repeated_building_issue",
+        "entity_type": "building",
+        "entity_value": "123 Example Road, Example City",
+        "severity": "high",
+        "supporting_case_ids": [
+          "619cdb39-afa2-416a-9200-e7bd2053f5d3",
+          "09db5aa6-4b65-48d2-8b0e-0bee0721829a",
+          "7d5b7680-36c5-4921-9a76-707d3620e208"
+        ],
+        "supporting_observation_ids": [
+          16,
+          9,
+          3
+        ]
+      },
+      {
+        "flag_id": 36,
+        "case_id": "069fa1f3-60a2-4cef-b20a-1ea01f4875ed",
+        "pattern_type": "repeated_major_work_overdue",
+        "entity_type": "building",
+        "entity_value": "611 Sample Avenue, Example City",
+        "severity": "medium",
+        "supporting_case_ids": [
+          "069fa1f3-60a2-4cef-b20a-1ea01f4875ed",
+          "354a0593-3842-4a0f-9238-7b32708554ff"
+        ],
+        "supporting_observation_ids": [
+          164,
+          67
+        ]
+      },
+      {
+        "flag_id": 33,
+        "case_id": "0018ca42-620d-4820-8f33-12b05292e01b",
+        "pattern_type": "repeated_major_work_overdue",
+        "entity_type": "building",
+        "entity_value": "610 Example Road, Example City",
+        "severity": "medium",
+        "supporting_case_ids": [
+          "0018ca42-620d-4820-8f33-12b05292e01b",
+          "c904f53c-6b16-4f6a-82d5-ab2ef6f3d090"
+        ],
+        "supporting_observation_ids": [
+          156,
+          27
+        ]
+      },
+      {
+        "flag_id": 25,
+        "case_id": "7f82f222-8614-447c-b137-e0970a0ab85d",
+        "pattern_type": "repeated_contractor_issue",
+        "entity_type": "contractor",
+        "entity_value": "Demo Vertical Transport",
+        "severity": "medium",
+        "supporting_case_ids": [
+          "7f82f222-8614-447c-b137-e0970a0ab85d",
+          "aac7df85-faff-4bff-9244-6f0805f812b6",
+          "e204069b-c8a6-40bd-a266-17142c4f586e",
+          "cff9fa48-2219-4a50-85fc-6588442b2e4d"
+        ],
+        "supporting_observation_ids": [
+          132,
+          104,
+          77,
+          43,
+          107,
+          45
+        ]
+      },
+      {
+        "flag_id": 24,
+        "case_id": "7f82f222-8614-447c-b137-e0970a0ab85d",
+        "pattern_type": "repeated_device_issue",
+        "entity_type": "device",
+        "entity_value": "B-1 #700041",
+        "severity": "medium",
+        "supporting_case_ids": [
+          "7f82f222-8614-447c-b137-e0970a0ab85d",
+          "aac7df85-faff-4bff-9244-6f0805f812b6"
+        ],
+        "supporting_observation_ids": [
+          131,
+          103
+        ]
+      },
+      {
+        "flag_id": 23,
+        "case_id": "7f82f222-8614-447c-b137-e0970a0ab85d",
+        "pattern_type": "repeated_building_issue",
+        "entity_type": "building",
+        "entity_value": "789 Demo Street, Sample City",
+        "severity": "medium",
+        "supporting_case_ids": [
+          "7f82f222-8614-447c-b137-e0970a0ab85d",
+          "aac7df85-faff-4bff-9244-6f0805f812b6",
+          "e204069b-c8a6-40bd-a266-17142c4f586e",
+          "cff9fa48-2219-4a50-85fc-6588442b2e4d"
+        ],
+        "supporting_observation_ids": [
+          130,
+          102,
+          76,
+          42
+        ]
+      },
+      {
+        "flag_id": 22,
+        "case_id": "95532d8f-f4ac-4ff2-a667-f974483caa74",
+        "pattern_type": "repeated_contractor_issue",
+        "entity_type": "contractor",
+        "entity_value": "Generic Mobility Systems",
+        "severity": "medium",
+        "supporting_case_ids": [
+          "95532d8f-f4ac-4ff2-a667-f974483caa74",
+          "6847ba26-9bce-45c0-9319-10106f4a2c49",
+          "f8c968e0-e3ac-4e2e-bb41-802c7745a151"
+        ],
+        "supporting_observation_ids": [
+          125,
+          118,
+          90,
+          92
+        ]
+      },
+      {
+        "flag_id": 21,
+        "case_id": "95532d8f-f4ac-4ff2-a667-f974483caa74",
+        "pattern_type": "repeated_building_issue",
+        "entity_type": "building",
+        "entity_value": "101 Example Road, Demo City",
+        "severity": "medium",
+        "supporting_case_ids": [
+          "95532d8f-f4ac-4ff2-a667-f974483caa74",
+          "6847ba26-9bce-45c0-9319-10106f4a2c49",
+          "f8c968e0-e3ac-4e2e-bb41-802c7745a151"
+        ],
+        "supporting_observation_ids": [
+          123,
+          116,
+          89
+        ]
+      },
+      {
+        "flag_id": 19,
+        "case_id": "aac7df85-faff-4bff-9244-6f0805f812b6",
+        "pattern_type": "repeated_contractor_issue",
+        "entity_type": "contractor",
+        "entity_value": "Demo Vertical Transport",
+        "severity": "medium",
+        "supporting_case_ids": [
+          "aac7df85-faff-4bff-9244-6f0805f812b6",
+          "e204069b-c8a6-40bd-a266-17142c4f586e",
+          "cff9fa48-2219-4a50-85fc-6588442b2e4d"
+        ],
+        "supporting_observation_ids": [
+          104,
+          77,
+          43,
+          107,
+          45
+        ]
+      },
+      {
+        "flag_id": 18,
+        "case_id": "aac7df85-faff-4bff-9244-6f0805f812b6",
+        "pattern_type": "repeated_building_issue",
+        "entity_type": "building",
+        "entity_value": "789 Demo Street, Sample City",
+        "severity": "medium",
+        "supporting_case_ids": [
+          "aac7df85-faff-4bff-9244-6f0805f812b6",
+          "e204069b-c8a6-40bd-a266-17142c4f586e",
+          "cff9fa48-2219-4a50-85fc-6588442b2e4d"
+        ],
+        "supporting_observation_ids": [
+          102,
+          76,
+          42
+        ]
+      },
+      {
+        "flag_id": 12,
+        "case_id": "354a0593-3842-4a0f-9238-7b32708554ff",
+        "pattern_type": "repeated_contractor_issue",
+        "entity_type": "contractor",
+        "entity_value": "Sample Lift Services",
+        "severity": "medium",
+        "supporting_case_ids": [
+          "354a0593-3842-4a0f-9238-7b32708554ff",
+          "ad72d928-09e9-4d00-92d0-bef447eb0f17",
+          "a35db2d3-c8b2-472c-99e7-3311c00e8497",
+          "287c88d9-6a1d-4822-a3ec-7ff0c700f7c9"
+        ],
+        "supporting_observation_ids": [
+          64,
+          57,
+          37,
+          31,
+          67,
+          33
+        ]
+      },
+      {
+        "flag_id": 11,
+        "case_id": "354a0593-3842-4a0f-9238-7b32708554ff",
+        "pattern_type": "repeated_device_issue",
+        "entity_type": "device",
+        "entity_value": "B-1 #700021",
+        "severity": "medium",
+        "supporting_case_ids": [
+          "354a0593-3842-4a0f-9238-7b32708554ff",
+          "ad72d928-09e9-4d00-92d0-bef447eb0f17"
+        ],
+        "supporting_observation_ids": [
+          63,
+          56
+        ]
+      },
+      {
+        "flag_id": 10,
+        "case_id": "354a0593-3842-4a0f-9238-7b32708554ff",
+        "pattern_type": "repeated_building_issue",
+        "entity_type": "building",
+        "entity_value": "456 Sample Avenue, Demo City",
+        "severity": "medium",
+        "supporting_case_ids": [
+          "354a0593-3842-4a0f-9238-7b32708554ff",
+          "ad72d928-09e9-4d00-92d0-bef447eb0f17",
+          "a35db2d3-c8b2-472c-99e7-3311c00e8497",
+          "287c88d9-6a1d-4822-a3ec-7ff0c700f7c9"
+        ],
+        "supporting_observation_ids": [
+          62,
+          55,
+          36,
+          30
+        ]
+      }
+    ],
+    "matched_expected_flags": [
+      {
+        "pattern_type": "repeated_building_issue",
+        "entity_type": "building",
+        "entity_value": "123 Example Road, Example City",
+        "entity_key": [
+          "repeated_building_issue",
+          "building",
+          "123 example road example city"
+        ],
+        "supporting_case_keys": [
+          "data_absence|123 example road, example city||",
+          "government_directive|123 example road, example city|b-2 #700002|",
+          "major_work_overdue|123 example road, example city|b-1 #700001|"
+        ],
+        "supporting_case_ids": [
+          "5dbb5646-a85e-4f32-89ba-10eed05ab83c",
+          "7d5b7680-36c5-4921-9a76-707d3620e208",
+          "c904f53c-6b16-4f6a-82d5-ab2ef6f3d090"
+        ],
+        "reason": "Recurring building threshold met by 3 cases.",
+        "matched_case_ids": [
+          "09db5aa6-4b65-48d2-8b0e-0bee0721829a",
+          "5dbb5646-a85e-4f32-89ba-10eed05ab83c",
+          "619cdb39-afa2-416a-9200-e7bd2053f5d3",
+          "7d5b7680-36c5-4921-9a76-707d3620e208",
+          "c00de470-0467-4a84-a977-4c8b9afdc86e",
+          "c904f53c-6b16-4f6a-82d5-ab2ef6f3d090"
+        ],
+        "matched_flag_ids": [
+          1,
+          3,
+          6,
+          13,
+          37,
+          39
+        ]
+      },
+      {
+        "pattern_type": "repeated_building_issue",
+        "entity_type": "building",
+        "entity_value": "456 Sample Avenue, Demo City",
+        "entity_key": [
+          "repeated_building_issue",
+          "building",
+          "456 sample avenue demo city"
+        ],
+        "supporting_case_keys": [
+          "data_absence|456 sample avenue, demo city||",
+          "government_directive|456 sample avenue, demo city|b-2 #700022|",
+          "major_work_overdue|456 sample avenue, demo city|b-1 #700021|"
+        ],
+        "supporting_case_ids": [
+          "354a0593-3842-4a0f-9238-7b32708554ff",
+          "5cf106b6-3b8a-4627-ae8b-db8322aa5b39",
+          "a35db2d3-c8b2-472c-99e7-3311c00e8497"
+        ],
+        "reason": "Recurring building threshold met by 3 cases.",
+        "matched_case_ids": [
+          "287c88d9-6a1d-4822-a3ec-7ff0c700f7c9",
+          "354a0593-3842-4a0f-9238-7b32708554ff",
+          "5cf106b6-3b8a-4627-ae8b-db8322aa5b39",
+          "a35db2d3-c8b2-472c-99e7-3311c00e8497",
+          "ad72d928-09e9-4d00-92d0-bef447eb0f17",
+          "afa52be6-7aab-4fb8-a98c-1deb1ad74408"
+        ],
+        "matched_flag_ids": [
+          8,
+          10,
+          16,
+          28,
+          42,
+          44
+        ]
+      },
+      {
+        "pattern_type": "repeated_building_issue",
+        "entity_type": "building",
+        "entity_value": "789 Demo Street, Sample City",
+        "entity_key": [
+          "repeated_building_issue",
+          "building",
+          "789 demo street sample city"
+        ],
+        "supporting_case_keys": [
+          "data_absence|789 demo street, sample city||",
+          "government_directive|789 demo street, sample city|b-2 #700042|",
+          "major_work_overdue|789 demo street, sample city|b-1 #700041|"
+        ],
+        "supporting_case_ids": [
+          "0ea18ab2-228c-49b6-b79c-0b5cd7677d75",
+          "aac7df85-faff-4bff-9244-6f0805f812b6",
+          "e204069b-c8a6-40bd-a266-17142c4f586e"
+        ],
+        "reason": "Recurring building threshold met by 3 cases.",
+        "matched_case_ids": [
+          "0ea18ab2-228c-49b6-b79c-0b5cd7677d75",
+          "7f82f222-8614-447c-b137-e0970a0ab85d",
+          "aac7df85-faff-4bff-9244-6f0805f812b6",
+          "cff9fa48-2219-4a50-85fc-6588442b2e4d"
+        ],
+        "matched_flag_ids": [
+          18,
+          23,
+          26,
+          46
+        ]
+      },
+      {
+        "pattern_type": "repeated_device_issue",
+        "entity_type": "device",
+        "entity_value": "B-1 #700001",
+        "entity_key": [
+          "repeated_device_issue",
+          "device",
+          "b-1 #700001"
+        ],
+        "supporting_case_keys": [
+          "cat1_compliance|123 example road, example city|b-1 #700001|",
+          "cat5_compliance|123 example road, example city|b-1 #700001|"
+        ],
+        "supporting_case_ids": [
+          "09db5aa6-4b65-48d2-8b0e-0bee0721829a",
+          "c00de470-0467-4a84-a977-4c8b9afdc86e"
+        ],
+        "reason": "Recurring device threshold met by 2 cases.",
+        "matched_case_ids": [
+          "0018ca42-620d-4820-8f33-12b05292e01b",
+          "069fa1f3-60a2-4cef-b20a-1ea01f4875ed",
+          "09db5aa6-4b65-48d2-8b0e-0bee0721829a",
+          "c00de470-0467-4a84-a977-4c8b9afdc86e",
+          "c904f53c-6b16-4f6a-82d5-ab2ef6f3d090"
+        ],
+        "matched_flag_ids": [
+          4,
+          14,
+          31,
+          34,
+          40
+        ]
+      },
+      {
+        "pattern_type": "repeated_device_issue",
+        "entity_type": "device",
+        "entity_value": "B-1 #700021",
+        "entity_key": [
+          "repeated_device_issue",
+          "device",
+          "b-1 #700021"
+        ],
+        "supporting_case_keys": [
+          "cat1_compliance|456 sample avenue, demo city|b-1 #700021|",
+          "cat5_compliance|456 sample avenue, demo city|b-1 #700021|"
+        ],
+        "supporting_case_ids": [
+          "ad72d928-09e9-4d00-92d0-bef447eb0f17",
+          "afa52be6-7aab-4fb8-a98c-1deb1ad74408"
+        ],
+        "reason": "Recurring device threshold met by 2 cases.",
+        "matched_case_ids": [
+          "354a0593-3842-4a0f-9238-7b32708554ff",
+          "ad72d928-09e9-4d00-92d0-bef447eb0f17",
+          "afa52be6-7aab-4fb8-a98c-1deb1ad74408"
+        ],
+        "matched_flag_ids": [
+          11,
+          29,
+          48
+        ]
+      },
+      {
+        "pattern_type": "repeated_contractor_issue",
+        "entity_type": "contractor",
+        "entity_value": "Example Elevator Company",
+        "entity_key": [
+          "repeated_contractor_issue",
+          "contractor",
+          "example elevator company"
+        ],
+        "supporting_case_keys": [
+          "cat1_compliance|123 example road, example city|b-1 #700001|",
+          "cat5_compliance|123 example road, example city|b-1 #700001|",
+          "data_absence|123 example road, example city||",
+          "government_directive|123 example road, example city|b-2 #700002|",
+          "maintenance_hours_shortfall|102 example road, sample city||may 2026",
+          "maintenance_hours_shortfall|123 example road, example city||april 2026",
+          "major_work_overdue|123 example road, example city|b-1 #700001|",
+          "major_work_overdue|610 example road, example city|b-1 #700001|"
+        ],
+        "supporting_case_ids": [
+          "0018ca42-620d-4820-8f33-12b05292e01b",
+          "09db5aa6-4b65-48d2-8b0e-0bee0721829a",
+          "43e9735e-87c3-4542-a9d9-14063e84e493",
+          "5dbb5646-a85e-4f32-89ba-10eed05ab83c",
+          "619cdb39-afa2-416a-9200-e7bd2053f5d3",
+          "7d5b7680-36c5-4921-9a76-707d3620e208",
+          "c00de470-0467-4a84-a977-4c8b9afdc86e",
+          "c904f53c-6b16-4f6a-82d5-ab2ef6f3d090"
+        ],
+        "reason": "Recurring contractor threshold met by 8 cases and 5 high-priority cases.",
+        "matched_case_ids": [
+          "0018ca42-620d-4820-8f33-12b05292e01b",
+          "09db5aa6-4b65-48d2-8b0e-0bee0721829a",
+          "43e9735e-87c3-4542-a9d9-14063e84e493",
+          "5dbb5646-a85e-4f32-89ba-10eed05ab83c",
+          "619cdb39-afa2-416a-9200-e7bd2053f5d3",
+          "7d5b7680-36c5-4921-9a76-707d3620e208",
+          "c00de470-0467-4a84-a977-4c8b9afdc86e",
+          "c904f53c-6b16-4f6a-82d5-ab2ef6f3d090"
+        ],
+        "matched_flag_ids": [
+          2,
+          5,
+          7,
+          15,
+          20,
+          32,
+          38,
+          41
+        ]
+      },
+      {
+        "pattern_type": "repeated_contractor_issue",
+        "entity_type": "contractor",
+        "entity_value": "Sample Lift Services",
+        "entity_key": [
+          "repeated_contractor_issue",
+          "contractor",
+          "sample lift services"
+        ],
+        "supporting_case_keys": [
+          "cat1_compliance|456 sample avenue, demo city|b-1 #700021|",
+          "cat5_compliance|456 sample avenue, demo city|b-1 #700021|",
+          "data_absence|456 sample avenue, demo city||",
+          "government_directive|456 sample avenue, demo city|b-2 #700022|",
+          "maintenance_hours_shortfall|456 sample avenue, demo city||may 2026",
+          "major_work_overdue|456 sample avenue, demo city|b-1 #700021|",
+          "major_work_overdue|611 sample avenue, example city|b-1 #700001|"
+        ],
+        "supporting_case_ids": [
+          "069fa1f3-60a2-4cef-b20a-1ea01f4875ed",
+          "287c88d9-6a1d-4822-a3ec-7ff0c700f7c9",
+          "354a0593-3842-4a0f-9238-7b32708554ff",
+          "5cf106b6-3b8a-4627-ae8b-db8322aa5b39",
+          "a35db2d3-c8b2-472c-99e7-3311c00e8497",
+          "ad72d928-09e9-4d00-92d0-bef447eb0f17",
+          "afa52be6-7aab-4fb8-a98c-1deb1ad74408"
+        ],
+        "reason": "Recurring contractor threshold met by 7 cases and 4 high-priority cases.",
+        "matched_case_ids": [
+          "069fa1f3-60a2-4cef-b20a-1ea01f4875ed",
+          "287c88d9-6a1d-4822-a3ec-7ff0c700f7c9",
+          "354a0593-3842-4a0f-9238-7b32708554ff",
+          "5cf106b6-3b8a-4627-ae8b-db8322aa5b39",
+          "a35db2d3-c8b2-472c-99e7-3311c00e8497",
+          "ad72d928-09e9-4d00-92d0-bef447eb0f17",
+          "afa52be6-7aab-4fb8-a98c-1deb1ad74408"
+        ],
+        "matched_flag_ids": [
+          9,
+          12,
+          17,
+          30,
+          35,
+          43,
+          45
+        ]
+      },
+      {
+        "pattern_type": "repeated_contractor_issue",
+        "entity_type": "contractor",
+        "entity_value": "Demo Vertical Transport",
+        "entity_key": [
+          "repeated_contractor_issue",
+          "contractor",
+          "demo vertical transport"
+        ],
+        "supporting_case_keys": [
+          "cat1_compliance|789 demo street, sample city|b-1 #700041|",
+          "data_absence|789 demo street, sample city||",
+          "government_directive|789 demo street, sample city|b-2 #700042|",
+          "maintenance_hours_shortfall|789 demo street, sample city||april 2026",
+          "major_work_overdue|789 demo street, sample city|b-1 #700041|"
+        ],
+        "supporting_case_ids": [
+          "0ea18ab2-228c-49b6-b79c-0b5cd7677d75",
+          "7f82f222-8614-447c-b137-e0970a0ab85d",
+          "aac7df85-faff-4bff-9244-6f0805f812b6",
+          "cff9fa48-2219-4a50-85fc-6588442b2e4d",
+          "e204069b-c8a6-40bd-a266-17142c4f586e"
+        ],
+        "reason": "Recurring contractor threshold met by 5 cases and 3 high-priority cases.",
+        "matched_case_ids": [
+          "0ea18ab2-228c-49b6-b79c-0b5cd7677d75",
+          "7f82f222-8614-447c-b137-e0970a0ab85d",
+          "aac7df85-faff-4bff-9244-6f0805f812b6",
+          "cff9fa48-2219-4a50-85fc-6588442b2e4d"
+        ],
+        "matched_flag_ids": [
+          19,
+          25,
+          27,
+          47
+        ]
+      },
+      {
+        "pattern_type": "repeated_contractor_issue",
+        "entity_type": "contractor",
+        "entity_value": "Generic Mobility Systems",
+        "entity_key": [
+          "repeated_contractor_issue",
+          "contractor",
+          "generic mobility systems"
+        ],
+        "supporting_case_keys": [
+          "cat1_compliance|101 example road, demo city|b-1 #700081|",
+          "cat1_compliance|101 example road, demo city|b-2 #700082|",
+          "maintenance_hours_shortfall|101 example road, demo city||april 2026"
+        ],
+        "supporting_case_ids": [
+          "6847ba26-9bce-45c0-9319-10106f4a2c49",
+          "95532d8f-f4ac-4ff2-a667-f974483caa74",
+          "f8c968e0-e3ac-4e2e-bb41-802c7745a151"
+        ],
+        "reason": "Recurring contractor threshold met by 3 cases and 1 high-priority cases.",
+        "matched_case_ids": [
+          "95532d8f-f4ac-4ff2-a667-f974483caa74"
+        ],
+        "matched_flag_ids": [
+          22
+        ]
+      },
+      {
+        "pattern_type": "repeated_no_response",
+        "entity_type": "contractor",
+        "entity_value": "Example Elevator Company",
+        "entity_key": [
+          "repeated_no_response",
+          "contractor",
+          "example elevator company"
+        ],
+        "supporting_case_keys": [],
+        "supporting_case_ids": [
+          "09db5aa6-4b65-48d2-8b0e-0bee0721829a",
+          "5dbb5646-a85e-4f32-89ba-10eed05ab83c",
+          "619cdb39-afa2-416a-9200-e7bd2053f5d3",
+          "7d5b7680-36c5-4921-9a76-707d3620e208",
+          "c904f53c-6b16-4f6a-82d5-ab2ef6f3d090"
+        ],
+        "reason": "No-response follow-up threshold met across 5 case(s).",
+        "matched_case_ids": [
+          "09db5aa6-4b65-48d2-8b0e-0bee0721829a",
+          "5dbb5646-a85e-4f32-89ba-10eed05ab83c",
+          "619cdb39-afa2-416a-9200-e7bd2053f5d3",
+          "7d5b7680-36c5-4921-9a76-707d3620e208",
+          "c904f53c-6b16-4f6a-82d5-ab2ef6f3d090"
+        ],
+        "matched_flag_ids": [
+          49,
+          50,
+          51,
+          52,
+          53
+        ]
+      },
+      {
+        "pattern_type": "repeated_no_response",
+        "entity_type": "contractor",
+        "entity_value": "Sample Lift Services",
+        "entity_key": [
+          "repeated_no_response",
+          "contractor",
+          "sample lift services"
+        ],
+        "supporting_case_keys": [],
+        "supporting_case_ids": [
+          "287c88d9-6a1d-4822-a3ec-7ff0c700f7c9",
+          "a35db2d3-c8b2-472c-99e7-3311c00e8497"
+        ],
+        "reason": "No-response follow-up threshold met across 2 case(s).",
+        "matched_case_ids": [
+          "287c88d9-6a1d-4822-a3ec-7ff0c700f7c9",
+          "a35db2d3-c8b2-472c-99e7-3311c00e8497"
+        ],
+        "matched_flag_ids": [
+          54,
+          55
+        ]
+      },
+      {
+        "pattern_type": "repeated_no_response",
+        "entity_type": "contractor",
+        "entity_value": "Demo Vertical Transport",
+        "entity_key": [
+          "repeated_no_response",
+          "contractor",
+          "demo vertical transport"
+        ],
+        "supporting_case_keys": [],
+        "supporting_case_ids": [
+          "cff9fa48-2219-4a50-85fc-6588442b2e4d"
+        ],
+        "reason": "No-response follow-up threshold met across 1 case(s).",
+        "matched_case_ids": [
+          "cff9fa48-2219-4a50-85fc-6588442b2e4d"
+        ],
+        "matched_flag_ids": [
+          56
+        ]
+      }
+    ],
+    "missing_expected_flags": [
+      {
+        "pattern_type": "repeated_major_work_overdue",
+        "entity_type": "contractor",
+        "entity_value": "Example Elevator Company",
+        "entity_key": [
+          "repeated_major_work_overdue",
+          "contractor",
+          "example elevator company"
+        ],
+        "supporting_case_keys": [
+          "major_work_overdue|123 example road, example city|b-1 #700001|",
+          "major_work_overdue|610 example road, example city|b-1 #700001|"
+        ],
+        "supporting_case_ids": [
+          "0018ca42-620d-4820-8f33-12b05292e01b",
+          "c904f53c-6b16-4f6a-82d5-ab2ef6f3d090"
+        ],
+        "reason": "Repeated major work overdue threshold met by 2 cases."
+      },
+      {
+        "pattern_type": "repeated_major_work_overdue",
+        "entity_type": "contractor",
+        "entity_value": "Sample Lift Services",
+        "entity_key": [
+          "repeated_major_work_overdue",
+          "contractor",
+          "sample lift services"
+        ],
+        "supporting_case_keys": [
+          "major_work_overdue|456 sample avenue, demo city|b-1 #700021|",
+          "major_work_overdue|611 sample avenue, example city|b-1 #700001|"
+        ],
+        "supporting_case_ids": [
+          "069fa1f3-60a2-4cef-b20a-1ea01f4875ed",
+          "354a0593-3842-4a0f-9238-7b32708554ff"
+        ],
+        "reason": "Repeated major work overdue threshold met by 2 cases."
+      }
+    ],
+    "unexpected_pattern_flags": [
+      {
+        "flag_id": 36,
+        "case_id": "069fa1f3-60a2-4cef-b20a-1ea01f4875ed",
+        "pattern_type": "repeated_major_work_overdue",
+        "entity_type": "building",
+        "entity_value": "611 Sample Avenue, Example City",
+        "severity": "medium"
+      },
+      {
+        "flag_id": 33,
+        "case_id": "0018ca42-620d-4820-8f33-12b05292e01b",
+        "pattern_type": "repeated_major_work_overdue",
+        "entity_type": "building",
+        "entity_value": "610 Example Road, Example City",
+        "severity": "medium"
+      },
+      {
+        "flag_id": 24,
+        "case_id": "7f82f222-8614-447c-b137-e0970a0ab85d",
+        "pattern_type": "repeated_device_issue",
+        "entity_type": "device",
+        "entity_value": "B-1 #700041",
+        "severity": "medium"
+      },
+      {
+        "flag_id": 21,
+        "case_id": "95532d8f-f4ac-4ff2-a667-f974483caa74",
+        "pattern_type": "repeated_building_issue",
+        "entity_type": "building",
+        "entity_value": "101 Example Road, Demo City",
+        "severity": "medium"
+      }
+    ],
+    "false_positive_links": 2,
+    "evidence_mismatch_count": 48,
+    "duplicate_pattern_flags": 0,
+    "mechanic_flags_expected": 0,
+    "mechanic_flags_actual": 0,
+    "validation_rows": [
+      {
+        "pattern_type": "repeated_building_issue",
+        "entity_type": "building",
+        "entity_value": "123 Example Road, Example City",
+        "severity": "high",
+        "supporting_case_ids": [
+          "5dbb5646-a85e-4f32-89ba-10eed05ab83c",
+          "7d5b7680-36c5-4921-9a76-707d3620e208",
+          "c904f53c-6b16-4f6a-82d5-ab2ef6f3d090"
+        ],
+        "supporting_observation_ids": [
+          1,
+          3,
+          6,
+          20,
+          22,
+          26,
+          27,
+          46,
+          48,
+          52
+        ],
+        "expected_by_fixture": true,
+        "validation_result": "PASS",
+        "reason": "Recurring building threshold met by 3 cases."
+      },
+      {
+        "pattern_type": "repeated_building_issue",
+        "entity_type": "building",
+        "entity_value": "456 Sample Avenue, Demo City",
+        "severity": "medium",
+        "supporting_case_ids": [
+          "354a0593-3842-4a0f-9238-7b32708554ff",
+          "5cf106b6-3b8a-4627-ae8b-db8322aa5b39",
+          "a35db2d3-c8b2-472c-99e7-3311c00e8497"
+        ],
+        "supporting_observation_ids": [
+          34,
+          36,
+          39,
+          60,
+          62,
+          66,
+          67,
+          93,
+          95,
+          99
+        ],
+        "expected_by_fixture": true,
+        "validation_result": "PASS",
+        "reason": "Recurring building threshold met by 3 cases."
+      },
+      {
+        "pattern_type": "repeated_building_issue",
+        "entity_type": "building",
+        "entity_value": "789 Demo Street, Sample City",
+        "severity": "medium",
+        "supporting_case_ids": [
+          "0ea18ab2-228c-49b6-b79c-0b5cd7677d75",
+          "aac7df85-faff-4bff-9244-6f0805f812b6",
+          "e204069b-c8a6-40bd-a266-17142c4f586e"
+        ],
+        "supporting_observation_ids": [
+          74,
+          76,
+          79,
+          100,
+          102,
+          106,
+          107,
+          135,
+          137,
+          141
+        ],
+        "expected_by_fixture": true,
+        "validation_result": "PASS",
+        "reason": "Recurring building threshold met by 3 cases."
+      },
+      {
+        "pattern_type": "repeated_device_issue",
+        "entity_type": "device",
+        "entity_value": "B-1 #700001",
+        "severity": "high",
+        "supporting_case_ids": [
+          "09db5aa6-4b65-48d2-8b0e-0bee0721829a",
+          "c00de470-0467-4a84-a977-4c8b9afdc86e"
+        ],
+        "supporting_observation_ids": [
+          10,
+          83
+        ],
+        "expected_by_fixture": true,
+        "validation_result": "PASS",
+        "reason": "Recurring device threshold met by 2 cases."
+      },
+      {
+        "pattern_type": "repeated_device_issue",
+        "entity_type": "device",
+        "entity_value": "B-1 #700021",
+        "severity": "medium",
+        "supporting_case_ids": [
+          "ad72d928-09e9-4d00-92d0-bef447eb0f17",
+          "afa52be6-7aab-4fb8-a98c-1deb1ad74408"
+        ],
+        "supporting_observation_ids": [
+          56,
+          145
+        ],
+        "expected_by_fixture": true,
+        "validation_result": "PASS",
+        "reason": "Recurring device threshold met by 2 cases."
+      },
+      {
+        "pattern_type": "repeated_major_work_overdue",
+        "entity_type": "contractor",
+        "entity_value": "Example Elevator Company",
+        "severity": "expected",
+        "supporting_case_ids": [
+          "0018ca42-620d-4820-8f33-12b05292e01b",
+          "c904f53c-6b16-4f6a-82d5-ab2ef6f3d090"
+        ],
+        "supporting_observation_ids": [],
+        "expected_by_fixture": true,
+        "validation_result": "FAIL",
+        "reason": "Expected pattern flag was not created. Repeated major work overdue threshold met by 2 cases."
+      },
+      {
+        "pattern_type": "repeated_major_work_overdue",
+        "entity_type": "contractor",
+        "entity_value": "Sample Lift Services",
+        "severity": "expected",
+        "supporting_case_ids": [
+          "069fa1f3-60a2-4cef-b20a-1ea01f4875ed",
+          "354a0593-3842-4a0f-9238-7b32708554ff"
+        ],
+        "supporting_observation_ids": [],
+        "expected_by_fixture": true,
+        "validation_result": "FAIL",
+        "reason": "Expected pattern flag was not created. Repeated major work overdue threshold met by 2 cases."
+      },
+      {
+        "pattern_type": "repeated_contractor_issue",
+        "entity_type": "contractor",
+        "entity_value": "Example Elevator Company",
+        "severity": "high",
+        "supporting_case_ids": [
+          "0018ca42-620d-4820-8f33-12b05292e01b",
+          "09db5aa6-4b65-48d2-8b0e-0bee0721829a",
+          "43e9735e-87c3-4542-a9d9-14063e84e493",
+          "5dbb5646-a85e-4f32-89ba-10eed05ab83c",
+          "619cdb39-afa2-416a-9200-e7bd2053f5d3",
+          "7d5b7680-36c5-4921-9a76-707d3620e208",
+          "c00de470-0467-4a84-a977-4c8b9afdc86e",
+          "c904f53c-6b16-4f6a-82d5-ab2ef6f3d090"
+        ],
+        "supporting_observation_ids": [
+          4,
+          11,
+          17,
+          24,
+          50,
+          84,
+          111,
+          153,
+          165,
+          167
+        ],
+        "expected_by_fixture": true,
+        "validation_result": "PASS",
+        "reason": "Recurring contractor threshold met by 8 cases and 5 high-priority cases."
+      },
+      {
+        "pattern_type": "repeated_contractor_issue",
+        "entity_type": "contractor",
+        "entity_value": "Sample Lift Services",
+        "severity": "medium",
+        "supporting_case_ids": [
+          "069fa1f3-60a2-4cef-b20a-1ea01f4875ed",
+          "287c88d9-6a1d-4822-a3ec-7ff0c700f7c9",
+          "354a0593-3842-4a0f-9238-7b32708554ff",
+          "5cf106b6-3b8a-4627-ae8b-db8322aa5b39",
+          "a35db2d3-c8b2-472c-99e7-3311c00e8497",
+          "ad72d928-09e9-4d00-92d0-bef447eb0f17",
+          "afa52be6-7aab-4fb8-a98c-1deb1ad74408"
+        ],
+        "supporting_observation_ids": [
+          31,
+          37,
+          57,
+          64,
+          97,
+          146,
+          161,
+          174,
+          176,
+          181
+        ],
+        "expected_by_fixture": true,
+        "validation_result": "PASS",
+        "reason": "Recurring contractor threshold met by 7 cases and 4 high-priority cases."
+      },
+      {
+        "pattern_type": "repeated_contractor_issue",
+        "entity_type": "contractor",
+        "entity_value": "Demo Vertical Transport",
+        "severity": "medium",
+        "supporting_case_ids": [
+          "0ea18ab2-228c-49b6-b79c-0b5cd7677d75",
+          "7f82f222-8614-447c-b137-e0970a0ab85d",
+          "aac7df85-faff-4bff-9244-6f0805f812b6",
+          "cff9fa48-2219-4a50-85fc-6588442b2e4d",
+          "e204069b-c8a6-40bd-a266-17142c4f586e"
+        ],
+        "supporting_observation_ids": [
+          43,
+          77,
+          104,
+          132,
+          139,
+          178,
+          189,
+          197,
+          205
+        ],
+        "expected_by_fixture": true,
+        "validation_result": "PASS",
+        "reason": "Recurring contractor threshold met by 5 cases and 3 high-priority cases."
+      },
+      {
+        "pattern_type": "repeated_contractor_issue",
+        "entity_type": "contractor",
+        "entity_value": "Generic Mobility Systems",
+        "severity": "medium",
+        "supporting_case_ids": [
+          "6847ba26-9bce-45c0-9319-10106f4a2c49",
+          "95532d8f-f4ac-4ff2-a667-f974483caa74",
+          "f8c968e0-e3ac-4e2e-bb41-802c7745a151"
+        ],
+        "supporting_observation_ids": [
+          90,
+          118,
+          125
+        ],
+        "expected_by_fixture": true,
+        "validation_result": "PASS",
+        "reason": "Recurring contractor threshold met by 3 cases and 1 high-priority cases."
+      },
+      {
+        "pattern_type": "repeated_no_response",
+        "entity_type": "contractor",
+        "entity_value": "Example Elevator Company",
+        "severity": "high",
+        "supporting_case_ids": [
+          "09db5aa6-4b65-48d2-8b0e-0bee0721829a",
+          "5dbb5646-a85e-4f32-89ba-10eed05ab83c",
+          "619cdb39-afa2-416a-9200-e7bd2053f5d3",
+          "7d5b7680-36c5-4921-9a76-707d3620e208",
+          "c904f53c-6b16-4f6a-82d5-ab2ef6f3d090"
+        ],
+        "supporting_observation_ids": [
+          4,
+          11,
+          17,
+          24,
+          50,
+          165,
+          167,
+          171,
+          173,
+          180
+        ],
+        "expected_by_fixture": true,
+        "validation_result": "PASS",
+        "reason": "No-response follow-up threshold met across 5 case(s)."
+      },
+      {
+        "pattern_type": "repeated_no_response",
+        "entity_type": "contractor",
+        "entity_value": "Sample Lift Services",
+        "severity": "high",
+        "supporting_case_ids": [
+          "287c88d9-6a1d-4822-a3ec-7ff0c700f7c9",
+          "a35db2d3-c8b2-472c-99e7-3311c00e8497"
+        ],
+        "supporting_observation_ids": [
+          31,
+          37,
+          174,
+          176,
+          187,
+          188,
+          195,
+          196,
+          203,
+          204
+        ],
+        "expected_by_fixture": true,
+        "validation_result": "PASS",
+        "reason": "No-response follow-up threshold met across 2 case(s)."
+      },
+      {
+        "pattern_type": "repeated_no_response",
+        "entity_type": "contractor",
+        "entity_value": "Demo Vertical Transport",
+        "severity": "high",
+        "supporting_case_ids": [
+          "cff9fa48-2219-4a50-85fc-6588442b2e4d"
+        ],
+        "supporting_observation_ids": [
+          43,
+          178,
+          189,
+          197,
+          205
+        ],
+        "expected_by_fixture": true,
+        "validation_result": "PASS",
+        "reason": "No-response follow-up threshold met across 1 case(s)."
+      },
+      {
+        "pattern_type": "repeated_device_issue",
+        "entity_type": "device",
+        "entity_value": "B-1 #700001",
+        "severity": "warning",
+        "supporting_case_ids": [
+          "0018ca42-620d-4820-8f33-12b05292e01b",
+          "069fa1f3-60a2-4cef-b20a-1ea01f4875ed"
+        ],
+        "supporting_observation_ids": [],
+        "expected_by_fixture": false,
+        "validation_result": "WARNING",
+        "reason": "Same device string across different buildings was linked. Device identity lacks building context."
+      },
+      {
+        "pattern_type": "duplicate_alert_grouping",
+        "entity_type": "dataset",
+        "entity_value": "0",
+        "severity": "info",
+        "supporting_case_ids": [],
+        "supporting_observation_ids": [],
+        "expected_by_fixture": true,
+        "validation_result": "PASS",
+        "reason": "Grouped 0 duplicate alerts out of 0 generated duplicate scenarios."
+      },
+      {
+        "pattern_type": "repeated_contractor_issue",
+        "entity_type": "contractor",
+        "entity_value": "Demo Vertical Transport",
+        "severity": "high",
+        "supporting_case_ids": [
+          "cff9fa48-2219-4a50-85fc-6588442b2e4d"
+        ],
+        "supporting_observation_ids": [
+          43,
+          45
+        ],
+        "expected_by_fixture": true,
+        "validation_result": "FAIL",
+        "reason": "supporting observation 45 does not match contractor='Demo Vertical Transport'"
+      },
+      {
+        "pattern_type": "repeated_contractor_issue",
+        "entity_type": "contractor",
+        "entity_value": "Sample Lift Services",
+        "severity": "high",
+        "supporting_case_ids": [
+          "a35db2d3-c8b2-472c-99e7-3311c00e8497",
+          "287c88d9-6a1d-4822-a3ec-7ff0c700f7c9"
+        ],
+        "supporting_observation_ids": [
+          37,
+          31,
+          33
+        ],
+        "expected_by_fixture": true,
+        "validation_result": "FAIL",
+        "reason": "supporting observation 33 does not match contractor='Sample Lift Services'"
+      },
+      {
+        "pattern_type": "repeated_contractor_issue",
+        "entity_type": "contractor",
+        "entity_value": "Sample Lift Services",
+        "severity": "high",
+        "supporting_case_ids": [
+          "287c88d9-6a1d-4822-a3ec-7ff0c700f7c9"
+        ],
+        "supporting_observation_ids": [
+          31,
+          33
+        ],
+        "expected_by_fixture": true,
+        "validation_result": "FAIL",
+        "reason": "supporting observation 33 does not match contractor='Sample Lift Services'"
+      },
+      {
+        "pattern_type": "repeated_contractor_issue",
+        "entity_type": "contractor",
+        "entity_value": "Example Elevator Company",
+        "severity": "high",
+        "supporting_case_ids": [
+          "619cdb39-afa2-416a-9200-e7bd2053f5d3",
+          "09db5aa6-4b65-48d2-8b0e-0bee0721829a",
+          "7d5b7680-36c5-4921-9a76-707d3620e208"
+        ],
+        "supporting_observation_ids": [
+          17,
+          11,
+          4,
+          19
+        ],
+        "expected_by_fixture": true,
+        "validation_result": "FAIL",
+        "reason": "supporting observation 19 does not match contractor='Example Elevator Company'"
+      },
+      {
+        "pattern_type": "repeated_contractor_issue",
+        "entity_type": "contractor",
+        "entity_value": "Example Elevator Company",
+        "severity": "high",
+        "supporting_case_ids": [
+          "619cdb39-afa2-416a-9200-e7bd2053f5d3",
+          "09db5aa6-4b65-48d2-8b0e-0bee0721829a",
+          "7d5b7680-36c5-4921-9a76-707d3620e208"
+        ],
+        "supporting_observation_ids": [
+          17,
+          11,
+          4,
+          19
+        ],
+        "expected_by_fixture": true,
+        "validation_result": "FAIL",
+        "reason": "supporting observation 19 does not match contractor='Example Elevator Company'"
+      },
+      {
+        "pattern_type": "repeated_contractor_issue",
+        "entity_type": "contractor",
+        "entity_value": "Sample Lift Services",
+        "severity": "high",
+        "supporting_case_ids": [
+          "069fa1f3-60a2-4cef-b20a-1ea01f4875ed",
+          "afa52be6-7aab-4fb8-a98c-1deb1ad74408",
+          "5cf106b6-3b8a-4627-ae8b-db8322aa5b39",
+          "354a0593-3842-4a0f-9238-7b32708554ff",
+          "ad72d928-09e9-4d00-92d0-bef447eb0f17",
+          "a35db2d3-c8b2-472c-99e7-3311c00e8497",
+          "287c88d9-6a1d-4822-a3ec-7ff0c700f7c9"
+        ],
+        "supporting_observation_ids": [
+          161,
+          146,
+          97,
+          64,
+          57,
+          37,
+          31,
+          164,
+          99,
+          67,
+          33
+        ],
+        "expected_by_fixture": true,
+        "validation_result": "FAIL",
+        "reason": "supporting observation 164 does not match contractor='Sample Lift Services'; supporting observation 99 does not match contractor='Sample Lift Services'; supporting observation 67 does not match contractor='Sample Lift Services'; supporting observation 33 does not match contractor='Sample Lift Services'"
+      },
+      {
+        "pattern_type": "repeated_contractor_issue",
+        "entity_type": "contractor",
+        "entity_value": "Example Elevator Company",
+        "severity": "high",
+        "supporting_case_ids": [
+          "0018ca42-620d-4820-8f33-12b05292e01b",
+          "43e9735e-87c3-4542-a9d9-14063e84e493",
+          "c00de470-0467-4a84-a977-4c8b9afdc86e",
+          "5dbb5646-a85e-4f32-89ba-10eed05ab83c",
+          "c904f53c-6b16-4f6a-82d5-ab2ef6f3d090",
+          "619cdb39-afa2-416a-9200-e7bd2053f5d3",
+          "09db5aa6-4b65-48d2-8b0e-0bee0721829a",
+          "7d5b7680-36c5-4921-9a76-707d3620e208"
+        ],
+        "supporting_observation_ids": [
+          153,
+          111,
+          84,
+          50,
+          24,
+          17,
+          11,
+          4,
+          156,
+          113,
+          52,
+          27,
+          19
+        ],
+        "expected_by_fixture": true,
+        "validation_result": "FAIL",
+        "reason": "supporting observation 156 does not match contractor='Example Elevator Company'; supporting observation 113 does not match contractor='Example Elevator Company'; supporting observation 52 does not match contractor='Example Elevator Company'; supporting observation 27 does not match contractor='Example Elevator Company'; supporting observation 19 does not match contractor='Example Elevator Company'"
+      },
+      {
+        "pattern_type": "repeated_contractor_issue",
+        "entity_type": "contractor",
+        "entity_value": "Sample Lift Services",
+        "severity": "high",
+        "supporting_case_ids": [
+          "afa52be6-7aab-4fb8-a98c-1deb1ad74408",
+          "5cf106b6-3b8a-4627-ae8b-db8322aa5b39",
+          "354a0593-3842-4a0f-9238-7b32708554ff",
+          "ad72d928-09e9-4d00-92d0-bef447eb0f17",
+          "a35db2d3-c8b2-472c-99e7-3311c00e8497",
+          "287c88d9-6a1d-4822-a3ec-7ff0c700f7c9"
+        ],
+        "supporting_observation_ids": [
+          146,
+          97,
+          64,
+          57,
+          37,
+          31,
+          99,
+          67,
+          33
+        ],
+        "expected_by_fixture": true,
+        "validation_result": "FAIL",
+        "reason": "supporting observation 99 does not match contractor='Sample Lift Services'; supporting observation 67 does not match contractor='Sample Lift Services'; supporting observation 33 does not match contractor='Sample Lift Services'"
+      },
+      {
+        "pattern_type": "repeated_contractor_issue",
+        "entity_type": "contractor",
+        "entity_value": "Demo Vertical Transport",
+        "severity": "high",
+        "supporting_case_ids": [
+          "0ea18ab2-228c-49b6-b79c-0b5cd7677d75",
+          "7f82f222-8614-447c-b137-e0970a0ab85d",
+          "aac7df85-faff-4bff-9244-6f0805f812b6",
+          "e204069b-c8a6-40bd-a266-17142c4f586e",
+          "cff9fa48-2219-4a50-85fc-6588442b2e4d"
+        ],
+        "supporting_observation_ids": [
+          139,
+          132,
+          104,
+          77,
+          43,
+          141,
+          107,
+          45
+        ],
+        "expected_by_fixture": true,
+        "validation_result": "FAIL",
+        "reason": "supporting observation 141 does not match contractor='Demo Vertical Transport'; supporting observation 107 does not match contractor='Demo Vertical Transport'; supporting observation 45 does not match contractor='Demo Vertical Transport'"
+      },
+      {
+        "pattern_type": "repeated_contractor_issue",
+        "entity_type": "contractor",
+        "entity_value": "Example Elevator Company",
+        "severity": "high",
+        "supporting_case_ids": [
+          "43e9735e-87c3-4542-a9d9-14063e84e493",
+          "c00de470-0467-4a84-a977-4c8b9afdc86e",
+          "5dbb5646-a85e-4f32-89ba-10eed05ab83c",
+          "c904f53c-6b16-4f6a-82d5-ab2ef6f3d090",
+          "619cdb39-afa2-416a-9200-e7bd2053f5d3",
+          "09db5aa6-4b65-48d2-8b0e-0bee0721829a",
+          "7d5b7680-36c5-4921-9a76-707d3620e208"
+        ],
+        "supporting_observation_ids": [
+          111,
+          84,
+          50,
+          24,
+          17,
+          11,
+          4,
+          113,
+          52,
+          27,
+          19
+        ],
+        "expected_by_fixture": true,
+        "validation_result": "FAIL",
+        "reason": "supporting observation 113 does not match contractor='Example Elevator Company'; supporting observation 52 does not match contractor='Example Elevator Company'; supporting observation 27 does not match contractor='Example Elevator Company'; supporting observation 19 does not match contractor='Example Elevator Company'"
+      },
+      {
+        "pattern_type": "repeated_contractor_issue",
+        "entity_type": "contractor",
+        "entity_value": "Sample Lift Services",
+        "severity": "high",
+        "supporting_case_ids": [
+          "5cf106b6-3b8a-4627-ae8b-db8322aa5b39",
+          "354a0593-3842-4a0f-9238-7b32708554ff",
+          "ad72d928-09e9-4d00-92d0-bef447eb0f17",
+          "a35db2d3-c8b2-472c-99e7-3311c00e8497",
+          "287c88d9-6a1d-4822-a3ec-7ff0c700f7c9"
+        ],
+        "supporting_observation_ids": [
+          97,
+          64,
+          57,
+          37,
+          31,
+          99,
+          67,
+          33
+        ],
+        "expected_by_fixture": true,
+        "validation_result": "FAIL",
+        "reason": "supporting observation 99 does not match contractor='Sample Lift Services'; supporting observation 67 does not match contractor='Sample Lift Services'; supporting observation 33 does not match contractor='Sample Lift Services'"
+      },
+      {
+        "pattern_type": "repeated_contractor_issue",
+        "entity_type": "contractor",
+        "entity_value": "Example Elevator Company",
+        "severity": "high",
+        "supporting_case_ids": [
+          "c00de470-0467-4a84-a977-4c8b9afdc86e",
+          "5dbb5646-a85e-4f32-89ba-10eed05ab83c",
+          "c904f53c-6b16-4f6a-82d5-ab2ef6f3d090",
+          "619cdb39-afa2-416a-9200-e7bd2053f5d3",
+          "09db5aa6-4b65-48d2-8b0e-0bee0721829a",
+          "7d5b7680-36c5-4921-9a76-707d3620e208"
+        ],
+        "supporting_observation_ids": [
+          84,
+          50,
+          24,
+          17,
+          11,
+          4,
+          52,
+          27,
+          19
+        ],
+        "expected_by_fixture": true,
+        "validation_result": "FAIL",
+        "reason": "supporting observation 52 does not match contractor='Example Elevator Company'; supporting observation 27 does not match contractor='Example Elevator Company'; supporting observation 19 does not match contractor='Example Elevator Company'"
+      },
+      {
+        "pattern_type": "repeated_contractor_issue",
+        "entity_type": "contractor",
+        "entity_value": "Sample Lift Services",
+        "severity": "high",
+        "supporting_case_ids": [
+          "ad72d928-09e9-4d00-92d0-bef447eb0f17",
+          "a35db2d3-c8b2-472c-99e7-3311c00e8497",
+          "287c88d9-6a1d-4822-a3ec-7ff0c700f7c9"
+        ],
+        "supporting_observation_ids": [
+          57,
+          37,
+          31,
+          33
+        ],
+        "expected_by_fixture": true,
+        "validation_result": "FAIL",
+        "reason": "supporting observation 33 does not match contractor='Sample Lift Services'"
+      },
+      {
+        "pattern_type": "repeated_contractor_issue",
+        "entity_type": "contractor",
+        "entity_value": "Example Elevator Company",
+        "severity": "high",
+        "supporting_case_ids": [
+          "5dbb5646-a85e-4f32-89ba-10eed05ab83c",
+          "c904f53c-6b16-4f6a-82d5-ab2ef6f3d090",
+          "619cdb39-afa2-416a-9200-e7bd2053f5d3",
+          "09db5aa6-4b65-48d2-8b0e-0bee0721829a",
+          "7d5b7680-36c5-4921-9a76-707d3620e208"
+        ],
+        "supporting_observation_ids": [
+          50,
+          24,
+          17,
+          11,
+          4,
+          52,
+          27,
+          19
+        ],
+        "expected_by_fixture": true,
+        "validation_result": "FAIL",
+        "reason": "supporting observation 52 does not match contractor='Example Elevator Company'; supporting observation 27 does not match contractor='Example Elevator Company'; supporting observation 19 does not match contractor='Example Elevator Company'"
+      },
+      {
+        "pattern_type": "repeated_contractor_issue",
+        "entity_type": "contractor",
+        "entity_value": "Example Elevator Company",
+        "severity": "high",
+        "supporting_case_ids": [
+          "c904f53c-6b16-4f6a-82d5-ab2ef6f3d090",
+          "619cdb39-afa2-416a-9200-e7bd2053f5d3",
+          "09db5aa6-4b65-48d2-8b0e-0bee0721829a",
+          "7d5b7680-36c5-4921-9a76-707d3620e208"
+        ],
+        "supporting_observation_ids": [
+          24,
+          17,
+          11,
+          4,
+          27,
+          19
+        ],
+        "expected_by_fixture": true,
+        "validation_result": "FAIL",
+        "reason": "supporting observation 27 does not match contractor='Example Elevator Company'; supporting observation 19 does not match contractor='Example Elevator Company'"
+      },
+      {
+        "pattern_type": "repeated_contractor_issue",
+        "entity_type": "contractor",
+        "entity_value": "Example Elevator Company",
+        "severity": "high",
+        "supporting_case_ids": [
+          "619cdb39-afa2-416a-9200-e7bd2053f5d3",
+          "09db5aa6-4b65-48d2-8b0e-0bee0721829a",
+          "7d5b7680-36c5-4921-9a76-707d3620e208"
+        ],
+        "supporting_observation_ids": [
+          17,
+          11,
+          4,
+          19
+        ],
+        "expected_by_fixture": true,
+        "validation_result": "FAIL",
+        "reason": "supporting observation 19 does not match contractor='Example Elevator Company'"
+      },
+      {
+        "pattern_type": "repeated_major_work_overdue",
+        "entity_type": "building",
+        "entity_value": "611 Sample Avenue, Example City",
+        "severity": "medium",
+        "supporting_case_ids": [
+          "069fa1f3-60a2-4cef-b20a-1ea01f4875ed",
+          "354a0593-3842-4a0f-9238-7b32708554ff"
+        ],
+        "supporting_observation_ids": [
+          164,
+          67
+        ],
+        "expected_by_fixture": false,
+        "validation_result": "FAIL",
+        "reason": "supporting case 354a0593-3842-4a0f-9238-7b32708554ff does not match building='611 Sample Avenue, Example City'; supporting observation 67 does not match building='611 Sample Avenue, Example City'"
+      },
+      {
+        "pattern_type": "repeated_major_work_overdue",
+        "entity_type": "building",
+        "entity_value": "611 Sample Avenue, Example City",
+        "severity": "medium",
+        "supporting_case_ids": [
+          "069fa1f3-60a2-4cef-b20a-1ea01f4875ed",
+          "354a0593-3842-4a0f-9238-7b32708554ff"
+        ],
+        "supporting_observation_ids": [
+          164,
+          67
+        ],
+        "expected_by_fixture": false,
+        "validation_result": "FAIL",
+        "reason": "Unexpected active pattern flag was present without matching fixture expectations."
+      },
+      {
+        "pattern_type": "repeated_major_work_overdue",
+        "entity_type": "building",
+        "entity_value": "610 Example Road, Example City",
+        "severity": "medium",
+        "supporting_case_ids": [
+          "0018ca42-620d-4820-8f33-12b05292e01b",
+          "c904f53c-6b16-4f6a-82d5-ab2ef6f3d090"
+        ],
+        "supporting_observation_ids": [
+          156,
+          27
+        ],
+        "expected_by_fixture": false,
+        "validation_result": "FAIL",
+        "reason": "supporting case c904f53c-6b16-4f6a-82d5-ab2ef6f3d090 does not match building='610 Example Road, Example City'; supporting observation 27 does not match building='610 Example Road, Example City'"
+      },
+      {
+        "pattern_type": "repeated_major_work_overdue",
+        "entity_type": "building",
+        "entity_value": "610 Example Road, Example City",
+        "severity": "medium",
+        "supporting_case_ids": [
+          "0018ca42-620d-4820-8f33-12b05292e01b",
+          "c904f53c-6b16-4f6a-82d5-ab2ef6f3d090"
+        ],
+        "supporting_observation_ids": [
+          156,
+          27
+        ],
+        "expected_by_fixture": false,
+        "validation_result": "FAIL",
+        "reason": "Unexpected active pattern flag was present without matching fixture expectations."
+      },
+      {
+        "pattern_type": "repeated_contractor_issue",
+        "entity_type": "contractor",
+        "entity_value": "Demo Vertical Transport",
+        "severity": "medium",
+        "supporting_case_ids": [
+          "7f82f222-8614-447c-b137-e0970a0ab85d",
+          "aac7df85-faff-4bff-9244-6f0805f812b6",
+          "e204069b-c8a6-40bd-a266-17142c4f586e",
+          "cff9fa48-2219-4a50-85fc-6588442b2e4d"
+        ],
+        "supporting_observation_ids": [
+          132,
+          104,
+          77,
+          43,
+          107,
+          45
+        ],
+        "expected_by_fixture": true,
+        "validation_result": "FAIL",
+        "reason": "supporting observation 107 does not match contractor='Demo Vertical Transport'; supporting observation 45 does not match contractor='Demo Vertical Transport'"
+      },
+      {
+        "pattern_type": "repeated_device_issue",
+        "entity_type": "device",
+        "entity_value": "B-1 #700041",
+        "severity": "medium",
+        "supporting_case_ids": [
+          "7f82f222-8614-447c-b137-e0970a0ab85d",
+          "aac7df85-faff-4bff-9244-6f0805f812b6"
+        ],
+        "supporting_observation_ids": [
+          131,
+          103
+        ],
+        "expected_by_fixture": false,
+        "validation_result": "FAIL",
+        "reason": "Unexpected active pattern flag was present without matching fixture expectations."
+      },
+      {
+        "pattern_type": "repeated_contractor_issue",
+        "entity_type": "contractor",
+        "entity_value": "Generic Mobility Systems",
+        "severity": "medium",
+        "supporting_case_ids": [
+          "95532d8f-f4ac-4ff2-a667-f974483caa74",
+          "6847ba26-9bce-45c0-9319-10106f4a2c49",
+          "f8c968e0-e3ac-4e2e-bb41-802c7745a151"
+        ],
+        "supporting_observation_ids": [
+          125,
+          118,
+          90,
+          92
+        ],
+        "expected_by_fixture": true,
+        "validation_result": "FAIL",
+        "reason": "supporting observation 92 does not match contractor='Generic Mobility Systems'"
+      },
+      {
+        "pattern_type": "repeated_building_issue",
+        "entity_type": "building",
+        "entity_value": "101 Example Road, Demo City",
+        "severity": "medium",
+        "supporting_case_ids": [
+          "95532d8f-f4ac-4ff2-a667-f974483caa74",
+          "6847ba26-9bce-45c0-9319-10106f4a2c49",
+          "f8c968e0-e3ac-4e2e-bb41-802c7745a151"
+        ],
+        "supporting_observation_ids": [
+          123,
+          116,
+          89
+        ],
+        "expected_by_fixture": false,
+        "validation_result": "FAIL",
+        "reason": "Unexpected active pattern flag was present without matching fixture expectations."
+      },
+      {
+        "pattern_type": "repeated_contractor_issue",
+        "entity_type": "contractor",
+        "entity_value": "Demo Vertical Transport",
+        "severity": "medium",
+        "supporting_case_ids": [
+          "aac7df85-faff-4bff-9244-6f0805f812b6",
+          "e204069b-c8a6-40bd-a266-17142c4f586e",
+          "cff9fa48-2219-4a50-85fc-6588442b2e4d"
+        ],
+        "supporting_observation_ids": [
+          104,
+          77,
+          43,
+          107,
+          45
+        ],
+        "expected_by_fixture": true,
+        "validation_result": "FAIL",
+        "reason": "supporting observation 107 does not match contractor='Demo Vertical Transport'; supporting observation 45 does not match contractor='Demo Vertical Transport'"
+      },
+      {
+        "pattern_type": "repeated_contractor_issue",
+        "entity_type": "contractor",
+        "entity_value": "Sample Lift Services",
+        "severity": "medium",
+        "supporting_case_ids": [
+          "354a0593-3842-4a0f-9238-7b32708554ff",
+          "ad72d928-09e9-4d00-92d0-bef447eb0f17",
+          "a35db2d3-c8b2-472c-99e7-3311c00e8497",
+          "287c88d9-6a1d-4822-a3ec-7ff0c700f7c9"
+        ],
+        "supporting_observation_ids": [
+          64,
+          57,
+          37,
+          31,
+          67,
+          33
+        ],
+        "expected_by_fixture": true,
+        "validation_result": "FAIL",
+        "reason": "supporting observation 67 does not match contractor='Sample Lift Services'; supporting observation 33 does not match contractor='Sample Lift Services'"
+      }
+    ]
+  },
+  "warnings": [
+    "Rewrote 24 non-test intended recipient values to safe placeholder domains."
+  ],
+  "failures": [
+    "Memory connection audit failed: 2 missing expected flags, 4 unexpected flags, 48 evidence mismatches."
+  ],
+  "paths": {
+    "run_dir": "/Users/griffinrobinson/evolve.solucore.com/AI Email Alert Agent/data/test_runs/20260508T140152Z",
+    "database": "/Users/griffinrobinson/evolve.solucore.com/AI Email Alert Agent/data/test_runs/20260508T140152Z/test_agent.db",
+    "harness_log": "/Users/griffinrobinson/evolve.solucore.com/AI Email Alert Agent/data/test_runs/20260508T140152Z/harness.log",
+    "report_json": "/Users/griffinrobinson/evolve.solucore.com/AI Email Alert Agent/data/test_runs/20260508T140152Z/report.json",
+    "report_markdown": "/Users/griffinrobinson/evolve.solucore.com/AI Email Alert Agent/data/test_runs/20260508T140152Z/report.md"
+  }
+}
