@@ -12,46 +12,38 @@ if str(SRC_DIR) not in sys.path:
 from demo_fixtures import SAFE_DEMO_RECIPIENT, allowed_test_domain, generate_synthetic_dataset
 from demo_scale_harness import (
     ScaleTestOptions,
+    _run_ui_smoke,
     compare_extracted_fields,
     run_demo_scale_test,
 )
 
 
-class DemoScaleHarnessTests(unittest.TestCase):
+class DemoHarnessTests(unittest.TestCase):
     def test_generate_dataset_uses_safe_domains_and_requested_count(self):
-        dataset = generate_synthetic_dataset(
-            total_emails=24,
-            client_count=4,
-            building_count=6,
-            devices_per_building=3,
-            seed=42,
-        )
+        dataset = generate_synthetic_dataset(total_emails=24, seed=42)
 
         self.assertEqual(24, len(dataset.emails))
         self.assertGreater(len(dataset.reply_plans), 0)
         self.assertGreater(len(dataset.followup_case_keys), 0)
+        self.assertEqual(6, len(dataset.metadata["case_types"]))
+        self.assertGreater(dataset.metadata["duplicate_emails"], 0)
 
         for email in dataset.emails:
             self.assertTrue(allowed_test_domain(email.from_addr))
             self.assertTrue(allowed_test_domain(email.to_addr))
             self.assertEqual(email.expected_case_type, email.expected_metadata["case_type"])
 
-    def test_offline_scale_run_creates_safe_report(self):
+    def test_offline_harness_run_creates_safe_concise_report(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             report_dir = Path(temp_dir) / "reports"
-            options = ScaleTestOptions(
-                emails=18,
-                clients=4,
-                buildings=8,
-                devices_per_building=3,
-                seed=7,
-                offline=True,
-                require_ai=False,
-                report_dir=report_dir,
-                verbose=False,
+            result = run_demo_scale_test(
+                ScaleTestOptions(
+                    emails=25,
+                    seed=42,
+                    report_dir=report_dir,
+                    verbose=False,
+                )
             )
-
-            result = run_demo_scale_test(options)
 
             self.assertIn(result.overall_result, {"PASS", "PASS WITH WARNINGS"})
             self.assertEqual(0, result.safety["real_smtp_calls_attempted"])
@@ -61,93 +53,51 @@ class DemoScaleHarnessTests(unittest.TestCase):
             self.assertTrue(result.paths["report_json"].exists())
             self.assertTrue(result.paths["report_markdown"].exists())
             self.assertTrue(result.paths["database"].exists())
-            self.assertEqual(result.paths["database"], Path(result.safety["test_database_path"]))
-            self.assertTrue(payload := json.loads(result.paths["report_json"].read_text(encoding="utf-8")))
-            self.assertTrue(payload["safety"]["test_database_retained"])
-            self.assertIn("run_dir", payload["paths"])
-            self.assertIn("database", payload["paths"])
-            self.assertIn("extraction", payload)
-            self.assertIn("structured_field_failures", payload["extraction"])
-            self.assertIn("semantic_description_mismatches", payload["extraction"])
-            self.assertIn("manual_reviews", payload)
 
+            payload = json.loads(result.paths["report_json"].read_text(encoding="utf-8"))
             self.assertEqual(SAFE_DEMO_RECIPIENT, payload["safety"]["safe_demo_recipient"])
-            self.assertGreater(payload["processing"]["emails_processed"], 0)
-            self.assertGreater(payload["processing"]["outbound_drafts_or_fake_sends_created"], 0)
-            self.assertIn("classification", payload["quality_checks"])
+            self.assertEqual(25, payload["processing"]["emails_processed"])
+            self.assertGreater(payload["processing"]["duplicates_grouped"], 0)
+            self.assertGreater(payload["processing"]["outbound_drafts_created"], 0)
+            self.assertGreater(payload["processing"]["manual_reviews_created"], 0)
+            self.assertEqual(0, payload["ai_usage"]["total_ai_calls"])
+            self.assertNotIn("memory_connection_audit", payload)
 
-    def test_compare_extracted_fields_allows_semantic_description_variation(self):
-        data_absence = compare_extracted_fields(
+    def test_compare_extracted_fields_reports_simple_mismatches(self):
+        comparison = compare_extracted_fields(
             case_type="DATA_ABSENCE",
             actual_fields={
                 "building": "123 Example Road, Example City",
                 "contractor": "Example Elevator Company",
-                "description": "Data Absence Alert - Maintenance data has never been submitted",
-                "last_activity_date": "2025-11-01",
-                "elapsed_days": "187",
             },
             expected_fields={
                 "building": "123 Example Road, Example City",
-                "contractor": "Example Elevator Company",
-                "description": "Maintenance data has never been submitted",
-                "last_activity_date": "2025-11-01",
-                "elapsed_days": "187",
+                "contractor": "Different Elevator Company",
             },
         )
-        self.assertEqual([], data_absence["failures"])
-        self.assertGreaterEqual(data_absence["semantic_description_mismatches"], 1)
 
-        shortfall = compare_extracted_fields(
-            case_type="MAINTENANCE_HOURS_SHORTFALL",
-            actual_fields={
-                "building": "789 Demo Street, Example City",
-                "contractor": "Demo Vertical Transport",
-                "description": None,
-                "hours_required": "3.00",
-                "hours_actual": "0.25",
-                "period": "April 2026",
-            },
-            expected_fields={
-                "building": "789 Demo Street, Example City",
-                "contractor": "Demo Vertical Transport",
-                "description": "Maintenance Hours Less Than Required",
-                "hours_required": "3.00",
-                "hours_actual": "0.25",
-                "period": "April 2026",
-            },
-        )
-        self.assertEqual([], shortfall["failures"])
-        self.assertGreaterEqual(shortfall["optional_description_missing"], 1)
-        self.assertGreaterEqual(shortfall["warnings"], 1)
+        self.assertEqual(1, comparison["extraction_failures"])
+        self.assertIn("contractor", comparison["failures"][0])
 
-    def test_memory_connection_audit_is_reported_when_enabled(self):
-        with tempfile.TemporaryDirectory() as temp_dir:
-            report_dir = Path(temp_dir) / "reports"
-            options = ScaleTestOptions(
-                emails=24,
-                clients=4,
-                buildings=8,
-                devices_per_building=3,
-                seed=11,
-                offline=True,
-                validate_memory_connections=True,
-                report_dir=report_dir,
-                verbose=False,
-            )
+    def test_ui_smoke_skips_when_flask_is_not_installed(self):
+        # This repository can run deterministic CLI validation in lightweight
+        # Python environments before dependencies are installed.
+        import builtins
+        from unittest.mock import patch
 
-            result = run_demo_scale_test(options)
+        real_import = builtins.__import__
 
-            self.assertIn(result.overall_result, {"PASS", "PASS WITH WARNINGS"})
-            payload = json.loads(result.paths["report_json"].read_text(encoding="utf-8"))
-            audit = payload["memory_connection_audit"]
-            self.assertTrue(audit["enabled"])
-            self.assertIn(audit["status"], {"PASS", "PASS WITH WARNINGS"})
-            self.assertIn("validation_rows", audit)
-            self.assertIn("matched_expected_flags", audit)
-            self.assertIn("missing_expected_flags", audit)
-            self.assertIn("unexpected_pattern_flags", audit)
-            self.assertIn("evidence_mismatch_count", audit)
-            self.assertEqual(0, audit["mechanic_flags_expected"])
+        def fake_import(name, *args, **kwargs):
+            if name == "web.app":
+                raise ImportError("No module named 'flask'")
+            return real_import(name, *args, **kwargs)
+
+        with patch("builtins.__import__", side_effect=fake_import):
+            result = _run_ui_smoke({"case-key": "case-id"})
+
+        self.assertTrue(result["valid"])
+        self.assertTrue(result["skipped"])
+        self.assertIn("Flask UI smoke skipped", result["reason"])
 
 
 if __name__ == "__main__":

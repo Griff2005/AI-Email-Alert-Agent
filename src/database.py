@@ -84,8 +84,8 @@ def init_schema() -> None:
     """Create all tables and indexes if they do not yet exist.
 
     Safe to call on every startup — all statements use ``IF NOT EXISTS``.
-    Creates seven tables and five performance indexes in a single
-    ``executescript`` call under the write lock.
+    Creates the operational, audit, follow-up, review, and memory tables in a
+    single ``executescript`` call under the write lock.
     """
     conn = get_connection()
     with _write_lock:

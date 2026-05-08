@@ -86,7 +86,7 @@ def check_and_process_followups() -> None:
     For each open case whose deadline has passed:
     1. Increment ``follow_count`` in the ``followups`` table.
     2. Log a ``followup_triggered`` case event.
-    3. Generate a follow-up email body via Claude (plain-text fallback on error).
+    3. Generate a follow-up email body through the outbound generator.
     4. Create an email draft via ``email_sender.create_draft``.
     5. If ``follow_count >= _ESCALATION_THRESHOLD``, log ``escalated`` event
        and insert a ``manual_reviews`` record.

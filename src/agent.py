@@ -6,7 +6,7 @@ Usage:
   python src/agent.py run            Start IMAP polling + scheduler + Flask web server
   python src/agent.py reply --case-id CASE_ID   Interactive reply handler
   python src/agent.py demo           Run all sample emails and display results
-  python src/agent.py test-demo-scale   Run the safe large-scale synthetic harness
+  python src/agent.py test-demo-scale   Run the safe offline demo validation harness
 
 All paths are resolved relative to the project root (parent of src/).
 """
@@ -526,33 +526,16 @@ def cmd_memory_report(args):
 
 
 def cmd_test_demo_scale(args):
-    """Run the safe synthetic large-scale demo harness."""
+    """Run the safe offline synthetic demo harness."""
     from demo_scale_harness import ScaleTestOptions, format_result_summary, run_demo_scale_test
 
     result = run_demo_scale_test(
         ScaleTestOptions(
             emails=args.emails,
-            clients=args.clients,
-            buildings=args.buildings,
-            devices_per_building=args.devices_per_building,
             seed=args.seed,
             offline=args.offline,
-            enable_ai=args.enable_ai,
-            require_ai=args.require_ai,
-            keep_db=args.keep_db,
-            validate_memory_connections=args.validate_memory_connections,
-            include_mechanics=args.include_mechanics,
-            allow_uncapped_ai=args.allow_uncapped_ai,
-            max_ai_calls=args.max_ai_calls,
-            max_ai_calls_per_email=args.max_ai_calls_per_email,
-            max_ai_calls_per_case=args.max_ai_calls_per_case,
-            ai_budget_mode=args.ai_budget_mode,
             disable_outbound_generation=args.disable_outbound_generation,
-            template_outbound_only=(False if args.ai_outbound_enabled else args.template_outbound_only),
-            ai_outbound_enabled=args.ai_outbound_enabled,
-            disable_followups=args.disable_followups,
-            max_followups=args.max_followups,
-            max_followup_runs=args.max_followup_runs,
+            enable_followups=args.enable_followups,
             report_dir=args.report_dir,
             verbose=args.verbose,
         )
@@ -620,7 +603,7 @@ Commands:
   memory-rebuild  Backfill deterministic memory tables from existing records
   patterns     Print active pattern flags
   memory-report  Print detailed memory context for a case
-  test-demo-scale  Run the safe large-scale synthetic demo harness
+  test-demo-scale  Run the safe offline demo validation harness
 
 Examples:
   python src/agent.py ingest
@@ -630,7 +613,7 @@ Examples:
   python src/agent.py memory-rebuild
   python src/agent.py patterns
   python src/agent.py memory-report --case-id <CASE_ID>
-  python src/agent.py test-demo-scale --offline --emails 250 --validate-memory-connections
+  python src/agent.py test-demo-scale --offline --emails 25 --seed 42
         """,
     )
     subparsers = parser.add_subparsers(dest="command")
@@ -658,43 +641,14 @@ Examples:
         "--case-id", required=True, metavar="CASE_ID",
         help="Case ID to report on"
     )
-    scale_parser = subparsers.add_parser("test-demo-scale", help="Run the safe large-scale demo harness")
-    scale_parser.add_argument("--emails", type=int, default=150, help="Number of synthetic KPI emails to generate")
-    scale_parser.add_argument("--clients", type=int, default=8, help="Number of synthetic clients")
-    scale_parser.add_argument("--buildings", type=int, default=25, help="Number of synthetic buildings")
-    scale_parser.add_argument(
-        "--devices-per-building",
-        type=int,
-        default=4,
-        dest="devices_per_building",
-        help="Number of synthetic devices per building",
-    )
+    scale_parser = subparsers.add_parser("test-demo-scale", help="Run the safe offline demo validation harness")
+    scale_parser.add_argument("--emails", type=int, default=50, help="Number of synthetic KPI emails to generate")
     scale_parser.add_argument("--seed", type=int, default=42, help="Deterministic random seed")
-    scale_parser.add_argument("--offline", action="store_true", default=True, help="Do not call live AI; use deterministic behavior or mocked AI transport")
-    scale_parser.add_argument("--live-ai", action="store_false", dest="offline", help="Allow live AI if --enable-ai is also set")
-    _add_common_ai_args(scale_parser, include_outbound=True, include_followups=True)
-    scale_parser.add_argument("--require-ai", action="store_true", help="Fail if Claude CLI is unavailable")
-    scale_parser.add_argument(
-        "--keep-db",
-        action="store_true",
-        help="Backward-compatible no-op. Test databases are retained by default.",
-    )
-    scale_parser.add_argument(
-        "--validate-memory-connections",
-        action="store_true",
-        dest="validate_memory_connections",
-        help="Run deterministic memory connection auditing against entities, observations, links, and pattern flags",
-    )
-    scale_parser.add_argument(
-        "--include-mechanics",
-        action="store_true",
-        help="Include explicit mechanic or technician references in synthetic replies",
-    )
-    scale_parser.set_defaults(disable_followups=True, max_followup_runs=0)
+    scale_parser.add_argument("--offline", action="store_true", default=True, help="Offline-only mode; retained for explicit safety")
+    scale_parser.add_argument("--disable-outbound-generation", action="store_true", help="Disable outbound draft generation")
     scale_parser.add_argument(
         "--enable-followups",
-        action="store_false",
-        dest="disable_followups",
+        action="store_true",
         help="Enable follow-up simulation for the scale harness",
     )
     scale_parser.add_argument(

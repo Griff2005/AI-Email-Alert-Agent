@@ -21,12 +21,6 @@ CASE_TYPES = [
     "MAINTENANCE_HOURS_SHORTFALL",
     "MAJOR_WORK_OVERDUE",
     "GOVERNMENT_DIRECTIVE",
-    "CONSULTANT_REPORT_OUTSTANDING",
-    "MTBC_LOW",
-    "UPTIME_LOW",
-    "CALLBACKS_EXCEED_EXPECTATION",
-    "CALLBACK_RATIO_HIGH",
-    "EXPIRING_LICENSE",
     "UNKNOWN",
 ]
 
@@ -55,12 +49,6 @@ _RULES = (
     _Rule("MAINTENANCE_HOURS_SHORTFALL", 0.98, ["maintenance hours less than required", "maintenance hours shortfall"]),
     _Rule("MAJOR_WORK_OVERDUE", 0.98, ["scheduled work is overdue", "major scheduled work overdue", "scheduled work is overdue or outstanding"]),
     _Rule("GOVERNMENT_DIRECTIVE", 0.98, ["government directive", "outstanding government directive"]),
-    _Rule("CONSULTANT_REPORT_OUTSTANDING", 0.97, ["consultant reports are outstanding", "consultant reports progressing"]),
-    _Rule("MTBC_LOW", 0.97, ["mtbc too low"]),
-    _Rule("UPTIME_LOW", 0.97, ["uptime lower than expectation"]),
-    _Rule("CALLBACKS_EXCEED_EXPECTATION", 0.97, ["all callbacks exceed expectation"]),
-    _Rule("CALLBACK_RATIO_HIGH", 0.97, ["callback ratio too high"]),
-    _Rule("EXPIRING_LICENSE", 0.97, ["expiring license"]),
 )
 
 

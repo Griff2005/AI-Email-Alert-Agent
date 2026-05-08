@@ -333,7 +333,7 @@ def _create_new_case(
     2. Store each extracted field as a separate ``extracted_fields`` row.
     3. Log a ``case_created`` event in the audit trail.
     4. Schedule a follow-up deadline 7 days out.
-    5. Generate email body via Claude and send to demo recipient.
+    5. Generate a deterministic outbound draft and route it through demo safety.
 
     Args:
         case_id: Pre-generated UUID.

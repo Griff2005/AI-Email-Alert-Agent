@@ -391,9 +391,6 @@ class AiUsageGuardTests(unittest.TestCase):
         result = run_demo_scale_test(
             ScaleTestOptions(
                 emails=25,
-                clients=4,
-                buildings=8,
-                devices_per_building=3,
                 seed=42,
                 report_dir=report_dir,
                 verbose=False,
@@ -406,28 +403,6 @@ class AiUsageGuardTests(unittest.TestCase):
         payload = json.loads(report_path.read_text(encoding="utf-8"))
         self.assertFalse(payload["ai_enabled"])
         self.assertEqual(0, payload["total_ai_calls"])
-        self.assertEqual(0, payload["live_ai_calls"])
-
-    def test_harness_with_mocked_ai_never_exceeds_budget(self):
-        report_dir = Path(self.temp_dir.name) / "reports-ai"
-        result = run_demo_scale_test(
-            ScaleTestOptions(
-                emails=25,
-                clients=4,
-                buildings=8,
-                devices_per_building=3,
-                seed=42,
-                offline=True,
-                enable_ai=True,
-                max_ai_calls=5,
-                report_dir=report_dir,
-                verbose=False,
-            )
-        )
-
-        self.assertIn(result.overall_result, {"PASS", "PASS WITH WARNINGS"})
-        payload = json.loads((result.paths["run_dir"] / "ai_usage_report.json").read_text(encoding="utf-8"))
-        self.assertLessEqual(payload["total_ai_calls"], 5)
         self.assertEqual(0, payload["live_ai_calls"])
 
 
