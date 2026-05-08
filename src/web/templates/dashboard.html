@@ -11,6 +11,33 @@
 </div>
 {% endif %}
 
+<!-- Ingest control -->
+<div class="card" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;padding:16px 24px;margin-bottom:20px">
+  <div>
+    <div style="font-weight:700;font-size:0.95rem;margin-bottom:2px">Email Ingest</div>
+    <div style="font-size:0.82rem;color:#6b7280">
+      {% if summary.total_emails > 0 %}
+      {{ summary.total_emails }} email(s) loaded &mdash; {{ summary.unprocessed_emails }} unprocessed.
+      Running again is safe; duplicates are skipped.
+      {% else %}
+      No emails ingested yet. Press the button to load and process <code>data/sample_emails.json</code>.
+      {% endif %}
+    </div>
+  </div>
+  <form method="post" action="/ingest">
+    <button type="submit" class="btn btn-primary"
+      {% if summary.total_emails > 0 %}
+      onclick="return confirm('Re-run ingest? Existing emails will be skipped; new ones processed.')"
+      {% endif %}>
+      {% if summary.total_emails == 0 %}
+      Run Ingest
+      {% else %}
+      Re-run Ingest
+      {% endif %}
+    </button>
+  </form>
+</div>
+
 <!-- Pipeline summary -->
 <div class="stat-row">
   <div class="stat">

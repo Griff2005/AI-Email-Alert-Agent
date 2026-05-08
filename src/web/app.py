@@ -23,7 +23,7 @@ from typing import Any, Dict, Iterable, List, Optional
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from flask import Flask, redirect, render_template, request, url_for, flash
-from config import config
+from config import config, PROJECT_ROOT
 import database as db
 import memory
 from runtime_options import runtime_options
@@ -500,6 +500,70 @@ def emails():
         pipeline_summary=pipeline_summary,
         status_filter=status_filter,
     )
+
+
+@app.route("/ingest", methods=["POST"])
+def ingest():
+    """Run the email ingest pipeline from data/sample_emails.json.
+
+    Loads every sample email, stores it in the database, and runs the full
+    case-manager pipeline for each one. Safe to run multiple times — existing
+    emails and cases are updated rather than duplicated.
+    """
+    import json
+    import uuid as _uuid
+    from case_manager import process_email as _process_email
+    from claude_client import sanitize_email_content
+
+    sample_path = PROJECT_ROOT / "data" / "sample_emails.json"
+    if not sample_path.exists():
+        flash("sample_emails.json not found in data/. Cannot ingest.", "error")
+        return redirect(url_for("index"))
+
+    db.init_schema()
+
+    with open(sample_path, "r", encoding="utf-8") as f:
+        emails = json.load(f)
+
+    created = updated = skipped = reviewed = 0
+    for em in emails:
+        email_id = em.get("id") or str(_uuid.uuid4())
+        normalized = sanitize_email_content(em.get("body", ""))
+        db.insert_email(
+            email_id=email_id,
+            message_id=em.get("id", email_id),
+            thread_id=None,
+            subject=em.get("subject", ""),
+            from_addr=em.get("from", ""),
+            to_addr=em.get("to", ""),
+            received_at=em.get("date", ""),
+            raw_body=em.get("body", ""),
+            normalized_text=normalized,
+        )
+        result = _process_email(
+            email_id=email_id,
+            subject=em.get("subject", ""),
+            body=em.get("body", ""),
+            from_addr=em.get("from", ""),
+            received_at=em.get("date", ""),
+            verbose=False,
+        )
+        action = result.get("action", "")
+        if action == "created":
+            created += 1
+        elif action == "updated":
+            updated += 1
+        elif action == "skipped":
+            skipped += 1
+        elif action == "review_flagged":
+            reviewed += 1
+
+    flash(
+        f"Ingest complete: {created} created, {updated} updated, "
+        f"{skipped} skipped, {reviewed} flagged for review.",
+        "success",
+    )
+    return redirect(url_for("index"))
 
 
 @app.route("/emails/<email_id>")

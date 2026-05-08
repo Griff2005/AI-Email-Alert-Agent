@@ -26,7 +26,8 @@
       "Bash(brew list *)",
       "Read(//opt/homebrew/Cellar/python@3.14/3.14.4_1/libexec/bin/**)",
       "Read(//opt/homebrew/Cellar/python@3.13/3.13.7/libexec/bin/**)",
-      "Read(//opt/homebrew/Cellar/python@3.12/3.12.12_2/libexec/bin/**)"
+      "Read(//opt/homebrew/Cellar/python@3.12/3.12.12_2/libexec/bin/**)",
+      "Bash(.venv/bin/python src/agent.py test-demo-scale --offline --emails 25 --seed 42)"
     ]
   }
 }
