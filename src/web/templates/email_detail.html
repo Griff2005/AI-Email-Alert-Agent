@@ -1,0 +1,92 @@
+{% extends "base.html" %}
+{% block title %}Email {{ email.email_id[:8] }} — Solucore Alert Triage{% endblock %}
+
+{% block content %}
+<div style="display:flex;align-items:center;gap:12px;margin-bottom:20px;flex-wrap:wrap">
+  <a href="/emails" style="font-size:0.85rem;color:#6b7280;text-decoration:none">&#8592; Email Queue</a>
+  <h1 style="margin:0">Email {{ email.email_id[:8] }}…</h1>
+  <span class="badge badge-{% if email.processed %}closed{% else %}open{% endif %}">
+    {% if email.processed %}processed{% else %}unprocessed{% endif %}
+  </span>
+</div>
+
+<!-- Core email fields -->
+<div class="card">
+  <h2>Email Details</h2>
+  <div class="detail-grid">
+    <div class="detail-field">
+      <div class="df-label">Subject</div>
+      <div class="df-value">{{ email.subject or '(no subject)' }}</div>
+    </div>
+    <div class="detail-field">
+      <div class="df-label">From</div>
+      <div class="df-value">{{ email.from_addr or '—' }}</div>
+    </div>
+    <div class="detail-field">
+      <div class="df-label">To</div>
+      <div class="df-value">{{ email.to_addr or '—' }}</div>
+    </div>
+    <div class="detail-field">
+      <div class="df-label">Received</div>
+      <div class="df-value">{{ email.received_at[:16].replace('T', ' ') if email.received_at else '—' }}</div>
+    </div>
+    <div class="detail-field">
+      <div class="df-label">Thread ID</div>
+      <div class="df-value {% if not email.thread_id %}empty{% endif %}">{{ email.thread_id or 'None' }}</div>
+    </div>
+    <div class="detail-field">
+      <div class="df-label">Message ID</div>
+      <div class="df-value {% if not email.message_id %}empty{% endif %}" style="font-size:0.75rem;word-break:break-all">
+        {{ email.message_id or 'None' }}
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Normalized body -->
+{% if email.normalized_text %}
+<div class="card">
+  <h2>Normalized Text</h2>
+  <div class="msg-body">{{ email.normalized_text }}</div>
+</div>
+{% endif %}
+
+<!-- Raw body -->
+{% if email.raw_body %}
+<div class="card">
+  <h2>Raw Body</h2>
+  <div class="msg-body">{{ email.raw_body }}</div>
+</div>
+{% endif %}
+
+<!-- Agent actions taken on this email -->
+<div class="card">
+  <h2>Agent Actions ({{ events | length }})</h2>
+  <p class="section-note">Case events that trace back to this email via source_email_id.</p>
+  {% if events %}
+  <ul class="timeline">
+    {% for ev in events %}
+    <li>
+      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+        <span class="badge {{ ev.badge_class }}">{{ ev.event_type.replace('_', ' ') }}</span>
+        {% if ev.case_id %}
+        <a href="/cases/{{ ev.case_id }}" style="font-size:0.72rem;color:#6b7280;text-decoration:none">
+          Case {{ ev.case_id[:8] }}…
+        </a>
+        {% endif %}
+        {% if ev.case_type %}
+        <span style="font-size:0.7rem;background:#f3f4f6;color:#6b7280;padding:1px 7px;border-radius:4px">
+          {{ ev.case_type.replace('_', ' ').title() }}
+        </span>
+        {% endif %}
+      </div>
+      <div class="ev-desc">{{ ev.description or '' }}</div>
+      <div class="ev-time">{{ ev.created_at[:16].replace('T', ' ') if ev.created_at else '' }}</div>
+    </li>
+    {% endfor %}
+  </ul>
+  {% else %}
+  <div class="empty-state">No agent events traced to this email.</div>
+  {% endif %}
+</div>
+{% endblock %}

@@ -1,0 +1,125 @@
+{% extends "base.html" %}
+{% block title %}Email Queue — Solucore Alert Triage{% endblock %}
+
+{% block content %}
+<h1>Email Work Queue</h1>
+<p class="section-note">
+  All emails ingested by the agent. Each row shows what the agent did: created a new case, updated an existing one, flagged for review, or skipped as a duplicate.
+</p>
+
+<!-- Pipeline summary cards -->
+<div class="stat-row">
+  <div class="stat">
+    <div class="label">Total</div>
+    <div class="value">{{ pipeline_summary.total }}</div>
+  </div>
+  <div class="stat">
+    <div class="label">Processed</div>
+    <div class="value">{{ pipeline_summary.processed }}</div>
+  </div>
+  <div class="stat">
+    <div class="label">Unprocessed</div>
+    <div class="value">{{ pipeline_summary.unprocessed }}</div>
+  </div>
+  <div class="stat">
+    <div class="label">Cases Created</div>
+    <div class="value">{{ pipeline_summary.created_cases }}</div>
+  </div>
+  <div class="stat">
+    <div class="label">Flagged for Review</div>
+    <div class="value" style="color:#b45309">{{ pipeline_summary.flagged_for_review }}</div>
+  </div>
+</div>
+
+<!-- Filter bar -->
+<div class="filter-bar">
+  <strong style="font-size:0.8rem;color:#6b7280;margin-right:4px;">Filter:</strong>
+  <a href="/emails" {% if not status_filter %}class="active"{% endif %}>All</a>
+  <a href="/emails?status=new" {% if status_filter == 'new' %}class="active"{% endif %}>New</a>
+  <a href="/emails?status=created" {% if status_filter == 'created' %}class="active"{% endif %}>Case Created</a>
+  <a href="/emails?status=updated" {% if status_filter == 'updated' %}class="active"{% endif %}>Case Updated</a>
+  <a href="/emails?status=review" {% if status_filter == 'review' %}class="active"{% endif %}>Review</a>
+  <a href="/emails?status=injection_flag" {% if status_filter == 'injection_flag' %}class="active"{% endif %}>Injection Flag</a>
+  <a href="/emails?status=skipped" {% if status_filter == 'skipped' %}class="active"{% endif %}>Skipped</a>
+</div>
+
+<div class="card" style="padding:0">
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Received</th>
+          <th>Subject</th>
+          <th>From</th>
+          <th>Action</th>
+          <th>Linked Case</th>
+          <th>Case Type</th>
+          <th>Priority</th>
+          <th>Review</th>
+          <th>Detail</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for email in emails %}
+        <tr>
+          <td class="nowrap muted" style="font-size:0.78rem">
+            {{ email.received_at[:16].replace('T', ' ') if email.received_at else '—' }}
+          </td>
+          <td style="max-width:260px">
+            <div style="font-size:0.84rem;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:240px">
+              {{ email.subject or '(no subject)' }}
+            </div>
+          </td>
+          <td style="font-size:0.8rem;color:#374151;white-space:nowrap;max-width:180px;overflow:hidden;text-overflow:ellipsis">
+            {{ email.from_addr or '—' }}
+          </td>
+          <td style="white-space:nowrap">
+            <span class="badge badge-{{ email.action }}">{{ email.action.replace('_', ' ') }}</span>
+          </td>
+          <td class="nowrap">
+            {% if email.linked_case_id %}
+            <a href="/cases/{{ email.linked_case_id }}">{{ email.linked_case_id[:8] }}…</a>
+            {% else %}
+            <span class="muted">—</span>
+            {% endif %}
+          </td>
+          <td style="font-size:0.8rem">
+            {% if email.linked_case_type %}
+            {{ email.linked_case_type.replace('_', ' ').title() }}
+            {% else %}
+            <span class="muted">—</span>
+            {% endif %}
+          </td>
+          <td>
+            {% if email.linked_case_priority %}
+            <span class="badge badge-{{ email.linked_case_priority }}">{{ email.linked_case_priority }}</span>
+            {% else %}
+            <span class="muted">—</span>
+            {% endif %}
+          </td>
+          <td style="font-size:0.8rem">
+            {% if email.review_count %}
+            <span class="badge badge-review">{{ email.review_count }}</span>
+            {% if email.action == 'injection_flag' %}
+            <span style="font-size:0.7rem;color:#92400e;margin-left:4px">Injection</span>
+            {% endif %}
+            {% else %}
+            <span class="muted">—</span>
+            {% endif %}
+          </td>
+          <td>
+            <a href="/emails/{{ email.email_id }}" class="btn btn-primary btn-sm">View</a>
+          </td>
+        </tr>
+        {% else %}
+        <tr>
+          <td colspan="9">
+            <div class="empty-state">No emails found. Run <code>python src/agent.py ingest</code> first.</div>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

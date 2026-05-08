@@ -1407,6 +1407,225 @@ def upsert_pattern_flag_record(
         }
 
 
+
+# ---------------------------------------------------------------------------
+# Dashboard / UI read helpers (no writes)
+# ---------------------------------------------------------------------------
+
+
+def get_dashboard_summary() -> dict:
+    """Return high-level counts for the dashboard page."""
+    conn = get_connection()
+    result = {}
+
+    row = conn.execute("SELECT COUNT(*) AS n FROM emails").fetchone()
+    result["total_emails"] = int(row["n"])
+
+    row = conn.execute("SELECT COUNT(*) AS n FROM emails WHERE processed = 0").fetchone()
+    result["unprocessed_emails"] = int(row["n"])
+
+    row = conn.execute("SELECT COUNT(*) AS n FROM cases").fetchone()
+    result["total_cases"] = int(row["n"])
+
+    row = conn.execute("SELECT COUNT(*) AS n FROM cases WHERE status = 'open'").fetchone()
+    result["open_cases"] = int(row["n"])
+
+    row = conn.execute("SELECT COUNT(*) AS n FROM cases WHERE priority = 'critical'").fetchone()
+    result["critical_cases"] = int(row["n"])
+
+    row = conn.execute(
+        "SELECT COUNT(*) AS n FROM manual_reviews WHERE resolved = 0"
+    ).fetchone()
+    result["open_reviews"] = int(row["n"])
+
+    row = conn.execute(
+        "SELECT COUNT(*) AS n FROM pattern_flags WHERE status = 'active'"
+    ).fetchone()
+    result["active_patterns"] = int(row["n"])
+
+    row = conn.execute(
+        "SELECT COUNT(*) AS n FROM pattern_flags WHERE status = 'active' AND severity IN ('review', 'high')"
+    ).fetchone()
+    result["high_patterns"] = int(row["n"])
+
+    row = conn.execute(
+        "SELECT COUNT(*) AS n FROM outbound_messages WHERE status = 'sent'"
+    ).fetchone()
+    result["sent_messages"] = int(row["n"])
+
+    row = conn.execute(
+        "SELECT COUNT(*) AS n FROM outbound_messages WHERE status = 'draft'"
+    ).fetchone()
+    result["draft_messages"] = int(row["n"])
+
+    return result
+
+
+def get_case_counts_by_status() -> dict:
+    """Return {status: count} for all cases."""
+    conn = get_connection()
+    rows = conn.execute(
+        "SELECT status, COUNT(*) AS n FROM cases GROUP BY status"
+    ).fetchall()
+    return {row["status"]: int(row["n"]) for row in rows}
+
+
+def get_case_counts_by_type() -> list:
+    """Return [{"case_type": ..., "count": ...}] sorted descending."""
+    conn = get_connection()
+    rows = conn.execute(
+        "SELECT case_type, COUNT(*) AS n FROM cases GROUP BY case_type ORDER BY n DESC"
+    ).fetchall()
+    return [{"case_type": row["case_type"], "count": int(row["n"])} for row in rows]
+
+
+def get_recent_agent_activity(limit: int = 20) -> list:
+    """Return recent case events joined with case metadata for the activity timeline."""
+    conn = get_connection()
+    rows = conn.execute(
+        """
+        SELECT ce.event_id, ce.case_id, ce.event_type, ce.description,
+               ce.source_email_id, ce.created_at,
+               c.case_type, c.building, c.status AS case_status, c.priority
+        FROM case_events ce
+        LEFT JOIN cases c ON c.case_id = ce.case_id
+        ORDER BY ce.created_at DESC
+        LIMIT ?
+        """,
+        (limit,),
+    ).fetchall()
+    return [dict(row) for row in rows]
+
+
+def get_email_pipeline_summary() -> dict:
+    """Return email pipeline counts for the emails page cards."""
+    conn = get_connection()
+    result = {}
+
+    row = conn.execute("SELECT COUNT(*) AS n FROM emails").fetchone()
+    result["total"] = int(row["n"])
+
+    row = conn.execute("SELECT COUNT(*) AS n FROM emails WHERE processed = 0").fetchone()
+    result["unprocessed"] = int(row["n"])
+
+    row = conn.execute("SELECT COUNT(*) AS n FROM emails WHERE processed = 1").fetchone()
+    result["processed"] = int(row["n"])
+
+    row = conn.execute(
+        """
+        SELECT COUNT(DISTINCT e.email_id) AS n
+        FROM emails e
+        INNER JOIN case_events ce ON ce.source_email_id = e.email_id
+        WHERE ce.event_type = 'case_created'
+        """
+    ).fetchone()
+    result["created_cases"] = int(row["n"])
+
+    row = conn.execute(
+        """
+        SELECT COUNT(DISTINCT mr.email_id) AS n
+        FROM manual_reviews mr
+        WHERE mr.email_id IS NOT NULL AND mr.resolved = 0
+        """
+    ).fetchone()
+    result["flagged_for_review"] = int(row["n"])
+
+    return result
+
+
+def get_email_backlog(limit: int = 100, status_filter: str = "") -> list:
+    """
+    Return emails with enriched action/status fields derived from case_events and
+    manual_reviews. Each row is a plain dict with extra keys:
+      linked_case_id, linked_case_type, linked_case_status, linked_case_priority,
+      review_count, review_reason, action
+    ``action`` is one of: new | skipped | created | updated | review | injection_flag
+    ``status_filter`` filters by action value (post-derivation).
+    """
+    conn = get_connection()
+    rows = conn.execute(
+        """
+        SELECT e.*,
+               ce.case_id   AS linked_case_id,
+               ce.event_type AS first_event_type,
+               c.case_type  AS linked_case_type,
+               c.status     AS linked_case_status,
+               c.priority   AS linked_case_priority,
+               mr.review_count,
+               mr.first_reason AS review_reason
+        FROM emails e
+        LEFT JOIN (
+            SELECT ce_inner.source_email_id,
+                   ce_inner.case_id,
+                   ce_inner.event_type
+            FROM case_events ce_inner
+            INNER JOIN (
+                SELECT source_email_id, MIN(rowid) AS min_rid
+                FROM case_events
+                WHERE source_email_id IS NOT NULL
+                GROUP BY source_email_id
+            ) ce_first ON ce_inner.rowid = ce_first.min_rid
+        ) ce ON ce.source_email_id = e.email_id
+        LEFT JOIN cases c ON c.case_id = ce.case_id
+        LEFT JOIN (
+            SELECT email_id,
+                   COUNT(*) AS review_count,
+                   MIN(reason) AS first_reason
+            FROM manual_reviews
+            WHERE email_id IS NOT NULL
+            GROUP BY email_id
+        ) mr ON mr.email_id = e.email_id
+        ORDER BY e.received_at DESC
+        LIMIT ?
+        """,
+        (limit,),
+    ).fetchall()
+
+    result = []
+    for row in rows:
+        email = dict(row)
+        review_count = int(email.get("review_count") or 0)
+        reason = email.get("review_reason") or ""
+        first_event = email.get("first_event_type")
+
+        if review_count > 0 and "injection" in reason.lower():
+            action = "injection_flag"
+        elif review_count > 0:
+            action = "review"
+        elif first_event == "case_created":
+            action = "created"
+        elif first_event is not None:
+            action = "updated"
+        elif email.get("processed"):
+            action = "skipped"
+        else:
+            action = "new"
+
+        email["action"] = action
+        result.append(email)
+
+    if status_filter:
+        result = [e for e in result if e["action"] == status_filter]
+
+    return result
+
+
+def get_events_for_email(email_id: str) -> list:
+    """Return case events that originated from a specific email."""
+    conn = get_connection()
+    rows = conn.execute(
+        """
+        SELECT ce.*, c.case_type, c.building, c.status AS case_status
+        FROM case_events ce
+        LEFT JOIN cases c ON c.case_id = ce.case_id
+        WHERE ce.source_email_id = ?
+        ORDER BY ce.created_at ASC
+        """,
+        (email_id,),
+    ).fetchall()
+    return [dict(row) for row in rows]
+
+
 def resolve_missing_pattern_flags(case_id: str, active_pattern_types: List[str]) -> int:
     """Resolve active pattern flags for a case that were not present in the latest run."""
     now = datetime.utcnow().isoformat()

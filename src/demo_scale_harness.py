@@ -369,10 +369,16 @@ def _run_ui_smoke(case_ids_by_key: Dict[str, str]) -> Dict[str, Any]:
     app = create_app()
     app.testing = True
     client = app.test_client()
-    targets = ["/cases", "/reviews", "/events", "/patterns"]
+    targets = ["/", "/emails", "/cases", "/reviews", "/events", "/patterns"]
     first_case_id = next(iter(case_ids_by_key.values()), None)
     if first_case_id:
         targets.append(f"/cases/{first_case_id}")
+
+    # Add first email detail to smoke targets
+    conn = db.get_connection()
+    first_email = conn.execute("SELECT email_id FROM emails LIMIT 1").fetchone()
+    if first_email:
+        targets.append(f"/emails/{first_email['email_id']}")
 
     errors: List[str] = []
     checks: List[Dict[str, Any]] = []

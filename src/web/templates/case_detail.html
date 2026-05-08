@@ -56,6 +56,118 @@
   </div>
 </div>
 
+<!-- Agent Workflow -->
+{% set event_types = events | map(attribute="event_type") | list %}
+<div class="card">
+  <h2>Agent Workflow</h2>
+  <p class="section-note">Steps the agent has completed for this case.</p>
+  <div class="workflow-list">
+
+    {% set step_done = "case_created" in event_types or "email_received" in event_types %}
+    <div class="workflow-item {% if step_done %}workflow-done{% endif %}">
+      <span class="workflow-icon">{% if step_done %}✅{% else %}⬜{% endif %}</span>
+      <div>
+        <div class="workflow-label">Email Ingested &amp; Classified</div>
+        <div class="workflow-sub">Email parsed, case type identified, case created or updated.</div>
+      </div>
+    </div>
+
+    {% set step_done = fields | length > 0 %}
+    <div class="workflow-item {% if step_done %}workflow-done{% endif %}">
+      <span class="workflow-icon">{% if step_done %}✅{% else %}⬜{% endif %}</span>
+      <div>
+        <div class="workflow-label">Fields Extracted</div>
+        <div class="workflow-sub">{{ fields | length }} field(s) extracted: building, device, contractor, due date, period, etc.</div>
+      </div>
+    </div>
+
+    {% set step_done = "memory_updated" in event_types %}
+    <div class="workflow-item {% if step_done %}workflow-done{% endif %}">
+      <span class="workflow-icon">{% if step_done %}✅{% else %}⬜{% endif %}</span>
+      <div>
+        <div class="workflow-label">Memory Updated</div>
+        <div class="workflow-sub">Observations stored; pattern rules evaluated against history.</div>
+      </div>
+    </div>
+
+    {% set step_done = messages | length > 0 %}
+    <div class="workflow-item {% if step_done %}workflow-done{% endif %}">
+      <span class="workflow-icon">{% if step_done %}✅{% else %}⬜{% endif %}</span>
+      <div>
+        <div class="workflow-label">Alert Drafted</div>
+        <div class="workflow-sub">
+          {% if messages %}
+          {{ messages | length }} message(s) generated.
+          {% if messages[0].status == 'sent' %}Sent to {{ messages[0].actual_to or messages[0].intended_to or '—' }}.
+          {% elif messages[0].status == 'sent_dry_run' %}Dry-run send (demo mode).
+          {% else %}Status: {{ messages[0].status }}.{% endif %}
+          {% else %}
+          No alert drafted yet.
+          {% endif %}
+        </div>
+      </div>
+    </div>
+
+    {% set step_done = followup is not none %}
+    <div class="workflow-item {% if step_done %}workflow-done{% endif %}">
+      <span class="workflow-icon">{% if step_done %}✅{% else %}⬜{% endif %}</span>
+      <div>
+        <div class="workflow-label">Follow-up Scheduled</div>
+        <div class="workflow-sub">
+          {% if followup %}
+          Status: {{ followup.status }} | Deadline: {{ followup.deadline[:10] if followup.deadline else '—' }} | Sent {{ followup.follow_count }} time(s).
+          {% else %}
+          No follow-up record for this case.
+          {% endif %}
+        </div>
+      </div>
+    </div>
+
+    {% set step_done = "reply_received" in event_types %}
+    <div class="workflow-item {% if step_done %}workflow-done{% else %}workflow-na{% endif %}">
+      <span class="workflow-icon">{% if step_done %}✅{% else %}—{% endif %}</span>
+      <div>
+        <div class="workflow-label">Reply Received</div>
+        <div class="workflow-sub">Contractor or recipient replied; case updated from reply content.</div>
+      </div>
+    </div>
+
+    {% set step_done = memory_context.active_pattern_flags | length > 0 %}
+    <div class="workflow-item {% if step_done %}workflow-done{% endif %}">
+      <span class="workflow-icon">{% if step_done %}⚠️{% else %}⬜{% endif %}</span>
+      <div>
+        <div class="workflow-label">Pattern Signals</div>
+        <div class="workflow-sub">
+          {% if memory_context.active_pattern_flags %}
+          {{ memory_context.active_pattern_flags | length }} active flag(s) detected.
+          Highest severity: {{ memory_context.active_pattern_flags | map(attribute="severity") | list | join(", ") }}.
+          {% else %}
+          No recurring patterns detected for this case.
+          {% endif %}
+        </div>
+      </div>
+    </div>
+
+    {% set open_reviews = [] %}
+    {% for ev in events %}{% if ev.event_type == "manual_review_created" %}{% set _ = open_reviews.append(1) %}{% endif %}{% endfor %}
+    {% set step_done = open_reviews | length > 0 %}
+    <div class="workflow-item {% if step_done %}workflow-done{% else %}workflow-na{% endif %}">
+      <span class="workflow-icon">{% if step_done %}🔍{% else %}—{% endif %}</span>
+      <div>
+        <div class="workflow-label">Manual Review Flagged</div>
+        <div class="workflow-sub">
+          {% if step_done %}
+          Flagged for human review. Open items: {{ case.open_review_count if case.open_review_count is defined else '—' }}.
+          {% else %}
+          Not flagged for review.
+          {% endif %}
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
 <!-- Memory / Intelligence -->
 <section class="memory-section">
   <h2>Memory / Intelligence</h2>

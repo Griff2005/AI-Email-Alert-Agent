@@ -1,0 +1,163 @@
+{% extends "base.html" %}
+{% block title %}Dashboard — Solucore Alert Triage{% endblock %}
+
+{% block content %}
+<h1>Agent Dashboard</h1>
+
+{% if demo_mode %}
+<div class="safety-bar">
+  <strong>Demo Mode Active.</strong>
+  All outbound emails are redirected to {{ demo_recipient }}. SMTP/IMAP is sandboxed. AI: {{ ai_runtime_label }}.
+</div>
+{% endif %}
+
+<!-- Pipeline summary -->
+<div class="stat-row">
+  <div class="stat">
+    <div class="label">Emails Ingested</div>
+    <div class="value">{{ summary.total_emails }}</div>
+  </div>
+  <div class="stat">
+    <div class="label">Unprocessed</div>
+    <div class="value">{{ summary.unprocessed_emails }}</div>
+  </div>
+  <div class="stat">
+    <div class="label">Cases</div>
+    <div class="value">{{ summary.total_cases }}</div>
+  </div>
+  <div class="stat">
+    <div class="label">Open Cases</div>
+    <div class="value">{{ summary.open_cases }}</div>
+  </div>
+  <div class="stat">
+    <div class="label">Critical</div>
+    <div class="value" style="color:#ef4444">{{ summary.critical_cases }}</div>
+  </div>
+  <div class="stat">
+    <div class="label">Open Reviews</div>
+    <div class="value" style="color:#b45309">{{ summary.open_reviews }}</div>
+  </div>
+  <div class="stat">
+    <div class="label">Active Patterns</div>
+    <div class="value">{{ summary.active_patterns }}</div>
+  </div>
+  <div class="stat">
+    <div class="label">Sent Alerts</div>
+    <div class="value">{{ summary.sent_messages }}</div>
+  </div>
+  <div class="stat">
+    <div class="label">Drafts</div>
+    <div class="value">{{ summary.draft_messages }}</div>
+  </div>
+</div>
+
+<div class="dashboard-grid">
+
+  <!-- Email pipeline card -->
+  <div class="card" style="margin-bottom:0">
+    <h2>Email Pipeline</h2>
+    <p class="section-note">Breakdown of how ingested emails have been processed.</p>
+    <div class="stat-row" style="flex-wrap:wrap;gap:10px">
+      <div class="stat" style="min-width:90px">
+        <div class="label">Total</div>
+        <div class="value">{{ pipeline_summary.total }}</div>
+      </div>
+      <div class="stat" style="min-width:90px">
+        <div class="label">Processed</div>
+        <div class="value">{{ pipeline_summary.processed }}</div>
+      </div>
+      <div class="stat" style="min-width:90px">
+        <div class="label">Cases Created</div>
+        <div class="value">{{ pipeline_summary.created_cases }}</div>
+      </div>
+      <div class="stat" style="min-width:90px">
+        <div class="label">Flagged</div>
+        <div class="value" style="color:#b45309">{{ pipeline_summary.flagged_for_review }}</div>
+      </div>
+    </div>
+    <a href="/emails" class="btn btn-primary btn-sm" style="margin-top:8px">View Email Queue</a>
+  </div>
+
+  <!-- Case breakdown card -->
+  <div class="card" style="margin-bottom:0">
+    <h2>Cases by Type</h2>
+    <p class="section-note">All ingested case types from KPI alerts.</p>
+    {% if case_type_breakdown %}
+    <div class="table-wrap">
+      <table class="mini-table">
+        <thead>
+          <tr><th>Case Type</th><th>Count</th></tr>
+        </thead>
+        <tbody>
+          {% for row in case_type_breakdown %}
+          <tr>
+            <td>{{ row.case_type.replace('_', ' ').title() }}</td>
+            <td><strong>{{ row.count }}</strong></td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <div class="empty-state">No cases yet.</div>
+    {% endif %}
+    <a href="/cases" class="btn btn-primary btn-sm" style="margin-top:8px">View All Cases</a>
+  </div>
+
+  <!-- Intelligence snapshot -->
+  <div class="card" style="margin-bottom:0">
+    <h2>Intelligence Snapshot</h2>
+    <p class="section-note">Pattern signals detected from case history and observations.</p>
+    <div class="stat-row" style="flex-wrap:wrap;gap:10px">
+      <div class="stat" style="min-width:90px">
+        <div class="label">Active Flags</div>
+        <div class="value">{{ summary.active_patterns }}</div>
+      </div>
+      <div class="stat" style="min-width:90px">
+        <div class="label">High / Review</div>
+        <div class="value" style="color:#b45309">{{ summary.high_patterns }}</div>
+      </div>
+    </div>
+    <a href="/patterns" class="btn btn-primary btn-sm" style="margin-top:8px">View Patterns</a>
+  </div>
+
+</div>
+
+<!-- Activity timeline -->
+<div class="card">
+  <h2>Recent Agent Activity</h2>
+  <p class="section-note">Last {{ recent_activity | length }} agent actions across all cases.</p>
+  {% if recent_activity %}
+  <ul class="timeline">
+    {% for ev in recent_activity %}
+    <li>
+      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+        <span class="badge {{ ev.badge_class }}">{{ ev.event_type.replace('_', ' ') }}</span>
+        {% if ev.case_id %}
+        <a href="/cases/{{ ev.case_id }}" style="font-size:0.72rem;color:#6b7280;text-decoration:none">
+          Case {{ ev.case_id[:8] }}…
+        </a>
+        {% endif %}
+        {% if ev.case_type %}
+        <span style="font-size:0.7rem;background:#f3f4f6;color:#6b7280;padding:1px 7px;border-radius:4px">
+          {{ ev.case_type.replace('_', ' ').title() }}
+        </span>
+        {% endif %}
+        {% if ev.priority %}
+        <span class="badge badge-{{ ev.priority }}" style="font-size:0.68rem">{{ ev.priority }}</span>
+        {% endif %}
+      </div>
+      <div class="ev-desc">{{ ev.description or '' }}</div>
+      {% if ev.building %}
+      <div style="font-size:0.75rem;color:#9ca3af">{{ ev.building }}</div>
+      {% endif %}
+      <div class="ev-time">{{ ev.created_at[:16].replace('T', ' ') if ev.created_at else '' }}</div>
+    </li>
+    {% endfor %}
+  </ul>
+  {% else %}
+  <div class="empty-state">No activity yet. Run <code>python src/agent.py ingest</code> first.</div>
+  {% endif %}
+</div>
+
+{% endblock %}

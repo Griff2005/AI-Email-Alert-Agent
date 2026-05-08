@@ -2,13 +2,16 @@
 web/app.py — Flask case management web UI.
 
 Routes:
-  GET  /                  -> redirect to /cases
-  GET  /cases             -> case table view
-  GET  /cases/<case_id>   -> case detail page
-  GET  /reviews           -> manual review queue
-  GET  /events            -> recent events feed
-  POST /cases/<case_id>/close   -> mark case closed (manual only)
-  POST /cases/<case_id>/resolve-review  -> resolve a manual review item
+  GET  /                       -> dashboard (metrics, pipeline, activity)
+  GET  /cases                  -> case table view
+  GET  /cases/<case_id>        -> case detail page
+  GET  /reviews                -> manual review queue
+  GET  /events                 -> recent events feed
+  GET  /patterns               -> memory/intelligence flags
+  GET  /emails                 -> email work queue / backlog
+  GET  /emails/<email_id>      -> single email detail
+  POST /cases/<case_id>/close          -> mark case closed (manual only)
+  POST /cases/<case_id>/resolve-review -> resolve a manual review item
 """
 
 import json
@@ -284,8 +287,20 @@ def inject_runtime_badges():
 
 @app.route("/")
 def index():
-    """Redirect the root URL to the cases list."""
-    return redirect(url_for("cases"))
+    """Render the dashboard page with high-level demo metrics."""
+    summary = db.get_dashboard_summary()
+    recent_activity = db.get_recent_agent_activity(limit=15)
+    for ev in recent_activity:
+        ev["badge_class"] = _event_badge_class(ev.get("event_type"))
+    case_type_breakdown = db.get_case_counts_by_type()
+    pipeline_summary = db.get_email_pipeline_summary()
+    return render_template(
+        "dashboard.html",
+        summary=summary,
+        recent_activity=recent_activity,
+        case_type_breakdown=case_type_breakdown,
+        pipeline_summary=pipeline_summary,
+    )
 
 
 @app.route("/cases")
@@ -470,6 +485,38 @@ def patterns():
         severity_filter=severity_filter,
         pattern_type_filter=pattern_type_filter,
         pattern_type_options=pattern_type_options,
+    )
+
+
+@app.route("/emails")
+def emails():
+    """Render the email work queue showing all ingested emails and their pipeline status."""
+    status_filter = request.args.get("status", "")
+    pipeline_summary = db.get_email_pipeline_summary()
+    email_list = db.get_email_backlog(limit=200, status_filter=status_filter)
+    return render_template(
+        "emails.html",
+        emails=email_list,
+        pipeline_summary=pipeline_summary,
+        status_filter=status_filter,
+    )
+
+
+@app.route("/emails/<email_id>")
+def email_detail(email_id):
+    """Render the detail page for a single ingested email."""
+    email = db.get_email_by_id(email_id)
+    if not email:
+        flash(f"Email {email_id} not found.", "error")
+        return redirect(url_for("emails"))
+    email_dict = dict(email)
+    events = db.get_events_for_email(email_id)
+    for ev in events:
+        ev["badge_class"] = _event_badge_class(ev.get("event_type"))
+    return render_template(
+        "email_detail.html",
+        email=email_dict,
+        events=events,
     )
 
 

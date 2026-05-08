@@ -7,6 +7,9 @@
 {% set open_count = cases | selectattr("status", "equalto", "open") | list | length %}
 {% set closed_count = cases | selectattr("status", "equalto", "closed") | list | length %}
 {% set critical_count = cases | selectattr("priority", "equalto", "critical") | list | length %}
+{% set high_count = cases | selectattr("priority", "equalto", "high") | list | length %}
+{% set review_count = cases | sum(attribute="open_review_count") %}
+{% set pattern_count = cases | sum(attribute="pattern_count") %}
 
 <div class="stat-row">
   <div class="stat">
@@ -24,6 +27,18 @@
   <div class="stat">
     <div class="label">Critical</div>
     <div class="value" style="color:#ef4444">{{ critical_count }}</div>
+  </div>
+  <div class="stat">
+    <div class="label">High Priority</div>
+    <div class="value" style="color:#b45309">{{ high_count }}</div>
+  </div>
+  <div class="stat">
+    <div class="label">Review Needed</div>
+    <div class="value" style="color:#b45309">{{ cases | selectattr("open_review_count") | list | length }}</div>
+  </div>
+  <div class="stat">
+    <div class="label">Active Patterns</div>
+    <div class="value">{{ cases | selectattr("pattern_count") | list | length }}</div>
   </div>
 </div>
 
