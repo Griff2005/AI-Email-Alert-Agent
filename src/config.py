@@ -5,7 +5,12 @@ All credentials are read from environment variables only; nothing is hardcoded.
 
 import os
 from pathlib import Path
-from dotenv import load_dotenv
+
+try:
+    from dotenv import load_dotenv
+except ImportError:  # pragma: no cover - lightweight environments may omit python-dotenv
+    def load_dotenv(*args, **kwargs):  # type: ignore[no-redef]
+        return False
 
 # Resolve project root: src/ is one level below project root
 _SRC_DIR = Path(__file__).resolve().parent
@@ -73,6 +78,7 @@ class Config:
     # Claude response cache
     CLAUDE_CACHE_ENABLED: bool = os.getenv("CLAUDE_CACHE_ENABLED", "true").lower() == "true"
     CLAUDE_CACHE_PATH: Path = PROJECT_ROOT / os.getenv("CLAUDE_CACHE_PATH", "data/claude_cache.json")
+    AI_REPORT_PATH: Path = PROJECT_ROOT / os.getenv("AI_REPORT_PATH", "data/ai_usage_report.json")
 
     # Scheduler
     FOLLOWUP_CHECK_INTERVAL: int = int(os.getenv("FOLLOWUP_CHECK_INTERVAL", "300"))

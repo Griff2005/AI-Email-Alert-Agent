@@ -9,19 +9,24 @@ For each open case with a passed deadline:
 """
 
 import uuid
-from datetime import datetime
-from typing import Optional
+from datetime import datetime, timedelta
+from typing import Any, Dict, Optional
 
-from apscheduler.schedulers.background import BackgroundScheduler
+try:
+    from apscheduler.schedulers.background import BackgroundScheduler
+except ImportError:  # pragma: no cover - optional in lightweight test environments
+    BackgroundScheduler = None  # type: ignore[assignment]
 
 import database as db
 import email_sender
 import memory
 from config import config
 from extractor import generate_email_body
+from runtime_options import runtime_options
 
 # After this many unanswered follow-ups, the case is flagged for senior manual review.
 _ESCALATION_THRESHOLD = 3
+_FOLLOWUP_RESCHEDULE_DAYS = 7
 
 
 def _ensure_manual_review(case_id: str, reason: str) -> None:
@@ -86,17 +91,42 @@ def check_and_process_followups() -> None:
     5. If ``follow_count >= _ESCALATION_THRESHOLD``, log ``escalated`` event
        and insert a ``manual_reviews`` record.
     """
+    options = runtime_options.get()
+    if not options.followups_enabled:
+        print("[FOLLOWUP] Follow-up processing disabled for this run.")
+        return {
+            "disabled": True,
+            "valid": True,
+            "errors": [],
+            "cases_touched": 0,
+            "normal_followups_triggered": 0,
+            "escalation_followups_triggered": 0,
+            "duplicate_followups_skipped": 0,
+        }
+
     now_str = datetime.utcnow().isoformat()
     print(f"[FOLLOWUP] Checking follow-up deadlines at {now_str}")
 
     overdue = db.get_overdue_followups()
     if not overdue:
         print("[FOLLOWUP] No overdue follow-ups.")
-        return
+        return {
+            "disabled": False,
+            "valid": True,
+            "errors": [],
+            "cases_touched": 0,
+            "normal_followups_triggered": 0,
+            "escalation_followups_triggered": 0,
+            "duplicate_followups_skipped": 0,
+        }
 
     print(f"[FOLLOWUP] Found {len(overdue)} overdue follow-up(s).")
+    errors = []
+    processed = 0
+    escalations = 0
+    duplicates = 0
 
-    for row in overdue:
+    for row in overdue[: options.max_followup_runs]:
         case_id = row["case_id"]
         case = db.get_case_by_id(case_id)
         if not case:
@@ -104,24 +134,38 @@ def check_and_process_followups() -> None:
         if case["status"] == "closed":
             db.close_followup(case_id)
             continue
+        if int(row["follow_count"]) >= options.max_followups:
+            _ensure_manual_review(
+                case_id=case_id,
+                reason=f"Escalated: maximum configured follow-ups ({options.max_followups}) already reached with no resolution.",
+            )
+            continue
 
-        # Increment count
-        new_count = db.increment_followup_count(case_id)
-        print(f"[FOLLOWUP] Processing case {case_id} — follow count now {new_count}")
-
-        # Log follow-up event
-        db.insert_case_event(
-            event_id=str(uuid.uuid4()),
-            case_id=case_id,
-            event_type="followup_triggered",
-            description=f"Follow-up #{new_count} triggered. Deadline was {row['deadline']}.",
+        target_follow_count = int(row["follow_count"]) + 1
+        escalation_stage = "escalation" if target_follow_count >= _ESCALATION_THRESHOLD else "standard"
+        scheduled_bucket = str(row["deadline"])[:10]
+        idempotency_key = "|".join(
+            [
+                case_id,
+                str(target_follow_count),
+                escalation_stage,
+                "contractor",
+                scheduled_bucket,
+            ]
         )
+        if not db.reserve_followup_action(
+            action_id=str(uuid.uuid4()),
+            case_id=case_id,
+            idempotency_key=idempotency_key,
+            followup_level=target_follow_count,
+            escalation_stage=escalation_stage,
+            recipient_type="contractor",
+            scheduled_bucket=scheduled_bucket,
+        ):
+            duplicates += 1
+            print(f"[FOLLOWUP] Skipping duplicate follow-up for case {case_id} ({idempotency_key}).")
+            continue
 
-        memory.record_no_response(case_id)
-        pattern_flags = memory.detect_patterns_for_case(case_id)
-        _record_memory_event(case_id, pattern_flags)
-
-        # Generate follow-up email body
         fields = {f["field_name"]: f["field_value"] for f in db.get_fields_for_case(case_id)}
         case_dict = dict(case)
         for k in ("building", "device", "contractor", "due_date", "period"):
@@ -135,9 +179,13 @@ def check_and_process_followups() -> None:
                 fields=fields,
                 case_id=case_id,
                 memory_context=memory_context,
+                purpose="followup_generation",
+                followup_count=target_follow_count,
             )
         except Exception as exc:
             print(f"[FOLLOWUP] Failed to generate email body for case {case_id}: {exc}")
+            db.mark_followup_action_status(idempotency_key, "failed")
+            errors.append(f"Failed to generate follow-up body for case {case_id}: {exc}")
             email_body = (
                 f"This is a follow-up regarding an outstanding compliance issue.\n\n"
                 f"Case ID: {case_id}\n"
@@ -146,19 +194,46 @@ def check_and_process_followups() -> None:
                 f"Please take immediate action to resolve this matter."
             )
 
-        subject = _build_followup_subject(case_dict, new_count)
+        subject = _build_followup_subject(case_dict, target_follow_count)
         intended_to = case_dict.get("contractor", config.DEMO_RECIPIENT_EMAIL) or config.DEMO_RECIPIENT_EMAIL
 
-        email_sender.create_draft(
+        try:
+            msg_id = email_sender.create_draft(
+                case_id=case_id,
+                subject=subject,
+                body=email_body,
+                intended_to=intended_to,
+            )
+        except Exception as exc:
+            db.mark_followup_action_status(idempotency_key, "failed")
+            errors.append(f"Failed to create follow-up draft for case {case_id}: {exc}")
+            continue
+
+        new_count = db.increment_followup_count(case_id)
+        next_deadline = (datetime.utcnow() + timedelta(days=_FOLLOWUP_RESCHEDULE_DAYS)).isoformat()
+        db.reschedule_followup(case_id, next_deadline)
+        db.mark_followup_action_status(idempotency_key, "draft_created", outbound_msg_id=msg_id)
+        processed += 1
+        print(f"[FOLLOWUP] Processing case {case_id} — follow count now {new_count}")
+
+        db.insert_case_event(
+            event_id=str(uuid.uuid4()),
             case_id=case_id,
-            subject=subject,
-            body=email_body,
-            intended_to=intended_to,
+            event_type="followup_triggered",
+            description=(
+                f"Follow-up #{new_count} triggered. Previous deadline was {row['deadline']}. "
+                f"Next deadline is {next_deadline}."
+            ),
         )
+
+        memory.record_no_response(case_id)
+        pattern_flags = memory.detect_patterns_for_case(case_id)
+        _record_memory_event(case_id, pattern_flags)
 
         # Escalate after threshold
         if new_count >= _ESCALATION_THRESHOLD:
             print(f"[FOLLOWUP] Case {case_id} reached escalation threshold ({_ESCALATION_THRESHOLD} follow-ups).")
+            escalations += 1
             db.insert_case_event(
                 event_id=str(uuid.uuid4()),
                 case_id=case_id,
@@ -168,12 +243,20 @@ def check_and_process_followups() -> None:
                     "Flagged for manual review."
                 ),
             )
-            db.insert_manual_review(
-                review_id=str(uuid.uuid4()),
+            _ensure_manual_review(
                 case_id=case_id,
-                email_id=None,
                 reason=f"Escalated: {new_count} follow-ups sent with no resolution.",
             )
+
+    return {
+        "disabled": False,
+        "valid": not errors,
+        "errors": errors,
+        "cases_touched": processed,
+        "normal_followups_triggered": processed - escalations,
+        "escalation_followups_triggered": escalations,
+        "duplicate_followups_skipped": duplicates,
+    }
 
 
 def start_scheduler() -> BackgroundScheduler:
@@ -187,6 +270,8 @@ def start_scheduler() -> BackgroundScheduler:
         The running ``BackgroundScheduler`` instance. The caller should hold
         a reference to prevent premature garbage collection.
     """
+    if BackgroundScheduler is None:
+        raise RuntimeError("APScheduler is not installed. Follow-up scheduler cannot start.")
     scheduler = BackgroundScheduler(daemon=True)
     scheduler.add_job(
         check_and_process_followups,

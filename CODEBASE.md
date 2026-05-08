@@ -1,6 +1,6 @@
 # Email Alert Triage Agent — Codebase Reference
 
-This document explains every file in the project in depth: what it does, how it works, and how it connects to everything else.
+This document explains the current architecture of the project: what each file does, how the main flows connect, and where the safety-critical behavior lives.
 
 ---
 
@@ -28,19 +28,19 @@ This document explains every file in the project in depth: what it does, how it 
 
 ## 1. System Overview
 
-The Email Alert Triage Agent is a Python application that automates the triage of KPI (Key Performance Indicator) alert emails for elevator compliance management. When a KPI alert arrives in the agent's inbox, the system:
+The Email Alert Triage Agent is a Python application that automates KPI alert triage for elevator compliance management. The important current design point is that the agent is now **deterministic-first** and **AI-opt-in**:
 
-1. Reads the email from the inbox via IMAP
-2. Classifies it into one of 6 compliance case types using Claude AI
-3. Extracts structured data fields (building, device, contractor, dates, hours)
-4. Checks for a duplicate case using a deterministic grouping key
-5. Creates a new case or updates an existing one in SQLite
-6. Records deterministic memory observations, related case links, and pattern candidates in SQLite
-7. Generates a professional follow-up email using Claude AI and sends it to the demo recipient
-8. Schedules a follow-up deadline; if the case remains unresolved, sends escalating reminders
-9. Provides a web dashboard to view and manage all cases, including Memory / Intelligence details
+1. Reads or loads the email
+2. Classifies obvious KPI and obvious noise deterministically
+3. Extracts known template fields deterministically
+4. Uses a deterministic grouping key to deduplicate cases
+5. Creates or updates the SQLite-backed case record
+6. Records deterministic memory observations, related case links, and pattern flags
+7. Generates deterministic outbound drafts by default
+8. Schedules follow-ups with idempotency protection
+9. Uses the centralized AI gateway only when deterministic logic cannot confidently finish the task and AI was explicitly enabled with a budget
 
-The AI brain is **Claude Haiku**, invoked via the `claude` CLI in headless (`--print`) mode. Every AI call is a subprocess — there is no direct Anthropic SDK dependency.
+The low-level model transport remains the `claude` CLI, but normal flows do not call it directly. All model access now goes through `src/ai_gateway.py`.
 
 ---
 
@@ -64,13 +64,16 @@ AI Email Alert Agent/
     ├── agent.py                # CLI entry point (ingest / demo / run / reply / memory tools / test-demo-scale)
     ├── config.py               # Environment variable loading
     ├── database.py             # SQLite schema + all query helpers
-    ├── claude_client.py        # claude --print subprocess wrapper
-    ├── classifier.py           # Email → case type classification
-    ├── extractor.py            # Field extraction + email body generation
+    ├── ai_gateway.py           # Central AI budgets, cache, and usage reporting
+    ├── claude_client.py        # Low-level claude --print transport + sanitization helpers
+    ├── classifier.py           # Deterministic-first email → case type classification
+    ├── extractor.py            # Deterministic-first extraction + outbound templates
     ├── demo_fixtures.py        # Deterministic synthetic KPI email, reply, and follow-up generation
-    ├── demo_scale_harness.py   # Safe large-scale harness, offline Claude shim, hard SMTP/IMAP blocking
+    ├── demo_scale_harness.py   # Safe large-scale harness, zero-AI defaults, hard SMTP/IMAP blocking
     ├── memory.py               # Deterministic entities, observations, patterns
     ├── case_manager.py         # Full pipeline orchestration
+    ├── reply_analyzer.py       # Deterministic-first reply interpretation
+    ├── runtime_options.py      # Run-level AI / outbound / follow-up policy
     ├── email_reader.py         # IMAP inbox polling
     ├── email_sender.py         # SMTP outbound with demo guardrails
     ├── followup.py             # APScheduler background deadline checker
@@ -104,12 +107,12 @@ agent.py (imap_loop)     ← Stores raw email in DB, calls process_email()
      ▼
 case_manager.process_email()
      │
-     ├─► classifier.quick_filter()     ← Fast subject-line keyword check
-     │         │ no match → skip
-     │         ▼ match
-     ├─► classifier.classify_email()   ← Claude: what case type is this?
+     ├─► classifier.quick_filter()     ← Fast obvious-noise filter
+     │         │ noise → skip
+     │         ▼ otherwise
+     ├─► classifier.classify_email()   ← Deterministic rules first, AI gateway only on ambiguity
      │
-     ├─► extractor.extract_fields()    ← Claude: pull building, device, dates, etc.
+     ├─► extractor.extract_fields_with_meta() ← Deterministic template parsing first, AI gateway only if required fields are missing
      │
      ├─► extractor.generate_grouping_key()  ← Deterministic dedup key
      │
@@ -121,7 +124,7 @@ case_manager.process_email()
      ├─► memory.record_case_observations()  ← Deterministic facts
      ├─► memory.detect_patterns_for_case()  ← Recurrence rules + case links
      │
-     ├─► extractor.generate_email_body()  ← Claude: write outbound email
+     ├─► extractor.generate_email_body()  ← Template outbound by default, AI gateway only if explicitly enabled
      └─► email_sender.create_and_send()   ← SMTP → demo recipient
 
 Background (every 5 min):
@@ -129,25 +132,39 @@ followup.check_and_process_followups()
      │
      └─► For each overdue open case:
              memory.record_no_response() → detect_patterns_for_case()
-             generate_email_body() → create_draft() → escalate if 3+ attempts
+             reserve followup idempotency key
+             generate_email_body() → create_draft() → increment count only after success → reschedule deadline
+             escalate if 3+ attempts
 
 User action:
 agent.py reply → case_manager.process_reply()
      │
-     └─► Claude: analyze reply → deterministic reply observations → update case_events → flag for manual review
+     └─► reply_analyzer.analyze_reply() → deterministic rules first, AI gateway only on ambiguity → update case_events → flag for manual review
 
 Scale harness action:
 agent.py test-demo-scale → demo_scale_harness.run_demo_scale_test()
      │
      ├─► demo_fixtures.generate_synthetic_dataset()  ← Generic KPI alerts, reply plans, follow-up targets
-     ├─► runtime config override                     ← Per-run DB + cache under data/test_runs/<timestamp>/
+     ├─► runtime config override                     ← Per-run DB + reports under data/test_runs/<timestamp>/
      ├─► SMTP / IMAP hard block                      ← Monkeypatch smtplib + imaplib to fail immediately
-     ├─► optional offline Claude shim                ← Deterministic classification / extraction / reply analysis
+     ├─► zero-AI defaults                            ← No live AI unless --enable-ai is supplied
+     ├─► optional mocked AI transport                ← Offline budget testing without live model use
      ├─► case_manager.process_email()                ← Real inbound KPI pipeline
      ├─► case_manager.process_reply()                ← Real reply handling
-     ├─► followup.check_and_process_followups()      ← Real follow-up logic on backdated deadlines
-     └─► Flask test_client() + report writers        ← UI smoke checks + JSON / Markdown output
+     ├─► optional followup.check_and_process_followups() ← Real follow-up logic when enabled
+     └─► Flask test_client() + report writers        ← UI smoke checks + JSON / Markdown + AI usage output
 ```
+
+### Current AI Safety Model
+
+The current implementation uses four layers of protection:
+
+1. `runtime_options.py` sets per-run policy such as `ai_enabled`, outbound mode, and follow-up limits.
+2. `ai_gateway.py` is the only approved path for model calls. It enforces caps, checks cache, records skip/block decisions, and writes `ai_usage_report.json`.
+3. `classifier.py`, `extractor.py`, and `reply_analyzer.py` are deterministic-first and only ask the gateway for help on real ambiguity.
+4. `demo_scale_harness.py` defaults to zero live AI, retains its database, and hard-blocks SMTP and IMAP.
+
+This is the main architectural change to keep normal testing and demo-style runs from silently consuming large amounts of AI usage.
 
 ---
 
@@ -677,15 +694,17 @@ The recommended first run. Same as `ingest` but with a formatted results table a
 
 Starts the full agent:
 1. Initialises the database schema
-2. Starts the APScheduler background follow-up checker
+2. Starts the APScheduler background follow-up checker unless `--disable-followups` is set
 3. If IMAP is configured: starts a background thread polling the inbox every 60 seconds
 4. Starts the Flask web server (blocking — this call does not return)
+
+By default, AI is disabled. To allow live AI safely, pass `--enable-ai --max-ai-calls N`. Uncapped AI requires `--allow-uncapped-ai`.
 
 The IMAP polling thread is a `daemon=True` thread, so it exits automatically when Flask is stopped.
 
 **`python3 src/agent.py reply --case-id <UUID>`**
 
-Interactive reply handler. Looks up the case, prints its details, then prompts the user to paste reply content terminated by `---END---`. Calls `case_manager.process_reply()` and prints the analysis result. If the reply satisfies the action requirement, prompts the user to confirm whether to close the case or leave it open for review.
+Interactive reply handler. Looks up the case, prints its details, then prompts the user to paste reply content terminated by `---END---`. Calls `case_manager.process_reply()` and prints the analysis result. Reply analysis is deterministic-first and only uses AI when explicitly enabled and budget allows it. If the reply satisfies the action requirement, the CLI still requires a human to decide whether to close the case.
 
 **`python3 src/agent.py memory-rebuild`**
 
@@ -704,17 +723,19 @@ Prints the stored memory context for one case as formatted JSON.
 Runs the safe large-scale synthetic harness. This command:
 
 1. Generates deterministic KPI alert emails from placeholder-only data
-2. Redirects the database and Claude cache into `data/test_runs/<timestamp>/`
+2. Redirects the database and AI usage artifacts into `data/test_runs/<timestamp>/`
 3. Forces `DEMO_MODE=true` and `DEMO_RECIPIENT_EMAIL=demo-recipient@example.test`
 4. Hard-blocks `smtplib.SMTP`, `smtplib.SMTP_SSL`, and `imaplib.IMAP4_SSL`
-5. Uses either the real Claude CLI or a deterministic offline shim
+5. Disables live AI by default and only enables it when `--enable-ai` is provided
 6. Processes synthetic emails through the real `case_manager`, `email_sender`, `followup`, and Flask routes
-7. Writes `report.json`, `report.md`, and `harness.log`
+7. Writes `report.json`, `report.md`, `ai_usage_report.json`, and `harness.log`
 8. Retains `test_agent.db` by default for post-run inspection
 
-Use `--offline` for fast structural runs. Use `--require-ai` when you want the command to fail instead of falling back when Claude is unavailable.
+Use `--offline` for fast structural runs with no live model use. Use `--live-ai --enable-ai --max-ai-calls N` when you want to exercise the AI path under a budget.
+Use `--require-ai` only with the live AI path when you want the command to fail instead of falling back.
 Use `--validate-memory-connections` to run the deterministic memory audit.
 Use `--include-mechanics` only when you want synthetic replies to carry explicit mechanic or technician names.
+Use `--enable-followups` when you want the harness to run the real follow-up simulation instead of leaving it disabled.
 
 The validation for this code update was run offline only. AI-enabled harness runs remain available for manual use later.
 
@@ -740,7 +761,8 @@ The validation for this code update was run offline only. AI-enabled harness run
 - Runtime config override before schema initialization
 - Temporary SQLite DB under `data/test_runs/<timestamp>/test_agent.db`
 - SMTP / IMAP monkeypatching so live network calls fail immediately
-- Deterministic offline Claude replacement when `--offline` is set
+- Centralized AI gateway configuration with zero-AI defaults
+- Optional mocked AI transport for offline budget testing
 - Flexible deterministic extraction validation for free-text descriptions
 - Optional deterministic memory connection audit against entities, observations, links, and pattern flags
 - UI smoke tests and JSON / Markdown report generation
@@ -750,9 +772,10 @@ Harness validation details:
 - Semantic description drift is recorded under `semantic_description_mismatches` or `optional_description_missing` instead of failing the run when structured extraction is correct
 - Memory validation is deterministic only: it never asks Claude to grade results
 - `memory_connection_audit` compares fixture expectations against live SQLite rows in `cases`, `entities`, `observations`, `case_links`, and `pattern_flags`
-- Report payloads now expose `dataset`, `processing`, `extraction`, `manual_reviews`, `safety`, `quality_checks`, `memory_readiness`, `memory_connection_audit`, `warnings`, `failures`, and retained `paths`
+- Report payloads now expose `dataset`, `processing`, `extraction`, `ai_usage`, `manual_reviews`, `safety`, `quality_checks`, `memory_readiness`, `memory_connection_audit`, `warnings`, `failures`, and retained `paths`
 - Safety reporting includes `test_database_path`, `test_database_retained`, SMTP/IMAP block counts, recipient violations, and production DB isolation checks
 - Test databases are retained by default; `--keep-db` remains accepted only for backward compatibility
+- AI usage reporting includes total calls, blocked calls, skipped calls, cache stats, purpose/component breakdowns, and run metadata
 
 ---
 

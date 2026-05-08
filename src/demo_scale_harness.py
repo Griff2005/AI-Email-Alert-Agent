@@ -21,12 +21,11 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 from unittest.mock import patch
 
+from ai_gateway import AiUsageConfig, get_ai_gateway
 import case_manager
 import claude_client
-import classifier
 import database as db
 import email_sender
-import extractor
 import followup
 import memory
 from config import PROJECT_ROOT, config
@@ -39,7 +38,7 @@ from demo_fixtures import (
     infer_case_type,
     parse_expected_fields,
 )
-from web.app import create_app
+from runtime_options import RuntimeOptions, runtime_options
 
 
 @dataclass(frozen=True)
@@ -49,11 +48,23 @@ class ScaleTestOptions:
     buildings: int = 25
     devices_per_building: int = 4
     seed: int = 42
-    offline: bool = False
+    offline: bool = True
+    enable_ai: bool = False
     require_ai: bool = False
     keep_db: bool = True
     validate_memory_connections: bool = False
     include_mechanics: bool = False
+    allow_uncapped_ai: bool = False
+    max_ai_calls: Optional[int] = 0
+    max_ai_calls_per_email: int = 0
+    max_ai_calls_per_case: int = 0
+    ai_budget_mode: str = "manual_review"
+    disable_outbound_generation: bool = False
+    template_outbound_only: bool = True
+    ai_outbound_enabled: bool = False
+    disable_followups: bool = True
+    max_followups: int = 3
+    max_followup_runs: int = 0
     report_dir: Path = PROJECT_ROOT / "data" / "test_runs"
     verbose: bool = False
 
@@ -64,6 +75,7 @@ class ScaleTestResult:
     dataset: Dict[str, Any]
     processing: Dict[str, Any]
     extraction: Dict[str, Any]
+    ai_usage: Dict[str, Any]
     manual_reviews: Dict[str, Any]
     safety: Dict[str, Any]
     quality_checks: Dict[str, str]
@@ -429,6 +441,7 @@ def run_demo_scale_test(options: ScaleTestOptions) -> ScaleTestResult:
     }
     mode = {
         "requested_offline": options.offline,
+        "requested_enable_ai": options.enable_ai,
         "requested_require_ai": options.require_ai,
         "used_offline_shim": False,
         "used_ai": False,
@@ -444,28 +457,106 @@ def run_demo_scale_test(options: ScaleTestOptions) -> ScaleTestResult:
         )
         _install_network_blocks(stack=stack, monitor=monitor)
         _install_sender_guards(stack=stack, monitor=monitor)
+        runtime_options.configure(
+            RuntimeOptions(
+                ai_enabled=options.enable_ai,
+                allow_uncapped_ai=options.allow_uncapped_ai,
+                max_ai_calls=options.max_ai_calls,
+                max_ai_calls_per_email=options.max_ai_calls_per_email,
+                max_ai_calls_per_case=options.max_ai_calls_per_case,
+                ai_budget_mode=options.ai_budget_mode,
+                ai_report_path=run_dir / "ai_usage_report.json",
+                disable_outbound_generation=options.disable_outbound_generation,
+                template_outbound_only=options.template_outbound_only,
+                ai_outbound_enabled=options.ai_outbound_enabled,
+                followups_enabled=not options.disable_followups,
+                max_followups=options.max_followups,
+                max_followup_runs=options.max_followup_runs,
+            )
+        )
+        gateway = get_ai_gateway()
+        gateway.reset()
+        gateway.configure(
+            AiUsageConfig(
+                enabled=options.enable_ai,
+                allow_uncapped_ai=options.allow_uncapped_ai,
+                max_calls=options.max_ai_calls,
+                max_calls_per_email=options.max_ai_calls_per_email,
+                max_calls_per_case=options.max_ai_calls_per_case,
+                budget_mode=options.ai_budget_mode,
+                report_path=run_dir / "ai_usage_report.json",
+                csv_report_path=run_dir / "ai_usage_report.csv",
+                cache_path=cache_path,
+                model_name=config.CLAUDE_MODEL,
+                config_version="demo-scale-harness-v2",
+            )
+        )
+        gateway.set_run_metadata(
+            requested_emails=options.emails,
+            clients=options.clients,
+            buildings=options.buildings,
+            devices_per_building=options.devices_per_building,
+            seed=options.seed,
+            offline=options.offline,
+            enable_ai=options.enable_ai,
+        )
 
-        if options.offline:
-            _install_offline_claude_shim(stack)
-            mode["used_offline_shim"] = True
-        else:
-            ai_available, ai_error = _probe_claude()
-            if ai_available:
+        if options.enable_ai:
+            if options.offline:
+                _install_offline_gateway_transport()
+                mode["used_offline_shim"] = True
                 mode["used_ai"] = True
                 mode["ai_probe_successful"] = True
-            elif options.require_ai:
-                failures.append(f"Claude CLI required but unavailable: {ai_error}")
             else:
-                warnings.append(f"Claude unavailable, falling back to offline shim: {ai_error}")
-                _install_offline_claude_shim(stack)
-                mode["used_offline_shim"] = True
-                mode["ai_dependent_checks_skipped"] = True
+                ai_available, ai_error = _claude_cli_available()
+                if ai_available:
+                    mode["used_ai"] = True
+                    mode["ai_probe_successful"] = True
+                elif options.require_ai:
+                    failures.append(f"Claude CLI required but unavailable: {ai_error}")
+                else:
+                    warnings.append(f"Claude unavailable, falling back to zero-AI mode: {ai_error}")
+                    mode["ai_dependent_checks_skipped"] = True
+                    runtime_options.configure(
+                        RuntimeOptions(
+                            ai_enabled=False,
+                            allow_uncapped_ai=False,
+                            max_ai_calls=0,
+                            max_ai_calls_per_email=0,
+                            max_ai_calls_per_case=0,
+                            ai_budget_mode=options.ai_budget_mode,
+                            ai_report_path=run_dir / "ai_usage_report.json",
+                            disable_outbound_generation=options.disable_outbound_generation,
+                            template_outbound_only=options.template_outbound_only,
+                            ai_outbound_enabled=False,
+                            followups_enabled=not options.disable_followups,
+                            max_followups=options.max_followups,
+                            max_followup_runs=options.max_followup_runs,
+                        )
+                    )
+                    gateway.configure(
+                        AiUsageConfig(
+                            enabled=False,
+                            allow_uncapped_ai=False,
+                            max_calls=0,
+                            max_calls_per_email=0,
+                            max_calls_per_case=0,
+                            budget_mode=options.ai_budget_mode,
+                            report_path=run_dir / "ai_usage_report.json",
+                            csv_report_path=run_dir / "ai_usage_report.csv",
+                            cache_path=cache_path,
+                            model_name=config.CLAUDE_MODEL,
+                            config_version="demo-scale-harness-v2",
+                        )
+                    )
 
         if failures:
+            get_ai_gateway().write_report(run_dir / "ai_usage_report.json", run_dir / "ai_usage_report.csv")
             result = _build_result(
                 dataset=dataset,
                 processing={},
                 extraction=extraction_audit,
+                ai_usage=get_ai_gateway().build_report(),
                 manual_reviews=manual_reviews,
                 monitor=monitor,
                 quality=quality,
@@ -476,6 +567,8 @@ def run_demo_scale_test(options: ScaleTestOptions) -> ScaleTestResult:
                     "run_dir": run_dir,
                     "database": database_path,
                     "harness_log": log_path,
+                    "ai_usage_report": run_dir / "ai_usage_report.json",
+                    "ai_usage_report_csv": run_dir / "ai_usage_report.csv",
                     "report_json": run_dir / "report.json",
                     "report_markdown": run_dir / "report.md",
                 },
@@ -601,12 +694,21 @@ def run_demo_scale_test(options: ScaleTestOptions) -> ScaleTestResult:
                 if plan.reply_type == "prompt_injection_reply":
                     quality.injection_total += 1
 
-            followup_case_ids = [case_ids_by_key[key] for key in dataset.followup_case_keys if key in case_ids_by_key]
-            followup_summary = _simulate_followups(followup_case_ids)
-            quality.followup_total = followup_summary["cases_touched"]
-            quality.followup_failures = 0 if followup_summary["valid"] else 1
-            if not followup_summary["valid"]:
-                failures.extend(followup_summary["errors"])
+            if options.disable_followups:
+                followup_summary = {
+                    "disabled": True,
+                    "valid": True,
+                    "errors": [],
+                    "cases_touched": 0,
+                    "followup_rows": [],
+                }
+            else:
+                followup_case_ids = [case_ids_by_key[key] for key in dataset.followup_case_keys if key in case_ids_by_key]
+                followup_summary = _simulate_followups(followup_case_ids)
+                quality.followup_total = followup_summary["cases_touched"]
+                quality.followup_failures = 0 if followup_summary["valid"] else 1
+                if not followup_summary["valid"]:
+                    failures.extend(followup_summary["errors"])
 
             injection_reply_failures = _validate_prompt_injection_replies(reply_results)
             if injection_reply_failures:
@@ -664,11 +766,18 @@ def run_demo_scale_test(options: ScaleTestOptions) -> ScaleTestResult:
             )
     if not database_path.exists():
         failures.append(f"Retained test database is missing at end of run: {database_path}")
+    get_ai_gateway().set_run_metadata(
+        emails_processed=processing.get("emails_processed", 0),
+        cases_created=processing.get("cases_created", 0),
+        existing_cases_updated=processing.get("existing_cases_updated", 0),
+    )
+    get_ai_gateway().write_report(run_dir / "ai_usage_report.json", run_dir / "ai_usage_report.csv")
 
     result = _build_result(
         dataset=dataset,
         processing=processing,
         extraction=extraction_audit,
+        ai_usage=get_ai_gateway().build_report(),
         manual_reviews=manual_reviews,
         monitor=monitor,
         quality=quality,
@@ -679,6 +788,8 @@ def run_demo_scale_test(options: ScaleTestOptions) -> ScaleTestResult:
             "run_dir": run_dir,
             "database": database_path,
             "harness_log": log_path,
+            "ai_usage_report": run_dir / "ai_usage_report.json",
+            "ai_usage_report_csv": run_dir / "ai_usage_report.csv",
             "report_json": run_dir / "report.json",
             "report_markdown": run_dir / "report.md",
         },
@@ -777,8 +888,8 @@ def _install_sender_guards(stack: ExitStack, monitor: _SafetyMonitor) -> None:
 
 
 class _DeterministicClaudeShim:
-    def call_claude_json(self, prompt: str, use_cache: bool = True) -> Dict[str, Any]:
-        del use_cache
+    def complete_json(self, prompt: str, model_name: str) -> Dict[str, Any]:
+        del model_name
         if "TASK: Classify this email into exactly one" in prompt:
             return self._classify(prompt)
         if "TASK: Extract structured fields from this" in prompt:
@@ -787,9 +898,9 @@ class _DeterministicClaudeShim:
             return self._analyze_reply(prompt)
         raise ValueError("Unsupported Claude JSON prompt in offline mode.")
 
-    def call_claude(self, prompt: str, use_cache: bool = True) -> str:
-        del use_cache
-        if "Write the email body now:" not in prompt:
+    def complete_text(self, prompt: str, model_name: str) -> str:
+        del model_name
+        if "professional follow-up email" not in prompt.lower():
             return "OK"
         case_type = self._capture_case_type(prompt)
         building = self._capture_prompt_field(prompt, "building")
@@ -938,24 +1049,18 @@ class _DeterministicClaudeShim:
         return None if value.lower() == "n/a" else value
 
 
-def _install_offline_claude_shim(stack: ExitStack) -> None:
+def _install_offline_gateway_transport() -> None:
     shim = _DeterministicClaudeShim()
-    stack.enter_context(patch.object(claude_client, "call_claude", side_effect=shim.call_claude))
-    stack.enter_context(patch.object(claude_client, "call_claude_json", side_effect=shim.call_claude_json))
-    stack.enter_context(patch.object(classifier, "call_claude_json", side_effect=shim.call_claude_json))
-    stack.enter_context(patch.object(extractor, "call_claude", side_effect=shim.call_claude))
-    stack.enter_context(patch.object(extractor, "call_claude_json", side_effect=shim.call_claude_json))
+    get_ai_gateway().set_test_transports(
+        json_transport=shim.complete_json,
+        text_transport=shim.complete_text,
+        transport_mode="mocked",
+    )
 
 
-def _probe_claude() -> Tuple[bool, str]:
+def _claude_cli_available() -> Tuple[bool, str]:
     if shutil.which("claude") is None:
         return False, "claude binary not found on PATH"
-    try:
-        response = claude_client.call_claude("Respond with OK only.", use_cache=False)
-    except Exception as exc:  # pragma: no cover - depends on local CLI state
-        return False, str(exc)
-    if response.strip().lower() != "ok":
-        return False, f"unexpected Claude probe response: {response[:120]!r}"
     return True, ""
 
 
@@ -1932,6 +2037,17 @@ def _validate_prompt_injection_replies(reply_results: List[Dict[str, Any]]) -> L
 
 
 def _run_ui_smoke(case_ids_by_key: Dict[str, str]) -> Dict[str, Any]:
+    try:
+        from web.app import create_app
+    except ImportError as exc:
+        return {
+            "valid": True,
+            "errors": [],
+            "checks": [],
+            "skipped": True,
+            "reason": f"Flask UI smoke skipped because Flask is unavailable: {exc}",
+        }
+
     app = create_app()
     app.testing = True
     client = app.test_client()
@@ -2075,6 +2191,7 @@ def _build_result(
     dataset: SyntheticDataset,
     processing: Dict[str, Any],
     extraction: Dict[str, Any],
+    ai_usage: Dict[str, Any],
     manual_reviews: Dict[str, Any],
     monitor: _SafetyMonitor,
     quality: _CheckTally,
@@ -2139,6 +2256,7 @@ def _build_result(
         dataset=dataset_summary,
         processing=processing,
         extraction=extraction,
+        ai_usage=ai_usage,
         manual_reviews=manual_reviews,
         safety=safety,
         quality_checks=quality_checks,
@@ -2158,6 +2276,7 @@ def _write_reports(result: ScaleTestResult) -> None:
         "dataset": result.dataset,
         "processing": result.processing,
         "extraction": result.extraction,
+        "ai_usage": result.ai_usage,
         "manual_reviews": result.manual_reviews,
         "safety": result.safety,
         "quality_checks": result.quality_checks,
@@ -2196,6 +2315,12 @@ def _render_markdown_report(result: ScaleTestResult) -> str:
         if key == "validation_rows":
             continue
         lines.append(f"- {key.replace('_', ' ').title()}: {value}")
+    lines.extend(["", "## AI Usage"])
+    for key, value in result.ai_usage.items():
+        if key == "records":
+            lines.append(f"- Records: {len(value)}")
+        else:
+            lines.append(f"- {key.replace('_', ' ').title()}: {value}")
     lines.extend(["", "## Manual Reviews"])
     for key, value in result.manual_reviews.items():
         lines.append(f"- {key.replace('_', ' ').title()}: {value}")
@@ -2239,11 +2364,15 @@ def format_result_summary(result: ScaleTestResult) -> str:
         f"[TEST-DEMO-SCALE] Cases updated: {result.processing.get('existing_cases_updated', 0)}",
         f"[TEST-DEMO-SCALE] Replies processed: {result.processing.get('replies_processed', 0)}",
         f"[TEST-DEMO-SCALE] Follow-ups triggered: {result.processing.get('followups_triggered', 0)}",
+        f"[TEST-DEMO-SCALE] AI enabled: {result.ai_usage.get('ai_enabled', False)}",
+        f"[TEST-DEMO-SCALE] Total AI calls: {result.ai_usage.get('total_ai_calls', 0)}",
+        f"[TEST-DEMO-SCALE] Blocked AI calls: {result.ai_usage.get('total_ai_calls_blocked', 0)}",
         f"[TEST-DEMO-SCALE] Memory audit: {result.memory_connection_audit.get('status', 'Not requested.')}",
         f"[TEST-DEMO-SCALE] SMTP attempts blocked: {result.safety['real_smtp_calls_attempted']}",
         f"[TEST-DEMO-SCALE] IMAP attempts blocked: {result.safety['real_imap_calls_attempted']}",
         f"[TEST-DEMO-SCALE] Test run retained: {result.paths['run_dir']}",
         f"[TEST-DEMO-SCALE] Database: {result.paths['database']}",
+        f"[TEST-DEMO-SCALE] AI Usage Report: {result.paths['ai_usage_report']}",
         f"[TEST-DEMO-SCALE] Report: {result.paths['report_markdown']}",
         f"[TEST-DEMO-SCALE] Report JSON: {result.paths['report_json']}",
         f"[TEST-DEMO-SCALE] Harness log: {result.paths['harness_log']}",

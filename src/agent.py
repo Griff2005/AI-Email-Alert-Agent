@@ -16,17 +16,20 @@ import json
 import sys
 import time
 import uuid
+from datetime import datetime
 from pathlib import Path
 
 # Add src/ to path so all modules are importable regardless of CWD
 _SRC_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(_SRC_DIR))
 
+from ai_gateway import AiUsageConfig, get_ai_gateway
 from config import config, PROJECT_ROOT
 import database as db
 from case_manager import process_email, process_reply
 from email_reader import poll_inbox
 import memory
+from runtime_options import RuntimeOptions, runtime_options
 
 
 # ---------------------------------------------------------------------------
@@ -78,6 +81,99 @@ def _store_email(em: dict) -> str:
     return email_id
 
 
+def _parse_purpose_caps(values) -> dict:
+    caps = {}
+    for raw in values or []:
+        if "=" not in raw:
+            raise SystemExit(f"Invalid --max-ai-calls-for value: {raw!r}. Use PURPOSE=N.")
+        purpose, value = raw.split("=", 1)
+        purpose = purpose.strip()
+        try:
+            caps[purpose] = int(value)
+        except ValueError as exc:
+            raise SystemExit(f"Invalid --max-ai-calls-for value: {raw!r}. Use PURPOSE=N.") from exc
+    return caps
+
+
+def _default_ai_report_path(command_name: str) -> Path:
+    timestamp = datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
+    return PROJECT_ROOT / "data" / "ai_usage" / f"{command_name}_{timestamp}.json"
+
+
+def _configure_runtime_from_args(args, command_name: str) -> Path:
+    enable_ai = bool(getattr(args, "enable_ai", False))
+    allow_uncapped_ai = bool(getattr(args, "allow_uncapped_ai", False))
+    max_ai_calls = getattr(args, "max_ai_calls", 0)
+    if enable_ai and max_ai_calls in (None, 0) and not allow_uncapped_ai:
+        raise SystemExit(
+            "AI is not enabled safely. Use --enable-ai with --max-ai-calls N, or add --allow-uncapped-ai explicitly."
+        )
+    if enable_ai and allow_uncapped_ai:
+        print("[AGENT] WARNING: uncapped AI mode enabled explicitly.")
+
+    report_path = getattr(args, "ai_report_path", None) or _default_ai_report_path(command_name)
+    report_path = Path(report_path)
+    csv_path = report_path.with_suffix(".csv")
+    purpose_caps = _parse_purpose_caps(getattr(args, "max_ai_calls_for", []))
+    template_outbound_only = bool(getattr(args, "template_outbound_only", True))
+    if bool(getattr(args, "ai_outbound_enabled", False)):
+        template_outbound_only = False
+
+    runtime_options.configure(
+        RuntimeOptions(
+            ai_enabled=enable_ai,
+            allow_uncapped_ai=allow_uncapped_ai,
+            max_ai_calls=max_ai_calls,
+            max_ai_calls_per_email=getattr(args, "max_ai_calls_per_email", 0),
+            max_ai_calls_per_case=getattr(args, "max_ai_calls_per_case", 0),
+            max_ai_calls_by_purpose=purpose_caps,
+            ai_budget_mode=getattr(args, "ai_budget_mode", "manual_review"),
+            ai_report_path=report_path,
+            disable_outbound_generation=bool(getattr(args, "disable_outbound_generation", False)),
+            template_outbound_only=template_outbound_only,
+            ai_outbound_enabled=bool(getattr(args, "ai_outbound_enabled", False)),
+            followups_enabled=not bool(getattr(args, "disable_followups", False)),
+            max_followups=getattr(args, "max_followups", 3),
+            max_followup_runs=getattr(args, "max_followup_runs", 1000),
+        )
+    )
+
+    gateway = get_ai_gateway()
+    gateway.reset()
+    gateway.configure(
+        AiUsageConfig(
+            enabled=enable_ai,
+            allow_uncapped_ai=allow_uncapped_ai,
+            max_calls=max_ai_calls,
+            max_calls_per_email=getattr(args, "max_ai_calls_per_email", 0),
+            max_calls_per_case=getattr(args, "max_ai_calls_per_case", 0),
+            max_calls_by_purpose=purpose_caps,
+            budget_mode=getattr(args, "ai_budget_mode", "manual_review"),
+            report_path=report_path,
+            csv_report_path=csv_path,
+            model_name=config.CLAUDE_MODEL,
+            cache_path=config.CLAUDE_CACHE_PATH,
+            config_version=f"agent-{command_name}",
+        )
+    )
+    gateway.set_run_metadata(command=command_name)
+    return report_path
+
+
+def _finalize_ai_report(report_path: Path, **metadata) -> None:
+    gateway = get_ai_gateway()
+    if metadata:
+        gateway.set_run_metadata(**metadata)
+    gateway.write_report(report_path, report_path.with_suffix(".csv"))
+    summary = gateway.build_report()
+    print("AI Usage Summary")
+    print(f"- AI enabled: {summary['ai_enabled']}")
+    print(f"- Total AI calls: {summary['total_ai_calls']}")
+    print(f"- Cache hits: {summary['cache_hits']}")
+    print(f"- Blocked AI calls: {summary['total_ai_calls_blocked']}")
+    print(f"- Usage report: {report_path}")
+
+
 # ---------------------------------------------------------------------------
 # Commands
 # ---------------------------------------------------------------------------
@@ -92,6 +188,7 @@ def cmd_ingest(args):
         args: Parsed argparse namespace (no additional attributes used).
     """
     print("[AGENT] Starting ingest from sample_emails.json...")
+    report_path = _configure_runtime_from_args(args, "ingest")
     db.init_schema()
     config.validate()
 
@@ -127,6 +224,7 @@ def cmd_ingest(args):
         f"{skipped} skipped, {reviewed} flagged for review."
     )
     print(f"[AGENT] View cases at http://localhost:{config.FLASK_PORT}/cases")
+    _finalize_ai_report(report_path, emails_processed=len(results), cases_created=created, cases_updated=updated)
 
 
 def cmd_demo(args):
@@ -143,6 +241,7 @@ def cmd_demo(args):
     print("  Solucore Email Alert Triage Agent — DEMO")
     print("=" * 70)
 
+    report_path = _configure_runtime_from_args(args, "demo")
     db.init_schema()
     config.validate()
 
@@ -198,6 +297,9 @@ def cmd_demo(args):
     print()
     print(f"  Run 'python src/agent.py run' and visit http://localhost:{config.FLASK_PORT}")
     print("=" * 70)
+    created = sum(1 for _, result in results if result["action"] == "created")
+    updated = sum(1 for _, result in results if result["action"] == "updated")
+    _finalize_ai_report(report_path, emails_processed=len(results), cases_created=created, cases_updated=updated)
 
 
 def cmd_run(args):
@@ -214,12 +316,17 @@ def cmd_run(args):
         args: Parsed argparse namespace (no additional attributes used).
     """
     print("[AGENT] Starting Solucore Email Alert Triage Agent...")
+    report_path = _configure_runtime_from_args(args, "run")
     db.init_schema()
     config.validate()
 
     # Start follow-up scheduler
-    from followup import start_scheduler
-    scheduler = start_scheduler()
+    if runtime_options.get().followups_enabled:
+        from followup import start_scheduler
+        scheduler = start_scheduler()
+        del scheduler
+    else:
+        print("[AGENT] Follow-up scheduler disabled for this run.")
 
     # Start IMAP polling in a background thread (if configured)
     if config.is_imap_configured():
@@ -258,6 +365,7 @@ def cmd_run(args):
         imap_thread.start()
     else:
         print("[AGENT] IMAP not configured — polling disabled.")
+    print(f"[AGENT] AI usage report will be written to {report_path} on exit.")
 
     # Start Flask
     print(f"[AGENT] Starting Flask on http://{config.FLASK_HOST}:{config.FLASK_PORT}")
@@ -284,6 +392,7 @@ def cmd_reply(args):
         args: Parsed argparse namespace. Must include ``case_id``.
     """
     case_id = args.case_id
+    report_path = _configure_runtime_from_args(args, "reply")
 
     db.init_schema()
     config.validate()
@@ -323,7 +432,7 @@ def cmd_reply(args):
         print("[AGENT] No reply content entered. Aborting.")
         sys.exit(0)
 
-    print("\n[AGENT] Analyzing reply with Claude...")
+    print("\n[AGENT] Analyzing reply...")
     result = process_reply(case_id=case_id, reply_text=reply_text, verbose=True)
 
     print()
@@ -353,6 +462,7 @@ def cmd_reply(args):
         print(f"[AGENT] Case {case_id} updated with reply analysis. No automatic state change.")
 
     print(f"\n[AGENT] View case at http://localhost:{config.FLASK_PORT}/cases/{case_id}")
+    _finalize_ai_report(report_path, case_id=case_id, reply_processed=True)
 
 
 def cmd_memory_rebuild(args):
@@ -427,10 +537,22 @@ def cmd_test_demo_scale(args):
             devices_per_building=args.devices_per_building,
             seed=args.seed,
             offline=args.offline,
+            enable_ai=args.enable_ai,
             require_ai=args.require_ai,
             keep_db=args.keep_db,
             validate_memory_connections=args.validate_memory_connections,
             include_mechanics=args.include_mechanics,
+            allow_uncapped_ai=args.allow_uncapped_ai,
+            max_ai_calls=args.max_ai_calls,
+            max_ai_calls_per_email=args.max_ai_calls_per_email,
+            max_ai_calls_per_case=args.max_ai_calls_per_case,
+            ai_budget_mode=args.ai_budget_mode,
+            disable_outbound_generation=args.disable_outbound_generation,
+            template_outbound_only=(False if args.ai_outbound_enabled else args.template_outbound_only),
+            ai_outbound_enabled=args.ai_outbound_enabled,
+            disable_followups=args.disable_followups,
+            max_followups=args.max_followups,
+            max_followup_runs=args.max_followup_runs,
             report_dir=args.report_dir,
             verbose=args.verbose,
         )
@@ -438,6 +560,47 @@ def cmd_test_demo_scale(args):
     print(format_result_summary(result))
     if result.overall_result == "FAIL":
         sys.exit(1)
+
+
+def _add_common_ai_args(parser, *, include_outbound: bool, include_followups: bool) -> None:
+    parser.add_argument("--enable-ai", action="store_true", help="Allow AI usage for ambiguous work only")
+    parser.add_argument("--no-ai", action="store_false", dest="enable_ai", help="Disable AI usage explicitly")
+    parser.set_defaults(enable_ai=False)
+    parser.add_argument("--max-ai-calls", type=int, default=0, help="Maximum live AI calls allowed for this run")
+    parser.add_argument("--max-ai-calls-per-email", type=int, default=0, help="Maximum AI calls allowed per email")
+    parser.add_argument("--max-ai-calls-per-case", type=int, default=0, help="Maximum AI calls allowed per case")
+    parser.add_argument(
+        "--max-ai-calls-for",
+        action="append",
+        default=[],
+        metavar="PURPOSE=N",
+        help="Purpose-specific AI cap, for example classification=5",
+    )
+    parser.add_argument(
+        "--ai-budget-mode",
+        choices=("fail", "manual_review", "skip"),
+        default="manual_review",
+        help="What to do when AI is disabled or its budget is exhausted",
+    )
+    parser.add_argument("--allow-uncapped-ai", action="store_true", help="Explicitly allow AI without a max call cap")
+    parser.add_argument("--ai-report-path", type=Path, default=None, help="Write the AI usage report to this JSON path")
+    if include_outbound:
+        parser.add_argument("--disable-outbound-generation", action="store_true", help="Disable outbound draft generation")
+        parser.add_argument(
+            "--template-outbound-only",
+            action="store_true",
+            default=True,
+            help="Use deterministic outbound templates only",
+        )
+        parser.add_argument(
+            "--ai-outbound-enabled",
+            action="store_true",
+            help="Allow AI drafting for outbound emails when AI is enabled and budget allows",
+        )
+    if include_followups:
+        parser.add_argument("--disable-followups", action="store_true", help="Disable follow-up processing for this run")
+        parser.add_argument("--max-followups", type=int, default=3, help="Maximum follow-up reminders allowed per case")
+        parser.add_argument("--max-followup-runs", type=int, default=1000, help="Maximum overdue follow-up records to process in one pass")
 
 
 # ---------------------------------------------------------------------------
@@ -472,13 +635,20 @@ Examples:
     )
     subparsers = parser.add_subparsers(dest="command")
 
-    subparsers.add_parser("ingest", help="Process sample emails")
-    subparsers.add_parser("demo", help="Run demo with all sample emails")
-    subparsers.add_parser("run", help="Start full agent")
+    ingest_parser = subparsers.add_parser("ingest", help="Process sample emails")
+    _add_common_ai_args(ingest_parser, include_outbound=True, include_followups=False)
+
+    demo_parser = subparsers.add_parser("demo", help="Run demo with all sample emails")
+    _add_common_ai_args(demo_parser, include_outbound=True, include_followups=False)
+
+    run_parser = subparsers.add_parser("run", help="Start full agent")
+    _add_common_ai_args(run_parser, include_outbound=True, include_followups=True)
+
     subparsers.add_parser("memory-rebuild", help="Backfill deterministic memory tables")
     subparsers.add_parser("patterns", help="Print active pattern flags")
 
     reply_parser = subparsers.add_parser("reply", help="Interactive reply handler")
+    _add_common_ai_args(reply_parser, include_outbound=False, include_followups=False)
     reply_parser.add_argument(
         "--case-id", required=True, metavar="CASE_ID",
         help="Case ID to process reply for"
@@ -500,7 +670,9 @@ Examples:
         help="Number of synthetic devices per building",
     )
     scale_parser.add_argument("--seed", type=int, default=42, help="Deterministic random seed")
-    scale_parser.add_argument("--offline", action="store_true", help="Use the deterministic offline Claude shim")
+    scale_parser.add_argument("--offline", action="store_true", default=True, help="Do not call live AI; use deterministic behavior or mocked AI transport")
+    scale_parser.add_argument("--live-ai", action="store_false", dest="offline", help="Allow live AI if --enable-ai is also set")
+    _add_common_ai_args(scale_parser, include_outbound=True, include_followups=True)
     scale_parser.add_argument("--require-ai", action="store_true", help="Fail if Claude CLI is unavailable")
     scale_parser.add_argument(
         "--keep-db",
@@ -517,6 +689,13 @@ Examples:
         "--include-mechanics",
         action="store_true",
         help="Include explicit mechanic or technician references in synthetic replies",
+    )
+    scale_parser.set_defaults(disable_followups=True, max_followup_runs=0)
+    scale_parser.add_argument(
+        "--enable-followups",
+        action="store_false",
+        dest="disable_followups",
+        help="Enable follow-up simulation for the scale harness",
     )
     scale_parser.add_argument(
         "--report-dir",

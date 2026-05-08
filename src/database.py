@@ -163,6 +163,22 @@ def init_schema() -> None:
                 FOREIGN KEY (case_id) REFERENCES cases(case_id)
             );
 
+            CREATE TABLE IF NOT EXISTS followup_actions (
+                action_id        TEXT PRIMARY KEY,
+                case_id          TEXT NOT NULL,
+                idempotency_key  TEXT NOT NULL UNIQUE,
+                followup_level   INTEGER NOT NULL,
+                escalation_stage TEXT NOT NULL,
+                recipient_type   TEXT NOT NULL,
+                scheduled_bucket TEXT NOT NULL,
+                status           TEXT NOT NULL DEFAULT 'created',
+                outbound_msg_id  TEXT,
+                created_at       TEXT NOT NULL,
+                updated_at       TEXT NOT NULL,
+                FOREIGN KEY (case_id) REFERENCES cases(case_id),
+                FOREIGN KEY (outbound_msg_id) REFERENCES outbound_messages(msg_id)
+            );
+
             CREATE TABLE IF NOT EXISTS manual_reviews (
                 review_id  TEXT PRIMARY KEY,
                 case_id    TEXT NOT NULL,
@@ -250,6 +266,8 @@ def init_schema() -> None:
             CREATE INDEX IF NOT EXISTS idx_cases_status ON cases(status);
             CREATE INDEX IF NOT EXISTS idx_case_events_case_id ON case_events(case_id);
             CREATE INDEX IF NOT EXISTS idx_followups_status ON followups(status);
+            CREATE INDEX IF NOT EXISTS idx_followup_actions_case_id ON followup_actions(case_id);
+            CREATE INDEX IF NOT EXISTS idx_followup_actions_status ON followup_actions(status);
             CREATE INDEX IF NOT EXISTS idx_manual_reviews_resolved ON manual_reviews(resolved);
             CREATE INDEX IF NOT EXISTS idx_entities_type_name ON entities(entity_type, normalized_name);
             CREATE INDEX IF NOT EXISTS idx_observations_case_id ON observations(case_id);
@@ -742,6 +760,20 @@ def increment_followup_count(case_id: str) -> int:
     return row["follow_count"] if row else 0
 
 
+def reschedule_followup(case_id: str, deadline: str) -> None:
+    """Move the next follow-up deadline forward after a successful reminder."""
+    now = datetime.utcnow().isoformat()
+    _execute_write(
+        """
+        UPDATE followups
+        SET deadline = ?,
+            last_check = ?
+        WHERE case_id = ?
+        """,
+        (deadline, now, case_id),
+    )
+
+
 def close_followup(case_id: str) -> None:
     """Mark the follow-up record for a case as closed.
 
@@ -769,6 +801,81 @@ def get_followup_for_case(case_id: str) -> Optional[sqlite3.Row]:
     return conn.execute(
         "SELECT * FROM followups WHERE case_id = ?", (case_id,)
     ).fetchone()
+
+
+def reserve_followup_action(
+    action_id: str,
+    case_id: str,
+    idempotency_key: str,
+    followup_level: int,
+    escalation_stage: str,
+    recipient_type: str,
+    scheduled_bucket: str,
+) -> bool:
+    """Reserve a follow-up action slot, returning False when it already exists."""
+    now = datetime.utcnow().isoformat()
+    cursor = _execute_write(
+        """
+        INSERT OR IGNORE INTO followup_actions
+            (action_id, case_id, idempotency_key, followup_level, escalation_stage,
+             recipient_type, scheduled_bucket, status, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, 'created', ?, ?)
+        """,
+        (
+            action_id,
+            case_id,
+            idempotency_key,
+            followup_level,
+            escalation_stage,
+            recipient_type,
+            scheduled_bucket,
+            now,
+            now,
+        ),
+    )
+    return cursor.rowcount > 0
+
+
+def mark_followup_action_status(
+    idempotency_key: str,
+    status: str,
+    outbound_msg_id: Optional[str] = None,
+) -> None:
+    """Update the state of a reserved follow-up action."""
+    now = datetime.utcnow().isoformat()
+    _execute_write(
+        """
+        UPDATE followup_actions
+        SET status = ?,
+            outbound_msg_id = COALESCE(?, outbound_msg_id),
+            updated_at = ?
+        WHERE idempotency_key = ?
+        """,
+        (status, outbound_msg_id, now, idempotency_key),
+    )
+
+
+def get_followup_action_by_key(idempotency_key: str) -> Optional[sqlite3.Row]:
+    """Return a follow-up action record by its idempotency key."""
+    conn = get_connection()
+    return conn.execute(
+        "SELECT * FROM followup_actions WHERE idempotency_key = ?",
+        (idempotency_key,),
+    ).fetchone()
+
+
+def get_followup_actions_for_case(case_id: str) -> List[sqlite3.Row]:
+    """Return follow-up action records for a case."""
+    conn = get_connection()
+    return conn.execute(
+        """
+        SELECT *
+        FROM followup_actions
+        WHERE case_id = ?
+        ORDER BY created_at ASC
+        """,
+        (case_id,),
+    ).fetchall()
 
 
 # ---------------------------------------------------------------------------

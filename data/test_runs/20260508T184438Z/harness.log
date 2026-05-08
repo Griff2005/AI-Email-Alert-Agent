@@ -1,0 +1,450 @@
+[DB] Schema initialized.
+[CONFIG] IMAP credentials are placeholder — inbox polling will be disabled.
+[CONFIG] SMTP credentials are placeholder — email sending will be disabled.
+[CONFIG] DEMO_MODE=true — all outbound email redirected to demo-recipient@example.test
+[EMAIL_SENDER] Draft created: f1184238-b178-4c22-935f-65f685e97b03 | To (actual): demo-recipient@example.test
+[EMAIL_SENDER] SMTP not configured — dry run send:
+  To: demo-recipient@example.test
+  Subject: [DEMO] Attention Required: Maintenance Data Gap Identified — 123 Example Road, Example City
+  Body preview: This message concerns Maintenance data has never been submitted for 123 Example Road, Example City.
+
+Please provide Exam...
+[EMAIL_SENDER] Draft created: 133eafc6-72ab-4ed4-bd84-a646b3a8208e | To (actual): demo-recipient@example.test
+[EMAIL_SENDER] SMTP not configured — dry run send:
+  To: demo-recipient@example.test
+  Subject: [DEMO] Action Required: CAT1 Annual Test Compliance — 123 Example Road, Example City
+  Body preview: This message concerns Cat1 Compliance for 123 Example Road, Example City (B-1 #700001).
+
+The current due date on record ...
+[EMAIL_SENDER] Draft created: 9452699e-6881-4216-afbc-8f378b57a79b | To (actual): demo-recipient@example.test
+[EMAIL_SENDER] SMTP not configured — dry run send:
+  To: demo-recipient@example.test
+  Subject: [DEMO] Action Required: Maintenance Hours Shortfall — 123 Example Road, Example City
+  Body preview: This message concerns Maintenance Hours Less Than Required for 123 Example Road, Example City.
+
+For April 2026, 0.25 mai...
+[EMAIL_SENDER] Draft created: a6300562-5573-4489-b2bb-26d19e74e166 | To (actual): demo-recipient@example.test
+[EMAIL_SENDER] SMTP not configured — dry run send:
+  To: demo-recipient@example.test
+  Subject: [DEMO] Urgent: Major Scheduled Work Overdue — 123 Example Road, Example City
+  Body preview: This message concerns Replace worn door operator components and confirm proper operation. for 123 Example Road, Example ...
+[EMAIL_SENDER] Draft created: 3cb16679-03b6-4586-ada3-1e33c7309093 | To (actual): demo-recipient@example.test
+[EMAIL_SENDER] SMTP not configured — dry run send:
+  To: demo-recipient@example.test
+  Subject: [DEMO] Action Required: Maintenance Hours Shortfall — 456 Sample Avenue, Demo City
+  Body preview: This message concerns Maintenance Hours Less Than Required for 456 Sample Avenue, Demo City.
+
+For May 2026, 0.25 mainten...
+[EMAIL_SENDER] Draft created: c9303d11-5fd6-4bc5-990e-2e0ba686bc0d | To (actual): demo-recipient@example.test
+[EMAIL_SENDER] SMTP not configured — dry run send:
+  To: demo-recipient@example.test
+  Subject: [DEMO] Attention Required: Maintenance Data Gap Identified — 456 Sample Avenue, Demo City
+  Body preview: This message concerns Maintenance data has never been submitted for 456 Sample Avenue, Demo City.
+
+Please provide Sample...
+[EMAIL_SENDER] Draft created: 03537ce1-4939-403c-aa6c-ee6bdd89ec65 | To (actual): demo-recipient@example.test
+[EMAIL_SENDER] SMTP not configured — dry run send:
+  To: demo-recipient@example.test
+  Subject: [DEMO] Action Required: Maintenance Hours Shortfall — 789 Demo Street, Sample City
+  Body preview: This message concerns Maintenance Hours Less Than Required for 789 Demo Street, Sample City.
+
+For April 2026, 0.25 maint...
+[EMAIL_SENDER] Draft created: f3ce06c7-1924-4e2d-a0f6-b06207bf419f | To (actual): demo-recipient@example.test
+[EMAIL_SENDER] SMTP not configured — dry run send:
+  To: demo-recipient@example.test
+  Subject: [DEMO] Urgent: Outstanding Government Directive — 123 Example Road, Example City
+  Body preview: This message concerns Submit confirmation that required corrective action has been completed. for 123 Example Road, Exam...
+[EMAIL_SENDER] Draft created: a574b516-0085-42ce-b0a5-cea11b5eaa92 | To (actual): demo-recipient@example.test
+[EMAIL_SENDER] SMTP not configured — dry run send:
+  To: demo-recipient@example.test
+  Subject: [DEMO] Action Required: CAT5 Five-Year Test Compliance — 456 Sample Avenue, Demo City
+  Body preview: This message concerns Cat5 Compliance for 456 Sample Avenue, Demo City (B-1 #700021).
+
+The current due date on record is...
+[EMAIL_SENDER] Draft created: 1e4928db-d8f1-4a02-a952-389639cfdf0c | To (actual): demo-recipient@example.test
+[EMAIL_SENDER] SMTP not configured — dry run send:
+  To: demo-recipient@example.test
+  Subject: [DEMO] Urgent: Major Scheduled Work Overdue — 456 Sample Avenue, Demo City
+  Body preview: This message concerns Replace worn door operator components and confirm proper operation. for 456 Sample Avenue, Demo Ci...
+[EMAIL_SENDER] Draft created: 8cf0ce6c-cd4d-4397-af97-4f9866c355b3 | To (actual): demo-recipient@example.test
+[EMAIL_SENDER] SMTP not configured — dry run send:
+  To: demo-recipient@example.test
+  Subject: [DEMO] Action Required: Maintenance Hours Shortfall — 100 Example Road, Example City
+  Body preview: This message concerns Maintenance Hours Less Than Required for 100 Example Road, Example City.
+
+For May 2026, 0.25 maint...
+[EMAIL_SENDER] Draft created: 87445b3d-75c3-40f6-b8e0-462139e2c43e | To (actual): demo-recipient@example.test
+[EMAIL_SENDER] SMTP not configured — dry run send:
+  To: demo-recipient@example.test
+  Subject: [DEMO] Attention Required: Maintenance Data Gap Identified — 789 Demo Street, Sample City
+  Body preview: This message concerns Maintenance data has never been submitted for 789 Demo Street, Sample City.
+
+Please provide Demo V...
+[EMAIL_SENDER] Draft created: 331d38b7-6f58-40ad-8b78-e029d65755e9 | To (actual): demo-recipient@example.test
+[EMAIL_SENDER] SMTP not configured — dry run send:
+  To: demo-recipient@example.test
+  Subject: [DEMO] Action Required: CAT5 Five-Year Test Compliance — 123 Example Road, Example City
+  Body preview: This message concerns Cat5 Compliance for 123 Example Road, Example City (B-1 #700001).
+
+The current due date on record ...
+[EMAIL_SENDER] Draft created: e8a4f4bd-9d23-4677-99b6-cdaa41fb4ec1 | To (actual): demo-recipient@example.test
+[EMAIL_SENDER] SMTP not configured — dry run send:
+  To: demo-recipient@example.test
+  Subject: [DEMO] Action Required: Maintenance Hours Shortfall — 101 Example Road, Demo City
+  Body preview: This message concerns Maintenance Hours Less Than Required for 101 Example Road, Demo City.
+
+For April 2026, 0.25 mainte...
+[EMAIL_SENDER] Draft created: fdd7ae60-0c2c-40df-a009-efcbc4a0723b | To (actual): demo-recipient@example.test
+[EMAIL_SENDER] SMTP not configured — dry run send:
+  To: demo-recipient@example.test
+  Subject: [DEMO] Urgent: Major Scheduled Work Overdue — 412 Example Road, Example City
+  Body preview: This message concerns Replace controller relay and confirm normal operation. for 412 Example Road, Example City (B-1 #70...
+[EMAIL_SENDER] Draft created: 802e18a8-4a32-4a72-a479-482f0e13e7b4 | To (actual): demo-recipient@example.test
+[EMAIL_SENDER] SMTP not configured — dry run send:
+  To: demo-recipient@example.test
+  Subject: [DEMO] Urgent: Outstanding Government Directive — 456 Sample Avenue, Demo City
+  Body preview: This message concerns Submit confirmation that required corrective action has been completed. for 456 Sample Avenue, Dem...
+[EMAIL_SENDER] Draft created: d9d262dd-8803-4fc4-a76c-8a1b23c62e5d | To (actual): demo-recipient@example.test
+[EMAIL_SENDER] SMTP not configured — dry run send:
+  To: demo-recipient@example.test
+  Subject: [DEMO] Urgent: Outstanding Government Directive — 413 Sample Avenue, Demo City
+  Body preview: This message concerns Provide regulator-ready confirmation that the corrective action is complete. for 413 Sample Avenue...
+[EMAIL_SENDER] Draft created: 748f1646-0fde-44fa-8097-e013409cd1d5 | To (actual): demo-recipient@example.test
+[EMAIL_SENDER] SMTP not configured — dry run send:
+  To: demo-recipient@example.test
+  Subject: [DEMO] Action Required: CAT1 Annual Test Compliance — 414 Demo Street, Sample City
+  Body preview: This message concerns Cat1 Compliance for 414 Demo Street, Sample City (B-1 #700281).
+
+The current due date on record is...
+[EMAIL_SENDER] Draft created: 41ea7eec-0a43-4c68-9d0a-1d90517b657c | To (actual): demo-recipient@example.test
+[EMAIL_SENDER] SMTP not configured — dry run send:
+  To: demo-recipient@example.test
+  Subject: [DEMO] Action Required: CAT5 Five-Year Test Compliance — 415 Test Street, Example City
+  Body preview: This message concerns Cat5 Compliance for 415 Test Street, Example City (B-2 #700302).
+
+The current due date on record i...
+[EMAIL_SENDER] Draft created: 9f76939e-bfcb-49a0-a9b9-c2e72b2b5517 | To (actual): demo-recipient@example.test
+[EMAIL_SENDER] SMTP not configured — dry run send:
+  To: demo-recipient@example.test
+  Subject: [DEMO] Attention Required: Maintenance Data Gap Identified — 416 Example Road, Demo City
+  Body preview: This message concerns Maintenance data has never been submitted for 416 Example Road, Demo City.
+
+Please provide Sample ...
+[EMAIL_SENDER] Draft created: 00da17a3-b9cf-4580-96aa-4b2cb73ffd15 | To (actual): demo-recipient@example.test
+[EMAIL_SENDER] SMTP not configured — dry run send:
+  To: demo-recipient@example.test
+  Subject: [DEMO] Action Required: Maintenance Hours Shortfall — 417 Sample Avenue, Sample City
+  Body preview: This message concerns Maintenance Hours Less Than Required for 417 Sample Avenue, Sample City.
+
+For June 2026, 0.50 main...
+[EMAIL_SENDER] Draft created: 422671de-e91c-48db-9d91-fda776c46b69 | To (actual): demo-recipient@example.test
+[EMAIL_SENDER] SMTP not configured — dry run send:
+  To: demo-recipient@example.test
+  Subject: [DEMO] Urgent: Major Scheduled Work Overdue — 789 Demo Street, Sample City
+  Body preview: This message concerns Replace worn door operator components and confirm proper operation. for 789 Demo Street, Sample Ci...
+[EMAIL_SENDER] Draft created: c707b6e0-0be9-4e1c-a85a-9223bbe71584 | To (actual): demo-recipient@example.test
+[EMAIL_SENDER] SMTP not configured — dry run send:
+  To: demo-recipient@example.test
+  Subject: [DEMO] Action Required: Maintenance Hours Shortfall — 102 Example Road, Sample City
+  Body preview: This message concerns Maintenance Hours Less Than Required for 102 Example Road, Sample City.
+
+For May 2026, 0.25 mainte...
+[EMAIL_SENDER] Draft created: a74e49c4-e1db-4231-8d0d-284351ea4fce | To (actual): demo-recipient@example.test
+[EMAIL_SENDER] SMTP not configured — dry run send:
+  To: demo-recipient@example.test
+  Subject: [DEMO] Action Required: CAT1 Annual Test Compliance — 101 Example Road, Demo City
+  Body preview: This message concerns Cat1 Compliance for 101 Example Road, Demo City (B-1 #700081).
+
+The current due date on record is ...
+[EMAIL_SENDER] Draft created: 4bc8af2a-2b67-4da8-a9dc-f6c8aaa54e9d | To (actual): demo-recipient@example.test
+[EMAIL_SENDER] SMTP not configured — dry run send:
+  To: demo-recipient@example.test
+  Subject: [DEMO] Urgent: Major Scheduled Work Overdue — 418 Demo Street, Example City
+  Body preview: This message concerns Replace controller relay and confirm normal operation. for 418 Demo Street, Example City (B-1 #700...
+[EMAIL_SENDER] Draft created: 3815d8c5-3c32-4521-a2ab-d1eec1ce512a | To (actual): demo-recipient@example.test
+[EMAIL_SENDER] SMTP not configured — dry run send:
+  To: demo-recipient@example.test
+  Subject: [DEMO] Action Required: CAT1 Annual Test Compliance — 101 Example Road, Demo City
+  Body preview: This message concerns Cat1 Compliance for 101 Example Road, Demo City (B-2 #700082).
+
+The current due date on record is ...
+[EMAIL_SENDER] Draft created: 94afc45d-7817-4d61-9feb-1ed41072da4d | To (actual): demo-recipient@example.test
+[EMAIL_SENDER] SMTP not configured — dry run send:
+  To: demo-recipient@example.test
+  Subject: [DEMO] Urgent: Outstanding Government Directive — 419 Test Street, Demo City
+  Body preview: This message concerns Provide regulator-ready confirmation that the corrective action is complete. for 419 Test Street, ...
+[EMAIL_SENDER] Draft created: 33d2ce89-1112-43e3-94f4-f4e2b729eb6e | To (actual): demo-recipient@example.test
+[EMAIL_SENDER] SMTP not configured — dry run send:
+  To: demo-recipient@example.test
+  Subject: [DEMO] Action Required: CAT1 Annual Test Compliance — 420 Example Road, Sample City
+  Body preview: This message concerns Cat1 Compliance for 420 Example Road, Sample City (B-3 #700403).
+
+The current due date on record i...
+[EMAIL_SENDER] Draft created: a8321b86-250c-43c8-8c6d-78bfc8ecc171 | To (actual): demo-recipient@example.test
+[EMAIL_SENDER] SMTP not configured — dry run send:
+  To: demo-recipient@example.test
+  Subject: [DEMO] Action Required: CAT1 Annual Test Compliance — 789 Demo Street, Sample City
+  Body preview: This message concerns Cat1 Compliance for 789 Demo Street, Sample City (B-1 #700041).
+
+The current due date on record is...
+[EMAIL_SENDER] Draft created: 2216e7d6-a277-4df0-8064-54cc6cac80a5 | To (actual): demo-recipient@example.test
+[EMAIL_SENDER] SMTP not configured — dry run send:
+  To: demo-recipient@example.test
+  Subject: [DEMO] Action Required: CAT5 Five-Year Test Compliance — 421 Sample Avenue, Example City
+  Body preview: This message concerns Cat5 Compliance for 421 Sample Avenue, Example City (P-1 #700424).
+
+The current due date on record...
+[EMAIL_SENDER] Draft created: 00ab8f5a-096e-4ed6-8c04-d1ebc0e66bf8 | To (actual): demo-recipient@example.test
+[EMAIL_SENDER] SMTP not configured — dry run send:
+  To: demo-recipient@example.test
+  Subject: [DEMO] Action Required: Maintenance Hours Shortfall — 456 Sample Avenue, Demo City
+  Body preview: This message concerns Maintenance Hours Less Than Required for 456 Sample Avenue, Demo City.
+
+For June 2026, 0.50 mainte...
+[EMAIL_SENDER] Draft created: a859fe62-3be4-498c-960d-cafd36b1cd43 | To (actual): demo-recipient@example.test
+[EMAIL_SENDER] SMTP not configured — dry run send:
+  To: demo-recipient@example.test
+  Subject: [DEMO] Urgent: Outstanding Government Directive — 100 Example Road, Example City
+  Body preview: This message concerns Provide regulator-ready confirmation that the corrective action is complete. for 100 Example Road,...
+[EMAIL_SENDER] Draft created: 7d3f5eff-b94b-495c-828f-458760988419 | To (actual): demo-recipient@example.test
+[EMAIL_SENDER] SMTP not configured — dry run send:
+  To: demo-recipient@example.test
+  Subject: [DEMO] Action Required: CAT5 Five-Year Test Compliance — 102 Example Road, Sample City
+  Body preview: This message concerns Cat5 Compliance for 102 Example Road, Sample City (B-2 #700102).
+
+The current due date on record i...
+[EMAIL_SENDER] Draft created: 81a67d68-56ab-4168-8a0d-3bc0fe616de8 | To (actual): demo-recipient@example.test
+[EMAIL_SENDER] SMTP not configured — dry run send:
+  To: demo-recipient@example.test
+  Subject: [DEMO] Urgent: Outstanding Government Directive — 789 Demo Street, Sample City
+  Body preview: This message concerns Submit confirmation that required corrective action has been completed. for 789 Demo Street, Sampl...
+[EMAIL_SENDER] Draft created: 2e54eedb-b688-4c19-a239-c1aeae6603dd | To (actual): demo-recipient@example.test
+[EMAIL_SENDER] SMTP not configured — dry run send:
+  To: demo-recipient@example.test
+  Subject: [DEMO] Action Required: CAT1 Annual Test Compliance — 456 Sample Avenue, Demo City
+  Body preview: This message concerns Cat1 Compliance for 456 Sample Avenue, Demo City (B-1 #700021).
+
+The current due date on record is...
+[EMAIL_SENDER] Draft created: 258973cd-9a63-4d14-a062-da72f3fb9022 | To (actual): demo-recipient@example.test
+[EMAIL_SENDER] SMTP not configured — dry run send:
+  To: demo-recipient@example.test
+  Subject: [DEMO] Urgent: Major Scheduled Work Overdue — 610 Example Road, Example City
+  Body preview: This message concerns Replace worn relay assembly and confirm proper operation. for 610 Example Road, Example City (B-1 ...
+[EMAIL_SENDER] Draft created: 4a324cf6-5109-478c-9328-1bc02dbd3b9a | To (actual): demo-recipient@example.test
+[EMAIL_SENDER] SMTP not configured — dry run send:
+  To: demo-recipient@example.test
+  Subject: [DEMO] Attention Required: Maintenance Data Gap Identified — 200 Sample Avenue, Example City
+  Body preview: This message concerns Maintenance data has never been submitted for 200 Sample Avenue, Example City.
+
+Please provide Sam...
+[EMAIL_SENDER] Draft created: 44df503a-0141-463d-b95d-29ed1de1f27b | To (actual): demo-recipient@example.test
+[EMAIL_SENDER] SMTP not configured — dry run send:
+  To: demo-recipient@example.test
+  Subject: [DEMO] Urgent: Major Scheduled Work Overdue — 611 Sample Avenue, Example City
+  Body preview: This message concerns Replace worn relay assembly and confirm proper operation. for 611 Sample Avenue, Example City (B-1...
+[EMAIL_SENDER] Draft created: e8982b0a-a129-447c-a2b4-3226f4f070f8 | To (actual): demo-recipient@example.test
+[EMAIL_SENDER] SMTP not configured — dry run send:
+  To: demo-recipient@example.test
+  Subject: [DEMO] Action Required: Maintenance Hours Shortfall — 300 Test Street, Demo City
+  Body preview: This message concerns Maintenance Hours Less Than Required for 300 Test Street, Demo City.
+
+For June 2026, 0.50 maintena...
+[EMAIL_SENDER] Draft created: b3077292-a1b9-4aa8-8377-3143628b6ac7 | To (actual): demo-recipient@example.test
+[EMAIL_SENDER] SMTP not configured — dry run send:
+  To: demo-recipient@example.test
+  Subject: [DEMO] Attention Required: Maintenance Data Gap Identified — 900 Threshold Court, Sample City
+  Body preview: This message concerns Maintenance data has never been submitted for 900 Threshold Court, Sample City.
+
+Please provide Pl...
+[EMAIL_SENDER] Draft created: aebb236b-ba37-4ee6-ade1-9d6646f93866 | To (actual): demo-recipient@example.test
+[EMAIL_SENDER] SMTP not configured — dry run send:
+  To: demo-recipient@example.test
+  Subject: [DEMO] Urgent: Major Scheduled Work Overdue — 408 Example Road, Sample City
+  Body preview: This message concerns Replace controller relay and confirm normal operation. for 408 Example Road, Sample City (B-1 #700...
+[EMAIL_SENDER] Draft created: f2a9d2c8-56b8-4f22-b297-4cb7788465ad | To (actual): demo-recipient@example.test
+[EMAIL_SENDER] SMTP not configured — dry run send:
+  To: demo-recipient@example.test
+  Subject: [DEMO] Urgent: Major Scheduled Work Overdue — 900 Threshold Court, Sample City
+  Body preview: This message concerns Repair hall lantern assembly and verify normal operation. for 900 Threshold Court, Sample City (Ca...
+[EMAIL_SENDER] Draft created: cf3406a2-9078-4c91-95e6-9bb4762d0eac | To (actual): demo-recipient@example.test
+[EMAIL_SENDER] SMTP not configured — dry run send:
+  To: demo-recipient@example.test
+  Subject: [DEMO] Urgent: Outstanding Government Directive — 409 Sample Avenue, Example City
+  Body preview: This message concerns Provide regulator-ready confirmation that the corrective action is complete. for 409 Sample Avenue...
+[EMAIL_SENDER] Draft created: fe0451c5-3c53-49e2-a5e3-877f78d23307 | To (actual): demo-recipient@example.test
+[EMAIL_SENDER] SMTP not configured — dry run send:
+  To: demo-recipient@example.test
+  Subject: [DEMO] Attention Required: Maintenance Data Gap Identified — 920 Example Road, Demo City
+  Body preview: This message concerns Maintenance data has never been submitted for 920 Example Road, Demo City.
+
+Please provide Generic...
+[EMAIL_SENDER] Draft created: d266ba28-6782-4bc3-96d3-70d7230c2146 | To (actual): demo-recipient@example.test
+[EMAIL_SENDER] SMTP not configured — dry run send:
+  To: demo-recipient@example.test
+  Subject: [DEMO] Action Required: CAT1 Annual Test Compliance — 410 Demo Street, Demo City
+  Body preview: This message concerns Cat1 Compliance for 410 Demo Street, Demo City (B-3 #700203).
+
+The current due date on record is 2...
+[EMAIL_SENDER] Draft created: 795bed3b-7b9c-409f-9139-10c0fddd99ba | To (actual): demo-recipient@example.test
+[EMAIL_SENDER] SMTP not configured — dry run send:
+  To: demo-recipient@example.test
+  Subject: [DEMO] Attention Required: Maintenance Data Gap Identified — 921 Example Road, Demo City
+  Body preview: This message concerns Maintenance data has never been submitted for 921 Example Road, Demo City.
+
+Please provide Generic...
+[EMAIL_SENDER] Draft created: 4f64eeb2-94ed-41dd-8d8f-f29a2e5e8f59 | To (actual): demo-recipient@example.test
+[EMAIL_SENDER] SMTP not configured — dry run send:
+  To: demo-recipient@example.test
+  Subject: [DEMO] Action Required: CAT5 Five-Year Test Compliance — 411 Test Street, Sample City
+  Body preview: This message concerns Cat5 Compliance for 411 Test Street, Sample City (P-1 #700224).
+
+The current due date on record is...
+[EMAIL_SENDER] Draft created: 105b07fa-1b35-48dc-abc8-207c59fd196d | To (actual): demo-recipient@example.test
+[EMAIL_SENDER] SMTP not configured — dry run send:
+  To: demo-recipient@example.test
+  Subject: [DEMO] Attention Required: Maintenance Data Gap Identified — 412 Example Road, Example City
+  Body preview: This message concerns Maintenance data has never been submitted for 412 Example Road, Example City.
+
+Please provide Demo...
+[EMAIL_SENDER] Draft created: 6ce7fe31-8044-4c57-861d-ea31014d43f3 | To (actual): demo-recipient@example.test
+[EMAIL_SENDER] SMTP not configured — dry run send:
+  To: demo-recipient@example.test
+  Subject: [DEMO] Attention Required: Maintenance Data Gap Identified — 123 Example Rd, Example City
+  Body preview: This message concerns Maintenance data has never been submitted for 123 Example Rd, Example City.
+
+Please provide Demo V...
+[EMAIL_SENDER] Draft created: c9e5343e-f2ad-4917-b153-e856cedf19a3 | To (actual): demo-recipient@example.test
+[EMAIL_SENDER] SMTP not configured — dry run send:
+  To: demo-recipient@example.test
+  Subject: [DEMO] Action Required: Maintenance Hours Shortfall — 413 Sample Avenue, Demo City
+  Body preview: This message concerns Maintenance Hours Less Than Required for 413 Sample Avenue, Demo City.
+
+For June 2026, 0.50 mainte...
+[EMAIL_SENDER] Draft created: b744c770-c0f3-4015-8a8a-dbdd53553eb3 | To (actual): demo-recipient@example.test
+[EMAIL_SENDER] SMTP not configured — dry run send:
+  To: demo-recipient@example.test
+  Subject: [DEMO] Urgent: Major Scheduled Work Overdue — 414 Demo Street, Sample City
+  Body preview: This message concerns Replace controller relay and confirm normal operation. for 414 Demo Street, Sample City (B-1 #7002...
+[EMAIL_SENDER] Draft created: 057659b2-b05c-4a1c-8a94-f4b4552afcc3 | To (actual): demo-recipient@example.test
+[EMAIL_SENDER] SMTP not configured — dry run send:
+  To: demo-recipient@example.test
+  Subject: [DEMO] Urgent: Outstanding Government Directive — 415 Test Street, Example City
+  Body preview: This message concerns Provide regulator-ready confirmation that the corrective action is complete. for 415 Test Street, ...
+[EMAIL_SENDER] Draft created: 7e8ba7d6-0b48-4cd5-a950-0d034244dbca | To (actual): demo-recipient@example.test
+[EMAIL_SENDER] SMTP not configured — dry run send:
+  To: demo-recipient@example.test
+  Subject: [DEMO] Action Required: CAT1 Annual Test Compliance — 416 Example Road, Demo City
+  Body preview: This message concerns Cat1 Compliance for 416 Example Road, Demo City (B-1 #700321).
+
+The current due date on record is ...
+[EMAIL_SENDER] Draft created: 03e3fa5e-a7d2-4b5d-9d8c-368d4c5e3ce8 | To (actual): demo-recipient@example.test
+[EMAIL_SENDER] SMTP not configured — dry run send:
+  To: demo-recipient@example.test
+  Subject: [DEMO] Action Required: CAT5 Five-Year Test Compliance — 417 Sample Avenue, Sample City
+  Body preview: This message concerns Cat5 Compliance for 417 Sample Avenue, Sample City (B-2 #700342).
+
+The current due date on record ...
+[EMAIL_SENDER] Draft created: efe9c450-abf3-447f-8dab-f22290a39467 | To (actual): demo-recipient@example.test
+[EMAIL_SENDER] SMTP not configured — dry run send:
+  To: demo-recipient@example.test
+  Subject: [DEMO] Attention Required: Maintenance Data Gap Identified — 418 Demo Street, Example City
+  Body preview: This message concerns Maintenance data has never been submitted for 418 Demo Street, Example City.
+
+Please provide Place...
+[EMAIL_SENDER] Draft created: 5b10ddce-58f1-40a2-b5cf-3b71ed38f65a | To (actual): demo-recipient@example.test
+[EMAIL_SENDER] SMTP not configured — dry run send:
+  To: demo-recipient@example.test
+  Subject: [DEMO] Action Required: CAT5 Five-Year Test Compliance — 100 Example Road, Example City
+  Body preview: This message concerns Cat5 Compliance for 100 Example Road, Example City (B-1 #700061).
+
+The current due date on record ...
+[EMAIL_SENDER] Draft created: 340d4c21-832f-4d85-8be7-5d5e803f32bf | To (actual): demo-recipient@example.test
+[EMAIL_SENDER] SMTP not configured — dry run send:
+  To: demo-recipient@example.test
+  Subject: [DEMO] Action Required: Maintenance Hours Shortfall — 419 Test Street, Demo City
+  Body preview: This message concerns Maintenance Hours Less Than Required for 419 Test Street, Demo City.
+
+For June 2026, 0.50 maintena...
+[EMAIL_SENDER] Draft created: 34e72349-46e1-4a5a-8437-040ce132ee36 | To (actual): demo-recipient@example.test
+[EMAIL_SENDER] SMTP not configured — dry run send:
+  To: demo-recipient@example.test
+  Subject: [DEMO] Urgent: Major Scheduled Work Overdue — 420 Example Road, Sample City
+  Body preview: This message concerns Replace controller relay and confirm normal operation. for 420 Example Road, Sample City (B-1 #700...
+[EMAIL_SENDER] Draft created: c4fdfea1-4055-4ceb-95ba-0aada823b876 | To (actual): demo-recipient@example.test
+[EMAIL_SENDER] SMTP not configured — dry run send:
+  To: demo-recipient@example.test
+  Subject: [DEMO] Attention Required: Maintenance Data Gap Identified — 100 Example Road, Example City
+  Body preview: This message concerns Maintenance data has never been submitted for 100 Example Road, Example City.
+
+Please provide Plac...
+[EMAIL_SENDER] Draft created: ce0e7ec4-de5e-46d9-8fda-5abf0ba3127d | To (actual): demo-recipient@example.test
+[EMAIL_SENDER] SMTP not configured — dry run send:
+  To: demo-recipient@example.test
+  Subject: [DEMO] Urgent: Outstanding Government Directive — 421 Sample Avenue, Example City
+  Body preview: This message concerns Provide regulator-ready confirmation that the corrective action is complete. for 421 Sample Avenue...
+[EMAIL_SENDER] Draft created: b96e97aa-0632-445a-931f-cab2ded2ab2f | To (actual): demo-recipient@example.test
+[EMAIL_SENDER] SMTP not configured — dry run send:
+  To: demo-recipient@example.test
+  Subject: [DEMO] Action Required: CAT1 Annual Test Compliance — 123 Example Road, Example City
+  Body preview: This message concerns Cat1 Compliance for 123 Example Road, Example City (B-3 #700003).
+
+The current due date on record ...
+[EMAIL_SENDER] Draft created: c0669347-c416-4013-b846-4de825e1ed91 | To (actual): demo-recipient@example.test
+[EMAIL_SENDER] SMTP not configured — dry run send:
+  To: demo-recipient@example.test
+  Subject: [DEMO] Action Required: CAT5 Five-Year Test Compliance — 456 Sample Avenue, Demo City
+  Body preview: This message concerns Cat5 Compliance for 456 Sample Avenue, Demo City (P-1 #700024).
+
+The current due date on record is...
+[EMAIL_SENDER] Draft created: ce12c7ae-fbc7-4969-93fb-dd9cb2faa1f4 | To (actual): demo-recipient@example.test
+[EMAIL_SENDER] SMTP not configured — dry run send:
+  To: demo-recipient@example.test
+  Subject: [DEMO] Action Required: Maintenance Hours Shortfall — 100 Example Road, Example City
+  Body preview: This message concerns Maintenance Hours Less Than Required for 100 Example Road, Example City.
+
+For June 2026, 0.50 main...
+[EMAIL_SENDER] Draft created: a8298932-02f1-4c40-a457-b6508cf9bee1 | To (actual): demo-recipient@example.test
+[EMAIL_SENDER] SMTP not configured — dry run send:
+  To: demo-recipient@example.test
+  Subject: [DEMO] Action Required: CAT5 Five-Year Test Compliance — 789 Demo Street, Sample City
+  Body preview: This message concerns Cat5 Compliance for 789 Demo Street, Sample City (B-1 #700041).
+
+The current due date on record is...
+[EMAIL_SENDER] Draft created: 1785f8ca-15d7-4420-82ea-f0d063979205 | To (actual): demo-recipient@example.test
+[EMAIL_SENDER] SMTP not configured — dry run send:
+  To: demo-recipient@example.test
+  Subject: [DEMO] Urgent: Major Scheduled Work Overdue — 101 Example Road, Demo City
+  Body preview: This message concerns Replace controller relay and confirm normal operation. for 101 Example Road, Demo City (B-1 #70008...
+[EMAIL_SENDER] Draft created: 9b8baf11-6448-4577-804d-bd5a9bf2b262 | To (actual): demo-recipient@example.test
+[EMAIL_SENDER] SMTP not configured — dry run send:
+  To: demo-recipient@example.test
+  Subject: [DEMO] Urgent: Outstanding Government Directive — 102 Example Road, Sample City
+  Body preview: This message concerns Provide regulator-ready confirmation that the corrective action is complete. for 102 Example Road,...
+[EMAIL_SENDER] Draft created: 8f60afa2-b410-439e-ae35-3c7550d3a42a | To (actual): demo-recipient@example.test
+[EMAIL_SENDER] SMTP not configured — dry run send:
+  To: demo-recipient@example.test
+  Subject: [DEMO] Action Required: CAT1 Annual Test Compliance — 200 Sample Avenue, Example City
+  Body preview: This message concerns Cat1 Compliance for 200 Sample Avenue, Example City (B-1 #700121).
+
+The current due date on record...
+[EMAIL_SENDER] Draft created: 5ebf1fde-b923-404a-a5bd-43c4f548a694 | To (actual): demo-recipient@example.test
+[EMAIL_SENDER] SMTP not configured — dry run send:
+  To: demo-recipient@example.test
+  Subject: [DEMO] Action Required: CAT5 Five-Year Test Compliance — 300 Test Street, Demo City
+  Body preview: This message concerns Cat5 Compliance for 300 Test Street, Demo City (B-2 #700142).
+
+The current due date on record is 2...
+[EMAIL_SENDER] Draft created: 34380bb5-5a03-4ca4-8f1f-6a3132b8e292 | To (actual): demo-recipient@example.test
+[EMAIL_SENDER] SMTP not configured — dry run send:
+  To: demo-recipient@example.test
+  Subject: [DEMO] Attention Required: Maintenance Data Gap Identified — 408 Example Road, Sample City
+  Body preview: This message concerns Maintenance data has never been submitted for 408 Example Road, Sample City.
+
+Please provide Place...
+[EMAIL_SENDER] Draft created: 049f26bd-ff24-4fbb-960a-9929b07ef792 | To (actual): demo-recipient@example.test
+[EMAIL_SENDER] SMTP not configured — dry run send:
+  To: demo-recipient@example.test
+  Subject: [DEMO] Action Required: CAT1 Annual Test Compliance — 100 Example Road, Example City
+  Body preview: This message concerns Cat1 Compliance for 100 Example Road, Example City (B-1 #700061).
+
+The current due date on record ...

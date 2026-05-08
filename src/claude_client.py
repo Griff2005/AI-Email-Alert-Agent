@@ -16,7 +16,10 @@ import subprocess
 from pathlib import Path
 from typing import Optional
 
-from bs4 import BeautifulSoup
+try:
+    from bs4 import BeautifulSoup
+except ImportError:  # pragma: no cover - exercised in lightweight environments
+    BeautifulSoup = None
 
 from config import config
 
@@ -74,11 +77,13 @@ def sanitize_email_content(raw: str) -> str:
         embed directly in a Claude prompt after an instruction block.
     """
     # Strip HTML tags
-    try:
-        soup = BeautifulSoup(raw, "lxml")
-        text = soup.get_text(separator="\n")
-    except Exception:
-        # Fallback: simple tag strip
+    if BeautifulSoup is not None:
+        try:
+            soup = BeautifulSoup(raw, "html.parser")
+            text = soup.get_text(separator="\n")
+        except Exception:
+            text = re.sub(r"<[^>]+>", " ", raw)
+    else:
         text = re.sub(r"<[^>]+>", " ", raw)
 
     # Normalize whitespace: collapse runs of spaces/tabs, strip blank lines
