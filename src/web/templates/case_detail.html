@@ -56,6 +56,177 @@
   </div>
 </div>
 
+<!-- Memory / Intelligence -->
+<section class="memory-section">
+  <h2>Memory / Intelligence</h2>
+  <p class="section-note">
+    {{ memory_summary }} Pattern signals are generated from stored KPI cases, replies, observations, and follow-up history. They surface recurring issues for review, not automatic proof of root cause.
+  </p>
+
+  <div class="memory-grid">
+    <div class="memory-card">
+      <h3>Pattern Signals</h3>
+      {% if memory_context.active_pattern_flags %}
+      <div class="subtle-list">
+        {% for flag in memory_context.active_pattern_flags %}
+        <div class="subtle-item">
+          <div class="title">Pattern Signal: {{ flag.pattern_label }}</div>
+          <div class="body">{{ flag.summary }}</div>
+          {% if flag.evidence_why %}
+          <div class="meta">Why: {{ flag.evidence_why }}</div>
+          {% endif %}
+          <div class="meta">
+            Severity: <span class="badge badge-{{ flag.severity }}">{{ flag.severity }}</span>
+            &nbsp;|&nbsp; Status: <span class="badge badge-{{ flag.status }}">{{ flag.status }}</span>
+            &nbsp;|&nbsp; Created: {{ flag.created_at[:16].replace('T', ' ') if flag.created_at else '—' }}
+          </div>
+          {% if flag.evidence %}
+          <details class="evidence-box">
+            <summary>Supporting Evidence</summary>
+            <div class="evidence-grid">
+              {% if flag.evidence.rule %}<div><strong>Rule:</strong> {{ flag.evidence.rule }}</div>{% endif %}
+              {% if flag.entity_type or flag.entity_value %}
+              <div><strong>Entity:</strong> {{ flag.entity_type or 'entity' }}{% if flag.entity_value %} · {{ flag.entity_value }}{% endif %}</div>
+              {% endif %}
+              {% if flag.evidence.observed_count %}<div><strong>Observed:</strong> {{ flag.evidence.observed_count }}</div>{% endif %}
+              {% if flag.evidence.threshold %}<div><strong>Threshold:</strong> {{ flag.evidence.threshold }}</div>{% endif %}
+              {% if flag.evidence.time_window_days %}<div><strong>Window:</strong> {{ flag.evidence.time_window_days }} days</div>{% endif %}
+              {% if flag.supporting_case_ids %}
+              <div><strong>Cases:</strong>
+                {% for support_case_id in flag.supporting_case_ids %}
+                <a href="/cases/{{ support_case_id }}">{{ support_case_id[:8] }}…</a>{% if not loop.last %}, {% endif %}
+                {% endfor %}
+              </div>
+              {% endif %}
+              {% if flag.supporting_observation_ids %}
+              <div><strong>Observations:</strong> {{ flag.supporting_observation_ids | join(', ') }}</div>
+              {% endif %}
+            </div>
+          </details>
+          {% else %}
+          <div class="evidence-box">Evidence detail not available for this pattern.</div>
+          {% endif %}
+        </div>
+        {% endfor %}
+      </div>
+      {% else %}
+      <div class="empty-state">No recurring pattern detected for this case.</div>
+      {% endif %}
+    </div>
+
+    <div class="memory-card">
+      <h3>Entity Connections</h3>
+      <div class="entity-list">
+        {% for entity in entity_connections %}
+        <div class="entity-row">
+          <div class="entity-label">{{ entity.label }}</div>
+          <div class="entity-value {% if not entity.value %}empty{% endif %}">{{ entity.value or 'Not extracted' }}</div>
+          <div class="entity-meta">{{ entity.count_label }}: {{ entity.count }}{% if entity.window %} ({{ entity.window }}){% endif %}</div>
+        </div>
+        {% endfor %}
+      </div>
+
+      {% if memory_context.mechanic_observations %}
+      <div style="margin-top:12px">
+        <div class="entity-label">Mechanic / Technician</div>
+        <div class="subtle-list">
+          {% for obs in memory_context.mechanic_observations %}
+          <div class="subtle-item">
+            <div class="title">{{ obs.entity_value or 'Mechanic reference' }}</div>
+            <div class="body">
+              {% if obs.device %}Device: {{ obs.device }}{% else %}Explicit mechanic or technician reference captured.{% endif %}
+            </div>
+            <div class="meta">
+              {{ obs.source or 'system' }}
+              {% if obs.observed_at %} &nbsp;|&nbsp; {{ obs.observed_at[:16].replace('T', ' ') }}{% endif %}
+            </div>
+          </div>
+          {% endfor %}
+        </div>
+      </div>
+      {% else %}
+      <div class="section-note" style="margin-top:12px;margin-bottom:0">
+        Mechanic/technician data has not appeared in the available KPI emails or replies.
+      </div>
+      {% endif %}
+    </div>
+
+    <div class="memory-card">
+      <h3>Related Cases</h3>
+      {% if memory_context.related_cases %}
+      <div class="table-wrap">
+        <table class="mini-table">
+          <thead>
+            <tr>
+              <th>Case</th>
+              <th>Type</th>
+              <th>Building</th>
+              <th>Device</th>
+              <th>Contractor</th>
+              <th>Link</th>
+              <th>Reason</th>
+              <th>Status</th>
+              <th>Updated</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for related in memory_context.related_cases %}
+            <tr>
+              <td class="nowrap"><a href="/cases/{{ related.case_id }}">{{ related.case_id[:8] }}…</a></td>
+              <td>{{ related.case_type.replace('_', ' ').title() }}</td>
+              <td>{{ related.building or '—' }}</td>
+              <td>{{ related.device or '—' }}</td>
+              <td>{{ related.contractor or '—' }}</td>
+              <td>{{ related.link_type.replace('_', ' ').title() }}</td>
+              <td>{{ related.reason or '—' }}</td>
+              <td><span class="badge badge-{{ related.status }}">{{ related.status }}</span></td>
+              <td class="nowrap muted">{{ related.updated_at[:16].replace('T', ' ') if related.updated_at else '—' }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% else %}
+      <div class="empty-state">No related cases found.</div>
+      {% endif %}
+    </div>
+
+    <div class="memory-card">
+      <h3>Recent Observations</h3>
+      {% if memory_context.recent_observations %}
+      <div class="table-wrap">
+        <table class="mini-table">
+          <thead>
+            <tr>
+              <th>Observation</th>
+              <th>Entity</th>
+              <th>Value</th>
+              <th>Source</th>
+              <th>Observed</th>
+              <th>Confidence</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for obs in memory_context.recent_observations %}
+            <tr>
+              <td>{{ obs.observation_type.replace('_', ' ').title() }}</td>
+              <td>{% if obs.entity_type %}{{ obs.entity_type.replace('_', ' ').title() }}{% else %}—{% endif %}</td>
+              <td>{{ obs.entity_value or obs.value_text or '—' }}</td>
+              <td>{{ obs.source or 'system' }}</td>
+              <td class="nowrap muted">{{ obs.observed_at[:16].replace('T', ' ') if obs.observed_at else '—' }}</td>
+              <td>{% if obs.confidence %}{{ "%.0f"|format(obs.confidence * 100) }}%{% else %}—{% endif %}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% else %}
+      <div class="empty-state">No observations recorded for this case.</div>
+      {% endif %}
+    </div>
+  </div>
+</section>
+
 <!-- Extracted Fields -->
 {% if fields %}
 <div class="card">
@@ -109,107 +280,6 @@
   </div>
 </div>
 {% endif %}
-
-<!-- Memory / Intelligence -->
-<div class="card">
-  <h2>Memory / Intelligence</h2>
-  <div class="section-note">{{ memory_summary }}</div>
-
-  {% if memory_context.active_pattern_flags %}
-  <div style="margin-bottom:16px">
-    <div class="pill-row">
-      {% for flag in memory_context.active_pattern_flags %}
-      <span class="badge badge-{{ flag.severity }}">{{ flag.pattern_type.replace('_', ' ') }}</span>
-      {% endfor %}
-    </div>
-    <div class="subtle-list">
-      {% for flag in memory_context.active_pattern_flags %}
-      <div class="subtle-item">
-        <div class="title">{{ flag.pattern_type.replace('_', ' ').title() }}</div>
-        <div class="body">{{ flag.summary }}</div>
-        <div class="meta">
-          Severity: <span class="badge badge-{{ flag.severity }}">{{ flag.severity }}</span>
-          &nbsp;|&nbsp; Created: {{ flag.created_at[:16].replace('T', ' ') if flag.created_at else '—' }}
-        </div>
-      </div>
-      {% endfor %}
-    </div>
-  </div>
-  {% else %}
-  <div class="empty-state" style="padding:24px 12px">No recurring pattern detected.</div>
-  {% endif %}
-
-  <div class="split-grid">
-    <div>
-      <h2 style="font-size:1rem;margin-bottom:10px">Related Cases</h2>
-      {% if memory_context.related_cases %}
-      <div class="subtle-list">
-        {% for related in memory_context.related_cases %}
-        <div class="subtle-item">
-          <div class="title">
-            <a href="/cases/{{ related.case_id }}">Case {{ related.case_id[:8] }}…</a>
-          </div>
-          <div class="body">
-            {{ related.case_type.replace('_', ' ').title() }}
-            {% if related.building %} · {{ related.building }}{% endif %}
-            {% if related.device %} · {{ related.device }}{% endif %}
-          </div>
-          <div class="meta">
-            Link: {{ related.link_type.replace('_', ' ') }}
-            {% if related.reason %} &nbsp;|&nbsp; {{ related.reason }}{% endif %}
-          </div>
-        </div>
-        {% endfor %}
-      </div>
-      {% else %}
-      <div class="empty-state" style="padding:24px 12px">No related cases linked yet.</div>
-      {% endif %}
-    </div>
-
-    <div>
-      <h2 style="font-size:1rem;margin-bottom:10px">Recent Observations</h2>
-      {% if memory_context.recent_observations %}
-      <div class="subtle-list">
-        {% for obs in memory_context.recent_observations %}
-        <div class="subtle-item">
-          <div class="title">{{ obs.observation_type.replace('_', ' ').title() }}</div>
-          <div class="body">
-            {{ obs.entity_value or obs.value_text or 'Recorded observation.' }}
-          </div>
-          <div class="meta">
-            {{ obs.source or 'system' }}
-            {% if obs.observed_at %} &nbsp;|&nbsp; {{ obs.observed_at[:16].replace('T', ' ') }}{% endif %}
-          </div>
-        </div>
-        {% endfor %}
-      </div>
-      {% else %}
-      <div class="empty-state" style="padding:24px 12px">No observations recorded.</div>
-      {% endif %}
-    </div>
-  </div>
-
-  {% if memory_context.mechanic_observations %}
-  <div style="margin-top:18px">
-    <h2 style="font-size:1rem;margin-bottom:10px">Mechanic / Technician Notes</h2>
-    <div class="section-note">Shown only when an explicit mechanic or technician reference appears in email or reply data.</div>
-    <div class="subtle-list">
-      {% for obs in memory_context.mechanic_observations %}
-      <div class="subtle-item">
-        <div class="title">{{ obs.entity_value or 'Mechanic reference' }}</div>
-        <div class="body">
-          {% if obs.device %}Device: {{ obs.device }}{% else %}Explicit mechanic or technician reference captured.{% endif %}
-        </div>
-        <div class="meta">
-          {{ obs.source or 'system' }}
-          {% if obs.observed_at %} &nbsp;|&nbsp; {{ obs.observed_at[:16].replace('T', ' ') }}{% endif %}
-        </div>
-      </div>
-      {% endfor %}
-    </div>
-  </div>
-  {% endif %}
-</div>
 
 <!-- Outbound Messages -->
 {% if messages %}

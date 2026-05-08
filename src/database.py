@@ -1283,7 +1283,7 @@ def get_active_pattern_flags(limit: Optional[int] = None) -> List[sqlite3.Row]:
     """Return active pattern flags across all cases ordered by severity/date."""
     conn = get_connection()
     sql = """
-        SELECT pf.*, c.case_type, c.building, c.device
+        SELECT pf.*, c.case_type, c.building, c.device, c.contractor
         FROM pattern_flags pf
         LEFT JOIN cases c ON c.case_id = pf.case_id
         WHERE pf.status = 'active'

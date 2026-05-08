@@ -11,7 +11,7 @@
     {% for ev in events %}
     <li>
       <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
-        <div class="ev-type">{{ ev.event_type.replace('_', ' ') }}</div>
+        <span class="badge {{ ev.badge_class }}">{{ ev.event_type.replace('_', ' ') }}</span>
         {% if ev.case_id %}
         <a href="/cases/{{ ev.case_id }}" style="font-size:0.72rem;color:#6b7280;text-decoration:none">
           Case {{ ev.case_id[:8] }}…

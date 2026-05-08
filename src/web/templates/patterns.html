@@ -1,28 +1,85 @@
 {% extends "base.html" %}
-{% block title %}Patterns — Solucore Alert Triage{% endblock %}
+{% block title %}Memory / Intelligence — Solucore Alert Triage{% endblock %}
 
 {% block content %}
-<h1>Active Patterns</h1>
-<p class="section-note">Deterministic memory flags generated from stored case, reply, and follow-up observations.</p>
+<h1>Intelligence Overview</h1>
+<p class="section-note">
+  Pattern signals are deterministic flags generated from stored KPI cases, replies, observations, and follow-up history. They are intended to surface recurring issues for review, not to prove root cause automatically.
+</p>
+
+<div class="stat-row">
+  <div class="stat">
+    <div class="label">Active pattern flags</div>
+    <div class="value">{{ summary.active_patterns }}</div>
+  </div>
+  <div class="stat">
+    <div class="label">Review / High</div>
+    <div class="value">{{ summary.review_or_high_patterns }}</div>
+  </div>
+  <div class="stat">
+    <div class="label">Buildings with repeated issues</div>
+    <div class="value">{{ summary.repeated_buildings }}</div>
+  </div>
+  <div class="stat">
+    <div class="label">Devices with repeated issues</div>
+    <div class="value">{{ summary.repeated_devices }}</div>
+  </div>
+  <div class="stat">
+    <div class="label">Contractors with repeated issues</div>
+    <div class="value">{{ summary.repeated_contractors }}</div>
+  </div>
+  <div class="stat">
+    <div class="label">No-response patterns</div>
+    <div class="value">{{ summary.no_response_patterns }}</div>
+  </div>
+  <div class="stat">
+    <div class="label">Mechanic patterns</div>
+    <div class="value">{{ summary.mechanic_patterns }}</div>
+  </div>
+</div>
+
+<form class="filter-form" method="get" action="/patterns">
+  <label>
+    Severity
+    <select name="severity">
+      <option value="">All severities</option>
+      {% for severity in ["review", "high", "medium", "info"] %}
+      <option value="{{ severity }}" {% if severity_filter == severity %}selected{% endif %}>{{ severity.title() }}</option>
+      {% endfor %}
+    </select>
+  </label>
+  <label>
+    Pattern Type
+    <select name="pattern_type">
+      <option value="">All pattern types</option>
+      {% for option in pattern_type_options %}
+      <option value="{{ option }}" {% if pattern_type_filter == option %}selected{% endif %}>{{ option.replace('_', ' ').title() }}</option>
+      {% endfor %}
+    </select>
+  </label>
+  <button class="btn btn-primary btn-sm" type="submit">Apply</button>
+</form>
 
 <div class="card" style="padding:0">
   <div class="table-wrap">
     <table class="mini-table">
       <thead>
         <tr>
-          <th>Pattern Type</th>
           <th>Severity</th>
+          <th>Pattern Type</th>
           <th>Summary</th>
           <th>Case</th>
-          <th>Created</th>
+          <th>Building / Device / Contractor</th>
+          <th>Evidence</th>
           <th>Status</th>
+          <th>Created</th>
         </tr>
       </thead>
       <tbody>
         {% for pattern in patterns %}
         <tr>
-          <td style="white-space:nowrap">{{ pattern.pattern_type.replace('_', ' ').title() }}</td>
           <td><span class="badge badge-{{ pattern.severity }}">{{ pattern.severity }}</span></td>
+          <td style="white-space:nowrap">{{ pattern.pattern_label }}</td>
           <td style="font-size:0.84rem">{{ pattern.summary }}</td>
           <td style="white-space:nowrap">
             {% if pattern.case_id %}
@@ -31,12 +88,52 @@
             —
             {% endif %}
           </td>
-          <td style="font-size:0.78rem;color:#6b7280">{{ pattern.created_at[:16].replace('T', ' ') if pattern.created_at else '—' }}</td>
+          <td style="font-size:0.8rem">
+            {% if pattern.entity_value %}
+            {{ pattern.entity_type.replace('_', ' ').title() if pattern.entity_type else 'Entity' }}: {{ pattern.entity_value }}
+            {% elif pattern.building or pattern.device or pattern.contractor %}
+            {% if pattern.building %}Building: {{ pattern.building }}{% endif %}
+            {% if pattern.device %}{% if pattern.building %}<br>{% endif %}Device: {{ pattern.device }}{% endif %}
+            {% if pattern.contractor %}{% if pattern.building or pattern.device %}<br>{% endif %}Contractor: {{ pattern.contractor }}{% endif %}
+            {% else %}
+            —
+            {% endif %}
+          </td>
+          <td style="min-width:220px">
+            <span class="badge badge-pattern">{{ pattern.evidence_count }}</span>
+            {% if pattern.evidence %}
+            <details class="evidence-box">
+              <summary>Supporting Evidence</summary>
+              <div class="evidence-grid">
+                {% if pattern.evidence.rule %}<div><strong>Rule:</strong> {{ pattern.evidence.rule }}</div>{% endif %}
+                {% if pattern.entity_type or pattern.entity_value %}
+                <div><strong>Entity:</strong> {{ pattern.entity_type or 'entity' }}{% if pattern.entity_value %} · {{ pattern.entity_value }}{% endif %}</div>
+                {% endif %}
+                {% if pattern.evidence.observed_count %}<div><strong>Observed count:</strong> {{ pattern.evidence.observed_count }}</div>{% endif %}
+                {% if pattern.evidence.threshold %}<div><strong>Threshold:</strong> {{ pattern.evidence.threshold }}</div>{% endif %}
+                {% if pattern.evidence.time_window_days %}<div><strong>Time window:</strong> {{ pattern.evidence.time_window_days }} days</div>{% endif %}
+                {% if pattern.supporting_case_ids %}
+                <div><strong>Supporting cases:</strong>
+                  {% for support_case_id in pattern.supporting_case_ids %}
+                  <a href="/cases/{{ support_case_id }}">{{ support_case_id }}</a>{% if not loop.last %}, {% endif %}
+                  {% endfor %}
+                </div>
+                {% endif %}
+                {% if pattern.supporting_observation_ids %}
+                <div><strong>Supporting observations:</strong> {{ pattern.supporting_observation_ids | join(', ') }}</div>
+                {% endif %}
+              </div>
+            </details>
+            {% else %}
+            <div class="muted" style="margin-top:6px">Evidence detail not available for this pattern.</div>
+            {% endif %}
+          </td>
           <td><span class="badge badge-{{ pattern.status }}">{{ pattern.status }}</span></td>
+          <td style="font-size:0.78rem;color:#6b7280">{{ pattern.created_at[:16].replace('T', ' ') if pattern.created_at else '—' }}</td>
         </tr>
         {% else %}
         <tr>
-          <td colspan="6">
+          <td colspan="8">
             <div class="empty-state">No active pattern flags.</div>
           </td>
         </tr>

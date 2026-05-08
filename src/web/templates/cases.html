@@ -34,6 +34,35 @@
   <a href="/cases?status=closed" {% if status_filter == 'closed' %}class="active"{% endif %}>Closed</a>
 </div>
 
+<form class="filter-form" method="get" action="/cases">
+  <label>
+    Status
+    <select name="status">
+      <option value="">All statuses</option>
+      <option value="open" {% if status_filter == 'open' %}selected{% endif %}>Open</option>
+      <option value="closed" {% if status_filter == 'closed' %}selected{% endif %}>Closed</option>
+    </select>
+  </label>
+  <label>
+    Case Type
+    <select name="case_type">
+      <option value="">All case types</option>
+      {% for option in case_type_options %}
+      <option value="{{ option }}" {% if case_type_filter == option %}selected{% endif %}>{{ option.replace('_', ' ').title() }}</option>
+      {% endfor %}
+    </select>
+  </label>
+  <label class="filter-check" style="text-transform:none;letter-spacing:0;font-weight:600">
+    <input type="checkbox" name="patterned" value="1" {% if patterned_only %}checked{% endif %}>
+    Patterned only
+  </label>
+  <label class="filter-check" style="text-transform:none;letter-spacing:0;font-weight:600">
+    <input type="checkbox" name="review" value="1" {% if review_required_only %}checked{% endif %}>
+    Review required
+  </label>
+  <button class="btn btn-primary btn-sm" type="submit">Apply</button>
+</form>
+
 <div class="card" style="padding:0">
   <div class="table-wrap">
     <table>
@@ -45,8 +74,9 @@
           <th>Priority</th>
           <th>Building</th>
           <th>Device</th>
-          <th>Memory</th>
-          <th>Created</th>
+          <th>Pattern Signals</th>
+          <th>Related</th>
+          <th>Reviews</th>
           <th>Updated</th>
         </tr>
       </thead>
@@ -61,19 +91,27 @@
           <td style="font-size:0.85rem">{{ c.device or '—' }}</td>
           <td style="font-size:0.8rem;white-space:nowrap">
             {% if c.memory_indicator %}
-            <span class="badge badge-{{ c.memory_indicator.severity }}">{{ c.memory_indicator.label }}</span>
-            <span style="color:#6b7280">{{ c.memory_indicator.count }}</span>
+            <span class="badge badge-{{ c.memory_indicator.severity }}">{{ c.memory_indicator.primary_pattern_label }}</span>
+            <span class="muted">{{ c.memory_indicator.count }}</span>
             {% else %}
-            <span style="color:#9ca3af">—</span>
+            <span class="badge badge-none">None</span>
             {% endif %}
           </td>
-          <td style="font-size:0.78rem;color:#6b7280">{{ c.created_at[:16].replace('T',' ') if c.created_at else '—' }}</td>
+          <td style="font-size:0.8rem;color:#374151">{{ c.related_case_count }}</td>
+          <td style="font-size:0.8rem;white-space:nowrap">
+            {% if c.open_review_count %}
+            <span class="badge badge-review">Review</span>
+            <span class="muted">{{ c.open_review_count }}</span>
+            {% else %}
+            <span class="muted">0</span>
+            {% endif %}
+          </td>
           <td style="font-size:0.78rem;color:#6b7280">{{ c.updated_at[:16].replace('T',' ') if c.updated_at else '—' }}</td>
         </tr>
         {% else %}
         <tr>
-          <td colspan="9">
-            <div class="empty-state">No cases found. Run <code>python src/agent.py ingest</code> to load sample emails.</div>
+          <td colspan="10">
+            <div class="empty-state">No cases found.</div>
           </td>
         </tr>
         {% endfor %}

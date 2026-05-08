@@ -61,6 +61,8 @@ http://localhost:5000
 
 The `run` command starts Flask and the follow-up scheduler. IMAP polling starts only when non-placeholder IMAP credentials are configured.
 
+The web UI includes case list, case detail, reviews, events, and Memory / Intelligence views. Case detail pages show deterministic pattern signals, related cases, entity connections, and recent observations. The Patterns page shows active pattern signals and supporting evidence from `pattern_flags.evidence_json`.
+
 ## Safe Offline Harness
 
 Run the concise offline demo validator:
@@ -103,6 +105,7 @@ python src/agent.py memory-report --case-id <CASE_ID>
 ```
 
 The memory layer stores entities, observations, related-case links, and deterministic pattern flags. It does not use AI to decide whether a pattern exists.
+Pattern signals are review-oriented indicators based on stored data, not proof of root cause. Mechanic/technician intelligence appears only when explicit mechanic or technician data exists in KPI emails or replies.
 
 ## AI Usage Rules
 

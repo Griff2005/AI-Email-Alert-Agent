@@ -25,6 +25,9 @@
         {% if r.case_status %}
         <span class="badge badge-{{ r.case_status }}">{{ r.case_status }}</span>
         {% endif %}
+        {% if r.is_pattern_review %}
+        <span class="badge badge-medium">Pattern Review</span>
+        {% endif %}
       </div>
 
       <div style="margin-bottom:8px">
@@ -34,6 +37,15 @@
 
       {% if r.building %}
       <div style="font-size:0.8rem;color:#6b7280">Building: {{ r.building }}</div>
+      {% endif %}
+
+      {% if r.pattern_context %}
+      <div class="evidence-box" style="margin-top:10px">
+        <strong>Memory context:</strong>
+        {{ r.pattern_context.pattern_label }} ·
+        <span class="badge badge-{{ r.pattern_context.severity }}">{{ r.pattern_context.severity }}</span>
+        <div style="margin-top:4px">{{ r.pattern_context.summary }}</div>
+      </div>
       {% endif %}
 
       <div style="font-size:0.75rem;color:#9ca3af;margin-top:6px">

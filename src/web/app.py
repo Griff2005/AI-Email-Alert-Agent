@@ -11,15 +11,19 @@ Routes:
   POST /cases/<case_id>/resolve-review  -> resolve a manual review item
 """
 
-import sys
+import json
 import os
+import sys
+from typing import Any, Dict, Iterable, List, Optional
 
 # Allow imports from src/ when running from src/web/
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from flask import Flask, redirect, render_template, request, url_for, flash
+from config import config
 import database as db
 import memory
+from runtime_options import runtime_options
 
 app = Flask(__name__, template_folder="templates")
 app.secret_key = "solucore-demo-secret-not-for-production"
@@ -33,21 +37,248 @@ _SEVERITY_RANK = {
 }
 
 
-def _pattern_indicator(case_id: str):
+_PATTERN_LABELS = {
+    "repeated_building_issue": "Repeated Building",
+    "repeated_device_issue": "Repeated Device",
+    "repeated_contractor_issue": "Contractor Pattern",
+    "repeated_no_response": "No Response",
+    "repeated_data_absence": "Repeated Data Absence",
+    "repeated_major_work_overdue": "Major Work Pattern",
+    "repeated_maintenance_shortfall": "Shortfall Pattern",
+    "mechanic_recurrence": "Mechanic Pattern",
+    "mechanic_rotation": "Mechanic Pattern",
+}
+
+
+def _humanize(value: Optional[str]) -> str:
+    if not value:
+        return ""
+    return str(value).replace("_", " ").replace("-", " ").title()
+
+
+def _parse_evidence(evidence_json: Optional[str]) -> Dict[str, Any]:
+    if not evidence_json:
+        return {}
+    try:
+        parsed = json.loads(evidence_json)
+    except (TypeError, ValueError):
+        return {}
+    return parsed if isinstance(parsed, dict) else {}
+
+
+def _case_ids_from_evidence(evidence: Dict[str, Any]) -> List[str]:
+    case_ids: List[str] = []
+    for key in ("supporting_case_ids", "related_case_ids"):
+        values = evidence.get(key)
+        if not isinstance(values, list):
+            continue
+        for value in values:
+            if value and str(value) not in case_ids:
+                case_ids.append(str(value))
+    return case_ids
+
+
+def _safe_int(value: Any) -> int:
+    try:
+        return int(value or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
+def _evidence_why(evidence: Dict[str, Any]) -> Optional[str]:
+    observed_count = evidence.get("observed_count")
+    entity_type = evidence.get("entity_type")
+    entity_value = evidence.get("entity_value")
+    window_days = evidence.get("time_window_days")
+    threshold = evidence.get("threshold")
+    supporting_cases = _case_ids_from_evidence(evidence)
+
+    if observed_count and entity_type and entity_value and window_days:
+        item_label = "cases" if supporting_cases else "observations"
+        why = (
+            f"{observed_count} {item_label} observed for "
+            f"{str(entity_type).replace('_', ' ')} {entity_value} over {window_days} days"
+        )
+        if threshold:
+            why += f" (threshold: {threshold})"
+        return why + "."
+    if evidence.get("rule"):
+        return f"Rule matched: {evidence['rule']}."
+    return None
+
+
+def _enrich_pattern_flag(flag: Dict[str, Any]) -> Dict[str, Any]:
+    enriched = dict(flag)
+    evidence = _parse_evidence(enriched.get("evidence_json"))
+    case_ids = _case_ids_from_evidence(evidence)
+    observation_ids = evidence.get("supporting_observation_ids")
+    if not isinstance(observation_ids, list):
+        observation_ids = []
+    enriched.update(
+        {
+            "pattern_label": _PATTERN_LABELS.get(enriched.get("pattern_type"), _humanize(enriched.get("pattern_type"))),
+            "evidence": evidence,
+            "evidence_why": _evidence_why(evidence),
+            "supporting_case_ids": case_ids,
+            "supporting_observation_ids": observation_ids,
+            "evidence_count": max(len(case_ids), len(observation_ids), _safe_int(evidence.get("observed_count"))),
+            "entity_type": evidence.get("entity_type"),
+            "entity_value": evidence.get("entity_value"),
+        }
+    )
+    return enriched
+
+
+def _pattern_indicator(case_id: str) -> Optional[Dict[str, Any]]:
     flags = [dict(row) for row in db.get_active_pattern_flags_for_case(case_id)]
     if not flags:
         return None
     highest = max(flags, key=lambda flag: _SEVERITY_RANK.get(flag["severity"], 0))
-    label = {
+    severity_label = {
         "review": "Review",
         "high": "Repeated",
         "medium": "Pattern",
         "info": "Memory",
     }.get(highest["severity"], "Pattern")
+    pattern_labels = [
+        _PATTERN_LABELS.get(flag["pattern_type"], _humanize(flag["pattern_type"]))
+        for flag in flags
+    ]
     return {
         "count": len(flags),
         "severity": highest["severity"],
-        "label": label,
+        "label": severity_label,
+        "pattern_labels": pattern_labels,
+        "primary_pattern_label": pattern_labels[0] if pattern_labels else severity_label,
+    }
+
+
+def _case_count_map(sql: str, params: Iterable[Any] = ()) -> Dict[str, int]:
+    conn = db.get_connection()
+    return {
+        row["case_id"]: int(row["count"])
+        for row in conn.execute(sql, tuple(params)).fetchall()
+    }
+
+
+def _related_case_counts() -> Dict[str, int]:
+    return _case_count_map(
+        """
+        SELECT case_id, COUNT(DISTINCT related_case_id) AS count
+        FROM (
+            SELECT source_case_id AS case_id, target_case_id AS related_case_id FROM case_links
+            UNION ALL
+            SELECT target_case_id AS case_id, source_case_id AS related_case_id FROM case_links
+        )
+        GROUP BY case_id
+        """
+    )
+
+
+def _open_review_counts() -> Dict[str, int]:
+    return _case_count_map(
+        """
+        SELECT case_id, COUNT(*) AS count
+        FROM manual_reviews
+        WHERE resolved = 0
+        GROUP BY case_id
+        """
+    )
+
+
+def _case_type_options() -> List[str]:
+    conn = db.get_connection()
+    rows = conn.execute(
+        "SELECT DISTINCT case_type FROM cases ORDER BY case_type"
+    ).fetchall()
+    return [row["case_type"] for row in rows]
+
+
+def _entity_connections(case: Dict[str, Any], fields: List[Dict[str, Any]], memory_context: Dict[str, Any]) -> List[Dict[str, Any]]:
+    counts = memory_context.get("counts", {})
+    field_values = {
+        row["field_name"]: row.get("field_value")
+        for row in fields
+        if row.get("field_value")
+    }
+    client = (
+        field_values.get("client")
+        or field_values.get("customer")
+        or field_values.get("property_manager")
+    )
+    connections = [
+        {
+            "label": "Building",
+            "value": case.get("building"),
+            "count_label": "Cases with same building",
+            "count": counts.get("building_cases_60_days", 0),
+            "window": "last 60 days",
+        },
+        {
+            "label": "Device",
+            "value": case.get("device"),
+            "count_label": "Cases with same device",
+            "count": counts.get("device_cases_90_days", 0),
+            "window": "last 90 days",
+        },
+        {
+            "label": "Contractor",
+            "value": case.get("contractor"),
+            "count_label": "Cases with same contractor",
+            "count": counts.get("contractor_cases_60_days", 0),
+            "window": "last 60 days",
+        },
+        {
+            "label": "Client",
+            "value": client,
+            "count_label": "Client observations",
+            "count": 1 if client else 0,
+            "window": None,
+        },
+    ]
+    return connections
+
+
+def _memory_summary_cards(patterns: List[Dict[str, Any]]) -> Dict[str, int]:
+    def distinct_values(entity_type: str, pattern_fragment: Optional[str] = None) -> set:
+        values = set()
+        for pattern in patterns:
+            matches_entity = pattern.get("entity_type") == entity_type
+            matches_type = pattern_fragment and pattern_fragment in (pattern.get("pattern_type") or "")
+            if (matches_entity or matches_type) and pattern.get("entity_value"):
+                values.add(pattern["entity_value"])
+        return values
+
+    return {
+        "active_patterns": len(patterns),
+        "review_or_high_patterns": len([p for p in patterns if p.get("severity") in ("review", "high")]),
+        "repeated_buildings": len(distinct_values("building", "building")),
+        "repeated_devices": len(distinct_values("device", "device")),
+        "repeated_contractors": len(distinct_values("contractor", "contractor")),
+        "no_response_patterns": len([p for p in patterns if p.get("pattern_type") == "repeated_no_response"]),
+        "mechanic_patterns": len([p for p in patterns if (p.get("pattern_type") or "").startswith("mechanic_")]),
+    }
+
+
+def _event_badge_class(event_type: Optional[str]) -> str:
+    if event_type in {"memory_updated", "pattern_detected"}:
+        return "badge-medium"
+    if event_type == "manual_review_created":
+        return "badge-review"
+    if event_type == "reply_received":
+        return "badge-info"
+    if event_type == "followup_triggered":
+        return "badge-high"
+    return "badge-low"
+
+
+@app.context_processor
+def inject_runtime_badges():
+    options = runtime_options.get()
+    return {
+        "demo_mode": config.DEMO_MODE,
+        "demo_recipient": config.DEMO_RECIPIENT_EMAIL,
+        "ai_runtime_label": "Budgeted" if options.ai_enabled else "Disabled",
     }
 
 
@@ -64,13 +295,36 @@ def cases():
     Accepts ``?status=open`` or ``?status=closed`` query parameter for filtering.
     """
     status_filter = request.args.get("status")
+    case_type_filter = request.args.get("case_type")
+    patterned_only = request.args.get("patterned") == "1"
+    review_required_only = request.args.get("review") == "1"
+    related_counts = _related_case_counts()
+    review_counts = _open_review_counts()
     all_cases = db.get_all_cases(status_filter=status_filter)
     cases_list = []
     for case in all_cases:
         case_dict = dict(case)
-        case_dict["memory_indicator"] = _pattern_indicator(case_dict["case_id"])
+        if case_type_filter and case_dict["case_type"] != case_type_filter:
+            continue
+        memory_indicator = _pattern_indicator(case_dict["case_id"])
+        case_dict["memory_indicator"] = memory_indicator
+        case_dict["pattern_count"] = memory_indicator["count"] if memory_indicator else 0
+        case_dict["related_case_count"] = related_counts.get(case_dict["case_id"], 0)
+        case_dict["open_review_count"] = review_counts.get(case_dict["case_id"], 0)
+        if patterned_only and not case_dict["pattern_count"]:
+            continue
+        if review_required_only and not case_dict["open_review_count"]:
+            continue
         cases_list.append(case_dict)
-    return render_template("cases.html", cases=cases_list, status_filter=status_filter)
+    return render_template(
+        "cases.html",
+        cases=cases_list,
+        status_filter=status_filter,
+        case_type_filter=case_type_filter,
+        patterned_only=patterned_only,
+        review_required_only=review_required_only,
+        case_type_options=_case_type_options(),
+    )
 
 
 @app.route("/cases/<case_id>")
@@ -87,19 +341,30 @@ def case_detail(case_id):
 
     events = db.get_events_for_case(case_id)
     messages = db.get_messages_for_case(case_id)
-    fields = db.get_fields_for_case(case_id)
+    fields = [dict(f) for f in db.get_fields_for_case(case_id)]
     followup = db.get_followup_for_case(case_id)
     memory_context = memory.get_memory_context_for_case(case_id)
+    memory_context["active_pattern_flags"] = [
+        _enrich_pattern_flag(dict(flag))
+        for flag in memory_context.get("active_pattern_flags", [])
+    ]
+    memory_context["recent_observations"] = [
+        dict(row) for row in db.get_observations_for_case(case_id, limit=12)
+    ]
+    memory_context["related_cases"] = [
+        dict(row) for row in db.get_related_cases_for_case(case_id, limit=12)
+    ]
 
     return render_template(
         "case_detail.html",
         case=dict(case),
         events=[dict(e) for e in events],
         messages=[dict(m) for m in messages],
-        fields=[dict(f) for f in fields],
+        fields=fields,
         followup=dict(followup) if followup else None,
         memory_context=memory_context,
         memory_summary=memory_context["summary"],
+        entity_connections=_entity_connections(dict(case), fields, memory_context),
     )
 
 
@@ -144,8 +409,17 @@ def resolve_review_for_case(case_id):
 @app.route("/reviews")
 def reviews():
     """Render the manual review queue with case context."""
-    open_reviews = db.get_open_manual_reviews()
-    return render_template("reviews.html", reviews=[dict(r) for r in open_reviews])
+    open_reviews = []
+    for row in db.get_open_manual_reviews():
+        review = dict(row)
+        flags = [
+            _enrich_pattern_flag(dict(flag))
+            for flag in db.get_active_pattern_flags_for_case(review["case_id"])
+        ]
+        review["is_pattern_review"] = (review.get("reason") or "").lower().startswith("pattern review")
+        review["pattern_context"] = flags[0] if flags else None
+        open_reviews.append(review)
+    return render_template("reviews.html", reviews=open_reviews)
 
 
 @app.route("/events")
@@ -161,14 +435,42 @@ def events():
         LIMIT 100
         """
     ).fetchall()
-    return render_template("events.html", events=[dict(e) for e in recent_events])
+    events_list = []
+    for row in recent_events:
+        event = dict(row)
+        event["badge_class"] = _event_badge_class(event.get("event_type"))
+        events_list.append(event)
+    return render_template("events.html", events=events_list)
 
 
 @app.route("/patterns")
 def patterns():
     """Render active memory/pattern flags across all cases."""
-    active_patterns = [dict(row) for row in db.get_active_pattern_flags()]
-    return render_template("patterns.html", patterns=active_patterns)
+    severity_filter = request.args.get("severity")
+    pattern_type_filter = request.args.get("pattern_type")
+    active_patterns = [
+        _enrich_pattern_flag(dict(row))
+        for row in db.get_active_pattern_flags()
+    ]
+    summary = _memory_summary_cards(active_patterns)
+    pattern_type_options = sorted({pattern["pattern_type"] for pattern in active_patterns})
+
+    filtered_patterns = []
+    for pattern in active_patterns:
+        if severity_filter and pattern["severity"] != severity_filter:
+            continue
+        if pattern_type_filter and pattern["pattern_type"] != pattern_type_filter:
+            continue
+        filtered_patterns.append(pattern)
+
+    return render_template(
+        "patterns.html",
+        patterns=filtered_patterns,
+        summary=summary,
+        severity_filter=severity_filter,
+        pattern_type_filter=pattern_type_filter,
+        pattern_type_options=pattern_type_options,
+    )
 
 
 def create_app():

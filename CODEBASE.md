@@ -58,7 +58,7 @@ Reply handling uses `case_manager.process_reply()` and `reply_analyzer.analyze_r
 - `ai_gateway.py`: the only approved model access path. It enforces enablement, budgets, cache accounting, and reports.
 - `email_sender.py`: preserves `intended_to` vs `actual_to` and demo recipient override.
 - `followup.py`: idempotent follow-up generation and escalation review creation.
-- `web/app.py`: Flask case list, case detail, review queue, event feed, and pattern views.
+- `web/app.py`: Flask case list, case detail, review queue, event feed, and Memory / Intelligence views. The UI renders deterministic pattern signals, related cases, entity connections, observations, and evidence from stored memory records.
 
 ## Safety-Critical Behavior
 
@@ -128,6 +128,7 @@ The harness is not a production audit. Keep it focused on whether the demo path 
 
 - The parser supports the current six demo KPI families only.
 - Memory patterns are deterministic heuristics and should be presented as signals, not proof.
+- Mechanic intelligence is shown only when explicit mechanic or technician observations exist.
 - The Flask UI is a demo interface, not an authenticated production app.
 - The database layer is intentionally simple SQLite and should not be treated as a multi-tenant production store.
 - AI-assisted ambiguous handling exists, but normal validation should remain offline and deterministic.
