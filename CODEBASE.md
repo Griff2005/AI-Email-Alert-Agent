@@ -16,6 +16,8 @@ src/
   case_manager.py       email and reply orchestration
   reply_analyzer.py     deterministic reply interpretation
   memory.py             entity memory, observations, links, pattern flags
+  ai_gateway.py         model access gateway with budget enforcement
+  claude_client.py      low-level Claude client and injection detection
   email_reader.py       optional IMAP polling
   email_sender.py       outbound draft/send path with demo guardrails
   followup.py           overdue follow-up scheduler logic
@@ -25,11 +27,16 @@ src/
     app.py              Flask routes
     templates/          case list, details, reviews, events, patterns
 data/
-  sample_emails.json    committed sample emails
+  sample_emails.json    committed sample demo emails
+  backlog_sample.json   committed sample backlog import records
+docs/
+  *.docx                project discovery and design documents
 tests/
-  test_demo_scale.py
   test_ai_usage.py
+  test_backlog_loader.py
+  test_demo_scale.py
   test_memory.py
+  test_web_memory_ui.py
 ```
 
 Generated files such as SQLite databases, harness reports, AI usage reports, caches, and `__pycache__` are ignored.
@@ -49,15 +56,25 @@ Generated files such as SQLite databases, harness reports, AI usage reports, cac
 
 Reply handling uses `case_manager.process_reply()` and `reply_analyzer.analyze_reply()`. It records reply events and manual reviews but never closes a case automatically.
 
+The backlog import flow is separate from the main pipeline:
+
+1. `agent.py load-backlog` calls `backlog_loader.load_backlog()`.
+2. Records are normalized and filtered through a subject gate (must match a known KPI pattern).
+3. Body signatures are validated per case type.
+4. Accepted records are inserted into `emails` (marked processed immediately), `cases`, `extracted_fields`, `case_events`, and `memory` tables.
+5. Reports are written to `data/backlog_runs/<timestamp>/`.
+6. No outbound messages, follow-ups, or AI calls are made.
+
 ## Core Modules
 
 - `classifier.py`: supported case type matching plus prompt-injection detection. Unsupported alert families should resolve to `UNKNOWN` unless intentionally added to the MVP.
-- `backlog_loader.py`: standalone backlog import workflow for staged historical KPI emails. Main entry point: `load_backlog(source, path, dry_run, limit, report_dir)`. Key functions: normalize records, classify/filter supported KPI, validate body signatures, extract deterministic fields, generate grouping keys, and write reports. Safety: deterministic only, no outbound, no follow-up, and dry-run does not write the database. Report output: `data/backlog_runs/<timestamp>/`. Dependencies: `database.py`, deterministic paths in `classifier.py` and `extractor.py`, and `memory.py`.
+- `backlog_loader.py`: standalone backlog import workflow for staged historical KPI emails. Main entry point: `load_backlog(source, path, dry_run, limit, report_dir)`. Validates records through a subject-pattern gate (hardcoded six-type allowlist) before body classification, so classifier expansion cannot silently widen import scope. Dry-run mode previews without touching the database. Imported emails are immediately marked processed. Report output: `data/backlog_runs/<timestamp>/`. Dependencies: `database.py`, deterministic paths in `classifier.py` and `extractor.py`, and `memory.py`.
 - `extractor.py`: deterministic field parsing, date normalization, grouping key generation, and outbound templates.
 - `case_manager.py`: the main orchestration point. Keep safety decisions visible here.
 - `database.py`: owns schema creation and all SQL helpers. Prefer additive schema changes and avoid table/column renames without a migration plan.
 - `memory.py`: stores entities, observations, related cases, and deterministic pattern flags. Pattern flags should be explainable from stored evidence.
-- `ai_gateway.py`: the only approved model access path. It enforces enablement, budgets, cache accounting, and reports.
+- `ai_gateway.py`: the only approved model access path. It enforces enablement, budgets, cache accounting, and reports. Product modules must not call `claude_client` directly.
+- `claude_client.py`: low-level Claude client plus `detect_injection()` and `sanitize_email_content()` helpers used by the safe processing path.
 - `email_sender.py`: preserves `intended_to` vs `actual_to` and demo recipient override.
 - `followup.py`: idempotent follow-up generation and escalation review creation.
 - `web/app.py`: Flask case list, case detail, review queue, event feed, and Memory / Intelligence views. The UI renders deterministic pattern signals, related cases, entity connections, observations, and evidence from stored memory records.
@@ -125,6 +142,31 @@ python src/agent.py test-demo-scale --offline --emails 50 --seed 42 --enable-fol
 ```
 
 The harness is not a production audit. Keep it focused on whether the demo path is safe and working.
+
+## Backlog Loading Mode
+
+Run a dry-run preview (no database changes):
+
+```bash
+python src/agent.py load-backlog --source json --path data/backlog_sample.json --dry-run
+```
+
+Commit the import:
+
+```bash
+python src/agent.py load-backlog --source json --path data/backlog_sample.json --commit
+```
+
+The backlog importer is intentionally restricted:
+
+- Accepts JSON source only.
+- Imports only the six supported demo KPI case types (hardcoded, not derived from the classifier).
+- Subject must match a known KPI pattern; body-only matches are routed to review.
+- Makes zero model calls, creates no outbound messages, and schedules no follow-ups.
+- Dry-run writes no database rows.
+- Imported emails are marked processed immediately so they do not appear as pipeline work.
+- Review candidates appear in `review_candidates.json` only — they are not written to the live review queue.
+- Reports written to `data/backlog_runs/<timestamp>/`: `report.json`, `report.md`, `rejected.json`, `review_candidates.json`, `recipient_summary.json`.
 
 ## Known Limitations
 
