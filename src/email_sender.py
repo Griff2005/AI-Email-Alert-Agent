@@ -13,13 +13,19 @@ Intended recipients are stored in outbound_messages.intended_to for audit only.
 
 import smtplib
 import uuid
-from datetime import datetime
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
-from typing import Optional
 
+from constants import (
+    EVENT_EMAIL_DRY_RUN,
+    EVENT_EMAIL_SENT,
+    STATUS_DRAFT,
+    STATUS_SENT,
+    STATUS_SENT_DRY_RUN,
+)
 import database as db
 from config import config
+from time_utils import utc_now_iso
 
 _DEMO_FOOTER = (
     "\n\n---\n"
@@ -69,7 +75,7 @@ def create_draft(
         actual_to=actual_to,
         subject=subject,
         body=final_body,
-        status="draft",
+        status=STATUS_DRAFT,
     )
 
     print(f"[EMAIL_SENDER] Draft created: {msg_id} | To (actual): {actual_to}")
@@ -101,7 +107,7 @@ def send_draft(msg_id: str, confirm: bool = False) -> bool:
         print(f"[EMAIL_SENDER] Draft {msg_id} not found.")
         return False
 
-    if messages["status"] == "sent":
+    if messages["status"] == STATUS_SENT:
         print(f"[EMAIL_SENDER] Draft {msg_id} already sent.")
         return False
 
@@ -117,12 +123,12 @@ def send_draft(msg_id: str, confirm: bool = False) -> bool:
             f"  Subject: {messages['subject']}\n"
             f"  Body preview: {messages['body'][:120]}..."
         )
-        sent_at = datetime.utcnow().isoformat()
-        db.update_outbound_message_status(msg_id, "sent_dry_run", sent_at)
+        sent_at = utc_now_iso()
+        db.update_outbound_message_status(msg_id, STATUS_SENT_DRY_RUN, sent_at)
         db.insert_case_event(
             event_id=str(uuid.uuid4()),
             case_id=messages["case_id"],
-            event_type="email_dry_run",
+            event_type=EVENT_EMAIL_DRY_RUN,
             description=f"Follow-up email logged (dry run — SMTP not configured). Subject: {messages['subject']}",
         )
         return True
@@ -145,12 +151,12 @@ def send_draft(msg_id: str, confirm: bool = False) -> bool:
                 mime_msg.as_string(),
             )
 
-        sent_at = datetime.utcnow().isoformat()
-        db.update_outbound_message_status(msg_id, "sent", sent_at)
+        sent_at = utc_now_iso()
+        db.update_outbound_message_status(msg_id, STATUS_SENT, sent_at)
         db.insert_case_event(
             event_id=str(uuid.uuid4()),
             case_id=messages["case_id"],
-            event_type="email_sent",
+            event_type=EVENT_EMAIL_SENT,
             description=f"Follow-up email sent to {messages['actual_to']}. Subject: {messages['subject']}",
         )
         print(f"[EMAIL_SENDER] Email sent: {msg_id} to {messages['actual_to']}")
@@ -174,7 +180,9 @@ def create_and_send(
 ) -> str:
     """Create a draft and optionally send it immediately.
 
-    Used by ``case_manager._create_new_case`` after generating an email body.
+    This is an explicit helper for manual or future send-enabled flows. The
+    normal case pipeline creates drafts only and does not call this with
+    ``auto_send=True``.
 
     Args:
         case_id: UUID of the associated case.
@@ -189,7 +197,5 @@ def create_and_send(
     """
     msg_id = create_draft(case_id, subject, body, intended_to, intended_cc)
     if auto_send:
-        # confirm=True is correct: the demo recipient redirect in create_draft() is the
-        # safety guardrail — withholding the send is unnecessary once the redirect is applied.
         send_draft(msg_id, confirm=True)
     return msg_id

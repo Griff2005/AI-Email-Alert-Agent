@@ -8,6 +8,7 @@ Routes:
   GET  /reviews                -> manual review queue
   GET  /events                 -> recent events feed
   GET  /patterns               -> memory/intelligence flags
+  GET  /observability.json     -> local metrics and safety snapshot
   GET  /emails                 -> email work queue / backlog
   GET  /emails/<email_id>      -> single email detail
   POST /cases/<case_id>/close          -> mark case closed (manual only)
@@ -22,10 +23,11 @@ from typing import Any, Dict, Iterable, List, Optional
 # Allow imports from src/ when running from src/web/
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from flask import Flask, redirect, render_template, request, url_for, flash
+from flask import Flask, jsonify, redirect, render_template, request, url_for, flash
 from config import config, PROJECT_ROOT
 import database as db
 import memory
+from observability import build_metrics_snapshot
 from runtime_options import runtime_options
 
 app = Flask(__name__, template_folder="templates")
@@ -458,6 +460,12 @@ def events():
     return render_template("events.html", events=events_list)
 
 
+@app.route("/observability.json")
+def observability_json():
+    """Return a read-only JSON metrics and safety snapshot."""
+    return jsonify(build_metrics_snapshot())
+
+
 @app.route("/patterns")
 def patterns():
     """Render active memory/pattern flags across all cases."""
@@ -513,7 +521,7 @@ def ingest():
     import json
     import uuid as _uuid
     from case_manager import process_email as _process_email
-    from claude_client import sanitize_email_content
+    from content_safety import sanitize_email_content
 
     sample_path = PROJECT_ROOT / "data" / "sample_emails.json"
     if not sample_path.exists():

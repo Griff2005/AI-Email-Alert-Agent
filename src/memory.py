@@ -15,6 +15,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 import database as db
+from time_utils import utc_now_iso, utc_now_naive
 
 HIGH_PRIORITY_OBSERVATIONS = (
     "major_work_overdue",
@@ -56,7 +57,8 @@ def normalize_text(value: str) -> str:
 
 
 def _now_iso() -> str:
-    return datetime.utcnow().isoformat()
+    """Return the current UTC timestamp in the existing database format."""
+    return utc_now_iso()
 
 
 def _parse_iso(value: Optional[str]) -> Optional[datetime]:
@@ -125,7 +127,7 @@ def _case_anchor(case_id: str) -> datetime:
     parsed_anchor = _parse_iso(row["anchor"] if row else None)
     if parsed_anchor:
         anchors.append(parsed_anchor)
-    return max(anchors) if anchors else datetime.utcnow()
+    return max(anchors) if anchors else utc_now_naive()
 
 
 def _cases_between(anchor: datetime, days: int) -> List[Dict[str, Any]]:

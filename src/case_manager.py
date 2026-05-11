@@ -7,14 +7,31 @@ Orchestrates the full pipeline from inbound email to case creation or update:
 3. If case with same key exists: update it; otherwise create new
 4. Log case events throughout
 5. Schedule follow-up
-6. Generate and send outbound follow-up email for new cases
+6. Generate an outbound draft for new cases when outbound generation is enabled
 7. Flag for manual review if needed
 """
 
 import uuid
-from datetime import datetime, timedelta
-from typing import Any, Dict, Optional, Tuple
+from datetime import timedelta
+from typing import Any, Dict, Optional
 
+from constants import (
+    CASE_TYPE_CAT1_COMPLIANCE,
+    CASE_TYPE_CAT5_COMPLIANCE,
+    CASE_TYPE_DATA_ABSENCE,
+    CASE_TYPE_GOVERNMENT_DIRECTIVE,
+    CASE_TYPE_MAINTENANCE_HOURS_SHORTFALL,
+    CASE_TYPE_MAJOR_WORK_OVERDUE,
+    CASE_TYPE_UNKNOWN,
+    EVENT_ACTION_INDICATED,
+    EVENT_CASE_CREATED,
+    EVENT_EMAIL_RECEIVED,
+    EVENT_FLAGGED_FOR_REVIEW,
+    EVENT_MEMORY_UPDATED,
+    EVENT_REPLY_RECEIVED,
+    REVIEW_REASON_PROMPT_INJECTION,
+    REVIEW_REASON_REPLY_POSSIBLE_RESOLUTION,
+)
 import database as db
 import email_sender
 import memory
@@ -22,27 +39,28 @@ from classifier import classify_email, quick_filter
 from extractor import extract_fields_with_meta, generate_grouping_key, generate_email_body
 from reply_analyzer import analyze_reply
 from runtime_options import runtime_options
+from time_utils import utc_now_iso, utc_now_naive
 
 # ---------------------------------------------------------------------------
 # Priority mapping by case type
 # ---------------------------------------------------------------------------
 _CASE_TYPE_PRIORITY = {
-    "CAT1_COMPLIANCE": "high",
-    "CAT5_COMPLIANCE": "high",
-    "DATA_ABSENCE": "medium",
-    "MAINTENANCE_HOURS_SHORTFALL": "medium",
-    "MAJOR_WORK_OVERDUE": "high",
-    "GOVERNMENT_DIRECTIVE": "critical",
-    "UNKNOWN": "low",
+    CASE_TYPE_CAT1_COMPLIANCE: "high",
+    CASE_TYPE_CAT5_COMPLIANCE: "high",
+    CASE_TYPE_DATA_ABSENCE: "medium",
+    CASE_TYPE_MAINTENANCE_HOURS_SHORTFALL: "medium",
+    CASE_TYPE_MAJOR_WORK_OVERDUE: "high",
+    CASE_TYPE_GOVERNMENT_DIRECTIVE: "critical",
+    CASE_TYPE_UNKNOWN: "low",
 }
 
 _CASE_TYPE_SUBJECT = {
-    "CAT1_COMPLIANCE": "Action Required: CAT1 Annual Test Compliance",
-    "CAT5_COMPLIANCE": "Action Required: CAT5 Five-Year Test Compliance",
-    "DATA_ABSENCE": "Attention Required: Maintenance Data Gap Identified",
-    "MAINTENANCE_HOURS_SHORTFALL": "Action Required: Maintenance Hours Shortfall",
-    "MAJOR_WORK_OVERDUE": "Urgent: Major Scheduled Work Overdue",
-    "GOVERNMENT_DIRECTIVE": "Urgent: Outstanding Government Directive",
+    CASE_TYPE_CAT1_COMPLIANCE: "Action Required: CAT1 Annual Test Compliance",
+    CASE_TYPE_CAT5_COMPLIANCE: "Action Required: CAT5 Five-Year Test Compliance",
+    CASE_TYPE_DATA_ABSENCE: "Attention Required: Maintenance Data Gap Identified",
+    CASE_TYPE_MAINTENANCE_HOURS_SHORTFALL: "Action Required: Maintenance Hours Shortfall",
+    CASE_TYPE_MAJOR_WORK_OVERDUE: "Urgent: Major Scheduled Work Overdue",
+    CASE_TYPE_GOVERNMENT_DIRECTIVE: "Urgent: Outstanding Government Directive",
 }
 
 _ACTIONABLE_PATTERN_REVIEW_TYPES = {
@@ -97,17 +115,17 @@ def _record_memory_event(
     db.insert_case_event(
         event_id=_new_id(),
         case_id=case_id,
-        event_type="memory_updated",
+        event_type=EVENT_MEMORY_UPDATED,
         description=description,
         source_email_id=source_email_id,
     )
 
     for flag in changed_flags:
-        if flag["severity"] == "review":
-            pass
-        elif flag["severity"] == "high" and flag["pattern_type"] in _ACTIONABLE_PATTERN_REVIEW_TYPES:
-            pass
-        else:
+        should_create_review = flag["severity"] == "review" or (
+            flag["severity"] == "high"
+            and flag["pattern_type"] in _ACTIONABLE_PATTERN_REVIEW_TYPES
+        )
+        if not should_create_review:
             continue
         reason = (
             f"Pattern review: {flag['summary']} "
@@ -173,7 +191,7 @@ def process_email(
         FileNotFoundError: If the ``claude`` binary is not on PATH.
     """
     if received_at is None:
-        received_at = datetime.utcnow().isoformat()
+        received_at = utc_now_iso()
 
     if verbose:
         print(f"[CASE_MGR] Processing email {email_id}: '{subject}'")
@@ -183,7 +201,7 @@ def process_email(
         if verbose:
             print(f"[CASE_MGR] Subject matched an obvious non-KPI noise pattern — skipping.")
         db.mark_email_processed(email_id)
-        return {"action": "skipped", "case_id": None, "case_type": "UNKNOWN",
+        return {"action": "skipped", "case_id": None, "case_type": CASE_TYPE_UNKNOWN,
                 "grouping_key": None, "injection_detected": False}
 
     # Step 2: Classify with deterministic rules first, AI only if enabled
@@ -204,7 +222,7 @@ def process_email(
             print(f"[CASE_MGR] WARNING: Possible prompt injection detected in email {email_id}")
 
     # Step 3: If UNKNOWN or low confidence, skip normal case creation and flag for review
-    if case_type == "UNKNOWN" or confidence < 0.4 or classification_source == "manual_review":
+    if case_type == CASE_TYPE_UNKNOWN or confidence < 0.4 or classification_source == "manual_review":
         if verbose:
             print(f"[CASE_MGR] Classification was ambiguous — flagging for manual review.")
         case_id = _create_review_case(
@@ -255,7 +273,7 @@ def process_email(
             _ensure_manual_review(
                 case_id=case_id,
                 email_id=email_id,
-                reason="Possible prompt injection content detected in email body.",
+                reason=REVIEW_REASON_PROMPT_INJECTION,
             )
         db.mark_email_processed(email_id)
         return {
@@ -265,11 +283,6 @@ def process_email(
             "grouping_key": None,
             "injection_detected": injection_detected,
         }
-
-    # Also flag injection to manual review (case still created, but flagged)
-    if injection_detected:
-        # Will add review after case is created below
-        pass
 
     # Step 5: Generate grouping key
     grouping_key = generate_grouping_key(
@@ -303,7 +316,7 @@ def process_email(
         _ensure_manual_review(
             case_id=case_id,
             email_id=email_id,
-            reason="Possible prompt injection content detected in email body.",
+            reason=REVIEW_REASON_PROMPT_INJECTION,
         )
 
     db.mark_email_processed(email_id)
@@ -326,14 +339,14 @@ def _create_new_case(
     received_at: str,
     extraction_source: str,
 ) -> None:
-    """Create a new case record and trigger the initial outbound email.
+    """Create a new case record and optional initial outbound draft.
 
     Five actions in sequence:
     1. Insert the case row with priority from ``_CASE_TYPE_PRIORITY``.
     2. Store each extracted field as a separate ``extracted_fields`` row.
     3. Log a ``case_created`` event in the audit trail.
     4. Schedule a follow-up deadline 7 days out.
-    5. Generate a deterministic outbound draft and route it through demo safety.
+    5. Generate a deterministic outbound draft through demo safety.
 
     Args:
         case_id: Pre-generated UUID.
@@ -380,13 +393,13 @@ def _create_new_case(
     db.insert_case_event(
         event_id=_new_id(),
         case_id=case_id,
-        event_type="case_created",
+        event_type=EVENT_CASE_CREATED,
         description=f"Case created from email. Type: {case_type}. Building: {fields.get('building', 'N/A')}.",
         source_email_id=email_id,
     )
 
     if runtime_options.get().followups_enabled:
-        deadline = (datetime.utcnow() + timedelta(days=_DEFAULT_FOLLOWUP_DAYS)).isoformat()
+        deadline = (utc_now_naive() + timedelta(days=_DEFAULT_FOLLOWUP_DAYS)).isoformat()
         db.upsert_followup(
             followup_id=_new_id(),
             case_id=case_id,
@@ -404,12 +417,11 @@ def _create_new_case(
         email_body = generate_email_body(case_type, fields, case_id, memory_context=memory_context)
         if email_body:
             subject = _case_subject(case_type, fields)
-            email_sender.create_and_send(
+            email_sender.create_draft(
                 case_id=case_id,
                 subject=subject,
                 body=email_body,
                 intended_to="contractor@solucore-production.com",
-                auto_send=True,
             )
 
 
@@ -435,7 +447,7 @@ def _update_existing_case(
     db.insert_case_event(
         event_id=_new_id(),
         case_id=case_id,
-        event_type="email_received",
+        event_type=EVENT_EMAIL_RECEIVED,
         description=f"Additional alert received: '{subject}'. Case already open.",
         source_email_id=email_id,
     )
@@ -507,7 +519,7 @@ def process_reply(
     db.insert_case_event(
         event_id=event_id,
         case_id=case_id,
-        event_type="reply_received",
+        event_type=EVENT_REPLY_RECEIVED,
         description=description,
     )
 
@@ -515,13 +527,13 @@ def process_reply(
         db.insert_case_event(
             event_id=_new_id(),
             case_id=case_id,
-            event_type="action_indicated",
+            event_type=EVENT_ACTION_INDICATED,
             description="Reply suggests corrective action may have been taken. Manual review required before closing.",
         )
         _ensure_manual_review(
             case_id=case_id,
             email_id=None,
-            reason="Reply indicates possible resolution. Manual confirmation required before case closure.",
+            reason=REVIEW_REASON_REPLY_POSSIBLE_RESOLUTION,
         )
         flag_for_review = True
 
@@ -562,12 +574,19 @@ def _create_review_case(
     extracted_fields: Optional[Dict[str, Any]] = None,
 ) -> str:
     """Create a placeholder case for ambiguous classification or extraction."""
+    review_case_type = case_type if case_type != CASE_TYPE_UNKNOWN else CASE_TYPE_UNKNOWN
+    grouping_key = f"review|{review_case_type.lower()}|{email_id}"
+    existing_case = db.get_case_by_grouping_key(grouping_key)
+    if existing_case:
+        case_id = existing_case["case_id"]
+        _ensure_manual_review(case_id=case_id, email_id=email_id, reason=reason)
+        return case_id
+
     case_id = _new_id()
-    review_case_type = case_type if case_type != "UNKNOWN" else "UNKNOWN"
     db.insert_case(
         case_id=case_id,
         case_type=review_case_type,
-        grouping_key=f"review|{review_case_type.lower()}|{email_id}",
+        grouping_key=grouping_key,
         building=building,
         device=device,
         contractor=contractor,
@@ -578,7 +597,7 @@ def _create_review_case(
     db.insert_case_event(
         event_id=_new_id(),
         case_id=case_id,
-        event_type="flagged_for_review",
+        event_type=EVENT_FLAGGED_FOR_REVIEW,
         description=f"Case flagged for manual review. Reason: {reason}",
         source_email_id=email_id,
     )

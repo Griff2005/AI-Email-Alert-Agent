@@ -21,13 +21,19 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
-try:
-    import pypff
-except ImportError:
-    sys.exit(
-        "ERROR: libpff-python is not installed.\n"
-        "Run: pip install libpff-python"
-    )
+_PYPFF_MISSING_MESSAGE = (
+    "ERROR: libpff-python is not installed.\n"
+    "Run: pip install libpff-python"
+)
+
+
+def _load_pypff():
+    """Import pypff lazily so this utility is safe to import in tests."""
+    try:
+        import pypff
+    except ImportError as exc:
+        raise RuntimeError(_PYPFF_MISSING_MESSAGE) from exc
+    return pypff
 
 
 def _to_str(value, *, fallback: str = "") -> str:
@@ -164,13 +170,13 @@ def _extract_body(msg) -> str:
     return ""
 
 
-def _walk_folder(folder, records: list, stats: dict, depth: int = 0) -> None:
+def _walk_folder(folder, records: list, stats: dict, pypff_module, depth: int = 0) -> None:
     """Recursively walk a pypff folder and extract messages."""
     for i in range(folder.number_of_sub_items):
         item = folder.get_sub_item(i)
-        if isinstance(item, pypff.folder):
-            _walk_folder(item, records, stats, depth + 1)
-        elif isinstance(item, pypff.message):
+        if isinstance(item, pypff_module.folder):
+            _walk_folder(item, records, stats, pypff_module, depth + 1)
+        elif isinstance(item, pypff_module.message):
             stats["total"] += 1
             try:
                 record = _convert_message(item)
@@ -224,14 +230,16 @@ def _convert_message(msg) -> dict:
 
 
 def convert(pst_path: Path, output_path: Path) -> None:
-    pf = pypff.file()
+    """Convert a PST archive into backlog-loader JSON records."""
+    pypff_module = _load_pypff()
+    pf = pypff_module.file()
     pf.open(str(pst_path))
 
     root = pf.get_root_folder()
     records: list[dict] = []
     stats: dict = {"total": 0, "converted": 0, "errors": 0, "error_list": []}
 
-    _walk_folder(root, records, stats)
+    _walk_folder(root, records, stats, pypff_module)
     pf.close()
 
     output_path.write_text(
@@ -273,7 +281,10 @@ def main() -> None:
     print(f"Reading:  {pst_path}")
     print(f"Writing:  {output_path}")
     print()
-    convert(pst_path, output_path)
+    try:
+        convert(pst_path, output_path)
+    except RuntimeError as exc:
+        sys.exit(str(exc))
 
 
 if __name__ == "__main__":

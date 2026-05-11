@@ -5,15 +5,40 @@ Uses a module-level write lock for thread safety with Flask + APScheduler.
 
 import sqlite3
 import threading
-from datetime import datetime
-from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from config import config
+from constants import (
+    EVENT_BACKLOG_CASE_CREATED,
+    EVENT_BACKLOG_CASE_UPDATED,
+    EVENT_BACKLOG_EMAIL_IMPORTED,
+    EVENT_CASE_CREATED,
+    EVENT_EMAIL_RECEIVED,
+)
+from time_utils import utc_now_iso
 
 # Thread-local storage for connections — each thread gets its own connection
 _local = threading.local()
 _write_lock = threading.Lock()
+
+_ALLOWED_CASE_UPDATE_FIELDS = frozenset(
+    {
+        "status",
+        "owner",
+        "priority",
+        "building",
+        "device",
+        "contractor",
+        "due_date",
+        "period",
+    }
+)
+_CREATED_EMAIL_EVENT_TYPES = (EVENT_CASE_CREATED, EVENT_BACKLOG_CASE_CREATED)
+_UPDATED_EMAIL_EVENT_TYPES = (
+    EVENT_EMAIL_RECEIVED,
+    EVENT_BACKLOG_CASE_UPDATED,
+    EVENT_BACKLOG_EMAIL_IMPORTED,
+)
 
 
 def get_connection() -> sqlite3.Connection:
@@ -447,7 +472,7 @@ def insert_case(
         sqlite3.IntegrityError: If a case with the same ``grouping_key``
             already exists (UNIQUE constraint violation).
     """
-    now = datetime.utcnow().isoformat()
+    now = utc_now_iso()
     _execute_write(
         """
         INSERT INTO cases
@@ -461,22 +486,29 @@ def insert_case(
 
 
 def update_case(case_id: str, updates: Dict[str, Any]) -> None:
-    """Update arbitrary fields on an existing case.
+    """Update allowed mutable fields on an existing case.
 
-    Always appends ``updated_at = <now>`` to ``updates`` regardless of what
-    other fields are included. Builds the SET clause dynamically from the
-    dict keys.
-
-    Note: ``updates`` is modified in-place — ``updated_at`` is added to the
-    dict before the SQL statement executes.
+    Always writes ``updated_at = <now>`` alongside the supplied fields. The
+    caller's ``updates`` dict is not mutated.
 
     Args:
         case_id: UUID of the case to update.
         updates: Dict mapping column names to new values.
+
+    Raises:
+        ValueError: If ``updates`` contains a field outside the case update
+            allowlist.
     """
-    updates["updated_at"] = datetime.utcnow().isoformat()
-    set_clause = ", ".join(f"{k} = ?" for k in updates)
-    values = list(updates.values()) + [case_id]
+    unsupported_fields = sorted(set(updates) - _ALLOWED_CASE_UPDATE_FIELDS)
+    if unsupported_fields:
+        raise ValueError(
+            "Unsupported case update field(s): "
+            + ", ".join(unsupported_fields)
+        )
+    values_to_update = dict(updates)
+    values_to_update["updated_at"] = utc_now_iso()
+    set_clause = ", ".join(f"{k} = ?" for k in values_to_update)
+    values = list(values_to_update.values()) + [case_id]
     _execute_write(
         f"UPDATE cases SET {set_clause} WHERE case_id = ?",
         tuple(values),
@@ -529,7 +561,7 @@ def insert_case_event(
         description: Human-readable description.
         source_email_id: UUID of the triggering email, or None for system events.
     """
-    now = datetime.utcnow().isoformat()
+    now = utc_now_iso()
     _execute_write(
         """
         INSERT INTO case_events
@@ -723,7 +755,7 @@ def get_overdue_followups() -> List[sqlite3.Row]:
     Returns:
         Rows with all ``followups`` columns plus ``case_status`` from the join.
     """
-    now = datetime.utcnow().isoformat()
+    now = utc_now_iso()
     conn = get_connection()
     return conn.execute(
         """
@@ -750,7 +782,7 @@ def increment_followup_count(case_id: str) -> int:
     Returns:
         New ``follow_count`` value after incrementing, or 0 if not found.
     """
-    now = datetime.utcnow().isoformat()
+    now = utc_now_iso()
     with _write_lock:
         conn = get_connection()
         conn.execute(
@@ -771,7 +803,7 @@ def increment_followup_count(case_id: str) -> int:
 
 def reschedule_followup(case_id: str, deadline: str) -> None:
     """Move the next follow-up deadline forward after a successful reminder."""
-    now = datetime.utcnow().isoformat()
+    now = utc_now_iso()
     _execute_write(
         """
         UPDATE followups
@@ -822,7 +854,7 @@ def reserve_followup_action(
     scheduled_bucket: str,
 ) -> bool:
     """Reserve a follow-up action slot, returning False when it already exists."""
-    now = datetime.utcnow().isoformat()
+    now = utc_now_iso()
     cursor = _execute_write(
         """
         INSERT OR IGNORE INTO followup_actions
@@ -851,7 +883,7 @@ def mark_followup_action_status(
     outbound_msg_id: Optional[str] = None,
 ) -> None:
     """Update the state of a reserved follow-up action."""
-    now = datetime.utcnow().isoformat()
+    now = utc_now_iso()
     _execute_write(
         """
         UPDATE followup_actions
@@ -908,7 +940,7 @@ def insert_manual_review(
         email_id: UUID of the triggering email, or None for system-triggered reviews.
         reason: Human-readable explanation of why review is required.
     """
-    now = datetime.utcnow().isoformat()
+    now = utc_now_iso()
     _execute_write(
         """
         INSERT INTO manual_reviews
@@ -981,7 +1013,7 @@ def upsert_entity_record(
     seen_at: Optional[str] = None,
 ) -> int:
     """Insert or update a canonical entity record and return its integer ID."""
-    now = datetime.utcnow().isoformat()
+    now = utc_now_iso()
     seen_at = seen_at or now
     with _write_lock:
         conn = get_connection()
@@ -1043,7 +1075,7 @@ def upsert_entity_alias_record(
     seen_at: Optional[str] = None,
 ) -> int:
     """Insert or refresh an alternate name for a canonical entity."""
-    now = datetime.utcnow().isoformat()
+    now = utc_now_iso()
     seen_at = seen_at or now
     with _write_lock:
         conn = get_connection()
@@ -1321,7 +1353,7 @@ def upsert_pattern_flag_record(
     status: str = "active",
 ) -> Dict[str, Any]:
     """Insert or refresh a pattern flag and report whether it was created or updated."""
-    now = datetime.utcnow().isoformat()
+    now = utc_now_iso()
     with _write_lock:
         conn = get_connection()
         if case_id is None:
@@ -1520,13 +1552,15 @@ def get_email_pipeline_summary() -> dict:
     row = conn.execute("SELECT COUNT(*) AS n FROM emails WHERE processed = 1").fetchone()
     result["processed"] = int(row["n"])
 
+    created_placeholders = ", ".join("?" for _ in _CREATED_EMAIL_EVENT_TYPES)
     row = conn.execute(
-        """
+        f"""
         SELECT COUNT(DISTINCT e.email_id) AS n
         FROM emails e
         INNER JOIN case_events ce ON ce.source_email_id = e.email_id
-        WHERE ce.event_type = 'case_created'
-        """
+        WHERE ce.event_type IN ({created_placeholders})
+        """,
+        _CREATED_EMAIL_EVENT_TYPES,
     ).fetchone()
     result["created_cases"] = int(row["n"])
 
@@ -1601,9 +1635,9 @@ def get_email_backlog(limit: int = 100, status_filter: str = "") -> list:
             action = "injection_flag"
         elif review_count > 0:
             action = "review"
-        elif first_event == "case_created":
+        elif first_event in _CREATED_EMAIL_EVENT_TYPES:
             action = "created"
-        elif first_event is not None:
+        elif first_event in _UPDATED_EMAIL_EVENT_TYPES or first_event is not None:
             action = "updated"
         elif email.get("processed"):
             action = "skipped"
@@ -1637,7 +1671,7 @@ def get_events_for_email(email_id: str) -> list:
 
 def resolve_missing_pattern_flags(case_id: str, active_pattern_types: List[str]) -> int:
     """Resolve active pattern flags for a case that were not present in the latest run."""
-    now = datetime.utcnow().isoformat()
+    now = utc_now_iso()
     with _write_lock:
         conn = get_connection()
         if active_pattern_types:

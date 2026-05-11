@@ -15,12 +15,12 @@ import hashlib
 import json
 from collections import Counter, defaultdict
 from dataclasses import asdict, dataclass, field
-from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 
 import claude_client
 from config import config
+from time_utils import utc_now_iso
 
 AI_PURPOSES = {
     "classification",
@@ -38,6 +38,8 @@ _CACHE_SCHEMA_VERSION = "ai-gateway-v1"
 
 @dataclass(frozen=True)
 class AiUsageConfig:
+    """Runtime policy for AI calls made through ``AiGateway``."""
+
     enabled: bool = False
     allow_uncapped_ai: bool = False
     max_calls: Optional[int] = 0
@@ -55,6 +57,8 @@ class AiUsageConfig:
 
 @dataclass
 class AiCallOutcome:
+    """Result returned by an attempted AI call."""
+
     status: str
     payload: Optional[Any]
     reason: str
@@ -100,6 +104,7 @@ class AiGateway:
         self._atexit_registered = False
 
     def configure(self, usage_config: AiUsageConfig) -> None:
+        """Apply a run-level AI usage policy."""
         if usage_config.enabled and usage_config.max_calls in (None, 0) and not usage_config.allow_uncapped_ai:
             raise ValueError(
                 "AI is enabled without a cap. Set max_calls or explicitly allow uncapped AI."
@@ -108,6 +113,7 @@ class AiGateway:
         self._ensure_atexit_handler()
 
     def reset(self) -> None:
+        """Reset usage records, transports, cache, and runtime policy."""
         self._config = AiUsageConfig()
         self._records = []
         self._cache = None
@@ -122,16 +128,19 @@ class AiGateway:
         text_transport: Optional[Callable[[str, str], str]] = None,
         transport_mode: str = "allowed",
     ) -> None:
+        """Install deterministic test transports in place of live Claude calls."""
         self._json_transport = json_transport
         self._text_transport = text_transport
         self._transport_mode = transport_mode
 
     def clear_test_transports(self) -> None:
+        """Remove deterministic transports and restore live transport mode."""
         self._json_transport = None
         self._text_transport = None
         self._transport_mode = "live"
 
     def set_run_metadata(self, **kwargs: Any) -> None:
+        """Attach arbitrary report metadata for the current command run."""
         self._run_metadata.update(kwargs)
 
     def record_skip(
@@ -144,6 +153,7 @@ class AiGateway:
         case_id: Optional[str] = None,
         case_type: Optional[str] = None,
     ) -> None:
+        """Record that deterministic logic skipped a model call."""
         self._records.append(
             _AiCallRecord(
                 timestamp=_now_iso(),
@@ -215,6 +225,7 @@ class AiGateway:
         )
 
     def build_report(self) -> Dict[str, Any]:
+        """Build a JSON-serializable AI usage audit report."""
         by_purpose_calls = Counter()
         by_case_type = Counter()
         by_component = Counter()
@@ -267,6 +278,7 @@ class AiGateway:
             "cache_misses": cache_misses,
             "cache_hit_rate": round(cache_hits / attempted, 4) if attempted else 0.0,
             "calls_avoided_by_cache": cache_hits,
+            "token_accounting": "estimated",
             "estimated_input_tokens": total_input_tokens,
             "estimated_output_tokens": total_output_tokens,
             "ai_calls_by_purpose": dict(by_purpose_calls),
@@ -283,6 +295,7 @@ class AiGateway:
         report_path: Optional[Path] = None,
         csv_path: Optional[Path] = None,
     ) -> Optional[Path]:
+        """Write JSON and optional CSV AI usage reports."""
         report_path = report_path or self._config.report_path
         if report_path is None:
             return None
@@ -591,7 +604,7 @@ class AiGateway:
 
 
 def _now_iso() -> str:
-    return datetime.utcnow().isoformat()
+    return utc_now_iso()
 
 
 _AI_GATEWAY = AiGateway()

@@ -9,7 +9,7 @@ For each open case with a passed deadline:
 """
 
 import uuid
-from datetime import datetime, timedelta
+from datetime import timedelta
 from typing import Any, Dict, Optional
 
 try:
@@ -20,9 +20,16 @@ except ImportError:  # pragma: no cover - optional in lightweight test environme
 import database as db
 import email_sender
 import memory
+from constants import (
+    EVENT_ESCALATED,
+    EVENT_FOLLOWUP_TRIGGERED,
+    EVENT_MEMORY_UPDATED,
+    STATUS_CLOSED,
+)
 from config import config
 from extractor import generate_email_body
 from runtime_options import runtime_options
+from time_utils import utc_now_iso, utc_now_naive
 
 # After this many unanswered follow-ups, the case is flagged for senior manual review.
 _ESCALATION_THRESHOLD = 3
@@ -53,7 +60,7 @@ def _record_memory_event(case_id: str, pattern_flags: list) -> None:
     db.insert_case_event(
         event_id=str(uuid.uuid4()),
         case_id=case_id,
-        event_type="memory_updated",
+        event_type=EVENT_MEMORY_UPDATED,
         description=description,
     )
     for flag in changed_flags:
@@ -79,7 +86,7 @@ def _build_followup_subject(case: dict, follow_count: int) -> str:
     return f"Follow-Up #{follow_count}: {case_type} — {building}"
 
 
-def check_and_process_followups() -> None:
+def check_and_process_followups() -> Dict[str, Any]:
     """Check for overdue follow-up deadlines and generate reminder emails.
 
     Called by APScheduler on every ``FOLLOWUP_CHECK_INTERVAL`` tick.
@@ -104,7 +111,7 @@ def check_and_process_followups() -> None:
             "duplicate_followups_skipped": 0,
         }
 
-    now_str = datetime.utcnow().isoformat()
+    now_str = utc_now_iso()
     print(f"[FOLLOWUP] Checking follow-up deadlines at {now_str}")
 
     overdue = db.get_overdue_followups()
@@ -131,7 +138,7 @@ def check_and_process_followups() -> None:
         case = db.get_case_by_id(case_id)
         if not case:
             continue
-        if case["status"] == "closed":
+        if case["status"] == STATUS_CLOSED:
             db.close_followup(case_id)
             continue
         if int(row["follow_count"]) >= options.max_followups:
@@ -210,7 +217,7 @@ def check_and_process_followups() -> None:
             continue
 
         new_count = db.increment_followup_count(case_id)
-        next_deadline = (datetime.utcnow() + timedelta(days=_FOLLOWUP_RESCHEDULE_DAYS)).isoformat()
+        next_deadline = (utc_now_naive() + timedelta(days=_FOLLOWUP_RESCHEDULE_DAYS)).isoformat()
         db.reschedule_followup(case_id, next_deadline)
         db.mark_followup_action_status(idempotency_key, "draft_created", outbound_msg_id=msg_id)
         processed += 1
@@ -219,7 +226,7 @@ def check_and_process_followups() -> None:
         db.insert_case_event(
             event_id=str(uuid.uuid4()),
             case_id=case_id,
-            event_type="followup_triggered",
+            event_type=EVENT_FOLLOWUP_TRIGGERED,
             description=(
                 f"Follow-up #{new_count} triggered. Previous deadline was {row['deadline']}. "
                 f"Next deadline is {next_deadline}."
@@ -237,7 +244,7 @@ def check_and_process_followups() -> None:
             db.insert_case_event(
                 event_id=str(uuid.uuid4()),
                 case_id=case_id,
-                event_type="escalated",
+                event_type=EVENT_ESCALATED,
                 description=(
                     f"Case escalated after {new_count} unanswered follow-ups. "
                     "Flagged for manual review."

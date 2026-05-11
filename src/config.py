@@ -45,6 +45,7 @@ class Config:
         DATABASE_PATH: Absolute path to the SQLite database file.
         CLAUDE_CACHE_ENABLED: Toggle the on-disk prompt/response cache.
         CLAUDE_CACHE_PATH: Absolute path to the JSON cache file.
+        OBSERVABILITY_LOG_PATH: JSONL path for local structured operational events.
         FOLLOWUP_CHECK_INTERVAL: Seconds between follow-up deadline checks.
     """
 
@@ -79,6 +80,12 @@ class Config:
     CLAUDE_CACHE_ENABLED: bool = os.getenv("CLAUDE_CACHE_ENABLED", "true").lower() == "true"
     CLAUDE_CACHE_PATH: Path = PROJECT_ROOT / os.getenv("CLAUDE_CACHE_PATH", "data/claude_cache.json")
     AI_REPORT_PATH: Path = PROJECT_ROOT / os.getenv("AI_REPORT_PATH", "data/ai_usage_report.json")
+
+    # Local observability
+    OBSERVABILITY_LOG_PATH: Path = PROJECT_ROOT / os.getenv(
+        "OBSERVABILITY_LOG_PATH",
+        "data/observability/events.jsonl",
+    )
 
     # Scheduler
     FOLLOWUP_CHECK_INTERVAL: int = int(os.getenv("FOLLOWUP_CHECK_INTERVAL", "300"))

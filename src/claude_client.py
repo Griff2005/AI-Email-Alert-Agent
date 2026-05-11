@@ -13,92 +13,9 @@ import json
 import os
 import re
 import subprocess
-from pathlib import Path
-from typing import Optional
 
-try:
-    from bs4 import BeautifulSoup
-except ImportError:  # pragma: no cover - exercised in lightweight environments
-    BeautifulSoup = None
-
+from content_safety import detect_injection, sanitize_email_content
 from config import config
-
-# ---------------------------------------------------------------------------
-# Prompt injection detection patterns
-# ---------------------------------------------------------------------------
-_INJECTION_PATTERNS = [
-    re.compile(r"ignore\s+(previous|prior|all)\s+instructions", re.IGNORECASE),
-    re.compile(r"system\s+prompt", re.IGNORECASE),
-    re.compile(r"you\s+are\s+now", re.IGNORECASE),
-    re.compile(r"new\s+persona", re.IGNORECASE),
-    re.compile(r"disregard\s+(the\s+)?(above|previous|prior)\s+instructions", re.IGNORECASE),
-    re.compile(r"act\s+as\s+(a\s+)?(different|new|another)", re.IGNORECASE),
-    re.compile(r"forget\s+(everything|your\s+instructions)", re.IGNORECASE),
-    re.compile(r"override\s+(the\s+)?(above|previous|prior|your)", re.IGNORECASE),
-]
-
-
-def detect_injection(text: str) -> bool:
-    """Return True if any known prompt-injection pattern is found in text.
-
-    Scans for eight regex patterns covering common override phrasings such as
-    "ignore previous instructions", "you are now", and "forget everything".
-    Called on both inbound email content (layer 1) and Claude's own output
-    (layer 2) to detect if injected content leaked into the response.
-
-    Args:
-        text: Raw string to scan. Not modified.
-
-    Returns:
-        True if at least one injection pattern matches; False otherwise.
-    """
-    return any(p.search(text) for p in _INJECTION_PATTERNS)
-
-
-# ---------------------------------------------------------------------------
-# Email content sanitization
-# ---------------------------------------------------------------------------
-
-def sanitize_email_content(raw: str) -> str:
-    """Strip HTML, normalise whitespace, and wrap content in safety delimiters.
-
-    Prepares untrusted email body text for safe embedding in a Claude prompt.
-    Three-step process:
-    1. Strip HTML tags via BeautifulSoup (falls back to regex on parse error).
-    2. Collapse whitespace runs and remove blank lines.
-    3. Wrap in ``--- EMAIL CONTENT START ---`` / ``--- EMAIL CONTENT END ---``
-       delimiters to make the data boundary explicit in the prompt.
-
-    Args:
-        raw: Raw email body string, which may contain HTML.
-
-    Returns:
-        Sanitised plain-text string wrapped in safety delimiters, ready to
-        embed directly in a Claude prompt after an instruction block.
-    """
-    # Strip HTML tags
-    if BeautifulSoup is not None:
-        try:
-            soup = BeautifulSoup(raw, "html.parser")
-            text = soup.get_text(separator="\n")
-        except Exception:
-            text = re.sub(r"<[^>]+>", " ", raw)
-    else:
-        text = re.sub(r"<[^>]+>", " ", raw)
-
-    # Normalize whitespace: collapse runs of spaces/tabs, strip blank lines
-    lines = []
-    for line in text.splitlines():
-        stripped = re.sub(r"[ \t]+", " ", line).strip()
-        if stripped:
-            lines.append(stripped)
-    text = "\n".join(lines)
-
-    return (
-        "--- EMAIL CONTENT START ---\n"
-        + text
-        + "\n--- EMAIL CONTENT END ---"
-    )
 
 
 # ---------------------------------------------------------------------------

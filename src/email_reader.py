@@ -11,11 +11,11 @@ import email.message
 import email.utils
 import imaplib
 import uuid
-from datetime import datetime
 from email.header import decode_header
 from typing import Any, Dict, List, Optional
 
 from config import config
+from time_utils import utc_now_iso
 
 
 def _decode_header_value(raw: Optional[Any]) -> str:
@@ -42,7 +42,7 @@ def _decode_header_value(raw: Optional[Any]) -> str:
         if isinstance(part, bytes):
             try:
                 parts.append(part.decode(charset or "utf-8", errors="replace"))
-            except (LookupError, Exception):
+            except (LookupError, UnicodeDecodeError):
                 parts.append(part.decode("utf-8", errors="replace"))
         else:
             parts.append(str(part))
@@ -144,7 +144,7 @@ def poll_inbox(mark_seen: bool = True) -> List[Dict[str, str]]:
                 try:
                     received_at = email.utils.parsedate_to_datetime(date_str).isoformat()
                 except Exception:
-                    received_at = datetime.utcnow().isoformat()
+                    received_at = utc_now_iso()
 
                 results.append({
                     "email_id": str(uuid.uuid4()),

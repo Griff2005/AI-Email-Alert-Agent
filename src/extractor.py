@@ -9,7 +9,15 @@ from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple
 
 from ai_gateway import get_ai_gateway
-from claude_client import sanitize_email_content
+from content_safety import sanitize_email_content
+from constants import (
+    CASE_TYPE_CAT1_COMPLIANCE,
+    CASE_TYPE_CAT5_COMPLIANCE,
+    CASE_TYPE_DATA_ABSENCE,
+    CASE_TYPE_GOVERNMENT_DIRECTIVE,
+    CASE_TYPE_MAINTENANCE_HOURS_SHORTFALL,
+    CASE_TYPE_MAJOR_WORK_OVERDUE,
+)
 from runtime_options import runtime_options
 
 _FIELD_NAMES = [
@@ -47,12 +55,18 @@ _LABELS = {
 }
 
 _REQUIRED_FIELDS = {
-    "CAT1_COMPLIANCE": ("building", "device"),
-    "CAT5_COMPLIANCE": ("building", "device"),
-    "DATA_ABSENCE": ("building", "contractor"),
-    "MAINTENANCE_HOURS_SHORTFALL": ("building", "contractor", "period", "hours_required", "hours_actual"),
-    "MAJOR_WORK_OVERDUE": ("building", "device", "scheduled_date"),
-    "GOVERNMENT_DIRECTIVE": ("building", "device", "due_date"),
+    CASE_TYPE_CAT1_COMPLIANCE: ("building", "device"),
+    CASE_TYPE_CAT5_COMPLIANCE: ("building", "device"),
+    CASE_TYPE_DATA_ABSENCE: ("building", "contractor"),
+    CASE_TYPE_MAINTENANCE_HOURS_SHORTFALL: (
+        "building",
+        "contractor",
+        "period",
+        "hours_required",
+        "hours_actual",
+    ),
+    CASE_TYPE_MAJOR_WORK_OVERDUE: ("building", "device", "scheduled_date"),
+    CASE_TYPE_GOVERNMENT_DIRECTIVE: ("building", "device", "due_date"),
 }
 
 _DATE_FORMATS = (
@@ -74,14 +88,16 @@ def extract_fields(subject: str, body: str, case_type: str) -> Dict[str, Any]:
     return fields
 
 
-def extract_fields_with_meta(
+def extract_fields_deterministic_only(
     subject: str,
     body: str,
     case_type: str,
-    email_id: Optional[str] = None,
-    case_id: Optional[str] = None,
-) -> Tuple[Dict[str, Any], Dict[str, Any]]:
-    """Extract fields deterministically first, using AI only when necessary."""
+) -> Tuple[Dict[str, Any], List[str]]:
+    """Extract known fields without AI and report unresolved required fields.
+
+    This is the safe shared path for code that must remain offline, such as
+    Backlog Loading Mode. It intentionally does not call ``ai_gateway``.
+    """
     fields = _empty_fields()
     fields.update(_extract_common_fields(body))
     for field_name, value in _extract_case_specific_fields(subject, body, case_type, fields).items():
@@ -93,6 +109,18 @@ def extract_fields_with_meta(
         for field_name in _REQUIRED_FIELDS.get(case_type, ())
         if not fields.get(field_name)
     ]
+    return fields, missing_required
+
+
+def extract_fields_with_meta(
+    subject: str,
+    body: str,
+    case_type: str,
+    email_id: Optional[str] = None,
+    case_id: Optional[str] = None,
+) -> Tuple[Dict[str, Any], Dict[str, Any]]:
+    """Extract fields deterministically first, using AI only when necessary."""
+    fields, missing_required = extract_fields_deterministic_only(subject, body, case_type)
     gateway = get_ai_gateway()
     if not missing_required:
         gateway.record_skip(
@@ -232,10 +260,12 @@ def generate_email_body(
 
 
 def _empty_fields() -> Dict[str, Optional[str]]:
+    """Return a field dict initialized with all known extraction keys."""
     return {field_name: None for field_name in _FIELD_NAMES}
 
 
 def _extract_common_fields(body: str) -> Dict[str, Optional[str]]:
+    """Extract fields that use simple ``Label: value`` body lines."""
     fields = _empty_fields()
     for field_name, labels in _LABELS.items():
         for label in labels:
@@ -290,9 +320,10 @@ def _extract_case_specific_fields(
     case_type: str,
     fields: Dict[str, Optional[str]],
 ) -> Dict[str, Optional[str]]:
+    """Extract fields that require case-family-specific parsing rules."""
     extracted = _empty_fields()
 
-    if case_type in {"CAT1_COMPLIANCE", "CAT5_COMPLIANCE"}:
+    if case_type in {CASE_TYPE_CAT1_COMPLIANCE, CASE_TYPE_CAT5_COMPLIANCE}:
         extracted["description"] = None
         logged = _capture_line(body, "LoggedDate") or _capture_line(body, "Date Logged")
         if logged and not fields.get("due_date"):
@@ -301,7 +332,7 @@ def _extract_case_specific_fields(
             extracted["contractor"] = _capture_line(body, "Contractor")
         return extracted
 
-    if case_type == "DATA_ABSENCE":
+    if case_type == CASE_TYPE_DATA_ABSENCE:
         clean_body = _strip_html_entities(body)
         if not fields.get("building") and " - " in subject:
             norm_subject = re.sub(r"\s+", " ", subject)
@@ -328,7 +359,7 @@ def _extract_case_specific_fields(
             extracted["description"] = "Maintenance data has never been submitted"
         return extracted
 
-    if case_type == "MAINTENANCE_HOURS_SHORTFALL":
+    if case_type == CASE_TYPE_MAINTENANCE_HOURS_SHORTFALL:
         rows = _parse_hours_rows(body)
         if rows:
             extracted["hours_required"] = f"{sum(row['required'] for row in rows):.2f}"
@@ -337,7 +368,7 @@ def _extract_case_specific_fields(
             extracted["device"] = None
         return extracted
 
-    if case_type == "MAJOR_WORK_OVERDUE":
+    if case_type == CASE_TYPE_MAJOR_WORK_OVERDUE:
         if not fields.get("building") and " - " in subject:
             extracted["building"] = subject.rsplit(" - ", 1)[-1].strip()
         if not fields.get("description"):
@@ -351,7 +382,7 @@ def _extract_case_specific_fields(
             extracted["work_item"] = extracted["description"]
         return extracted
 
-    if case_type == "GOVERNMENT_DIRECTIVE":
+    if case_type == CASE_TYPE_GOVERNMENT_DIRECTIVE:
         if not fields.get("building") and " - " in subject:
             norm_subject = re.sub(r"\s+", " ", subject)
             extracted["building"] = norm_subject.rsplit(" - ", 1)[-1].strip()
@@ -367,6 +398,7 @@ def _extract_case_specific_fields(
 
 
 def _normalize_ai_fields(payload: Dict[str, Any]) -> Dict[str, Optional[str]]:
+    """Normalize an AI JSON payload into known extractor fields only."""
     fields = _empty_fields()
     for field_name in _FIELD_NAMES:
         value = payload.get(field_name)
@@ -384,6 +416,7 @@ def _normalize_ai_fields(payload: Dict[str, Any]) -> Dict[str, Optional[str]]:
 
 
 def _build_meta(source: str, case_type: str, missing_required_fields: List[str], reason: str) -> Dict[str, Any]:
+    """Build extraction metadata used by the case manager and tests."""
     return {
         "source": source,
         "case_type": case_type,
@@ -510,6 +543,7 @@ def _template_email_body(
 
 
 def _capture_line(body: str, label: str) -> Optional[str]:
+    """Return the value for a ``Label: value`` line in an email body."""
     match = re.search(rf"^{re.escape(label)}:\s*(.+)$", body, re.MULTILINE)
     if not match:
         return None
@@ -518,6 +552,7 @@ def _capture_line(body: str, label: str) -> Optional[str]:
 
 
 def _normalize_date(value: str) -> str:
+    """Normalize known date formats to ``YYYY-MM-DD`` and otherwise return input."""
     candidate = value.strip()
     for fmt in _DATE_FORMATS:
         try:
@@ -528,6 +563,7 @@ def _normalize_date(value: str) -> str:
 
 
 def _capture_digits(value: str) -> Optional[str]:
+    """Return the first digit run in a string, if present."""
     match = re.search(r"\d+", value)
     return match.group(0) if match else None
 
@@ -543,6 +579,7 @@ def _strip_html_entities(text: str) -> str:
 
 
 def _parse_hours_rows(body: str) -> List[Dict[str, float]]:
+    """Parse pipe-separated maintenance-hours rows from demo KPI emails."""
     rows: List[Dict[str, float]] = []
     for line in body.splitlines():
         if "|" not in line or line.lower().startswith("device |"):

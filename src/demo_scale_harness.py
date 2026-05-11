@@ -16,14 +16,14 @@ import smtplib
 from collections import Counter, defaultdict
 from contextlib import ExitStack, redirect_stderr, redirect_stdout
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import timedelta
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 from unittest.mock import patch
 
 from ai_gateway import AiUsageConfig, get_ai_gateway
 import case_manager
-import claude_client
+from content_safety import sanitize_email_content
 import database as db
 import email_sender
 import followup
@@ -35,10 +35,13 @@ from demo_fixtures import (
     generate_synthetic_dataset,
 )
 from runtime_options import RuntimeOptions, runtime_options
+from time_utils import utc_compact_timestamp, utc_now_naive
 
 
 @dataclass(frozen=True)
 class ScaleTestOptions:
+    """Options for the offline demo safety harness."""
+
     emails: int = 50
     seed: int = 42
     offline: bool = True
@@ -50,6 +53,8 @@ class ScaleTestOptions:
 
 @dataclass
 class ScaleTestResult:
+    """Structured result and report paths from the offline demo harness."""
+
     overall_result: str
     dataset: Dict[str, Any]
     processing: Dict[str, Any]
@@ -67,6 +72,8 @@ class ScaleTestResult:
 
 @dataclass
 class _SafetyMonitor:
+    """Counters proving the harness did not touch real network recipients."""
+
     real_smtp_calls_attempted: int = 0
     real_imap_calls_attempted: int = 0
     actual_recipient_violations: int = 0
@@ -333,7 +340,7 @@ def _process_followups(
         failures.append("Follow-up simulation had no cases to touch.")
         return {"status": "FAIL", "enabled": True, "cases_touched": 0, "errors": ["No cases available."]}
 
-    past_deadline = (datetime.utcnow() - timedelta(days=1)).isoformat()
+    past_deadline = (utc_now_naive() - timedelta(days=1)).isoformat()
     conn = db.get_connection()
     for case_id in case_ids:
         conn.execute(
@@ -746,7 +753,7 @@ def _insert_email_fixture(fixture: Any) -> str:
         to_addr=fixture.to_addr,
         received_at=fixture.received_at,
         raw_body=fixture.body,
-        normalized_text=claude_client.sanitize_email_content(fixture.body),
+        normalized_text=sanitize_email_content(fixture.body),
     )
     return email_id
 
@@ -787,7 +794,7 @@ def _normalize(value: Optional[str]) -> str:
 
 
 def _new_run_dir(report_dir: Path) -> Path:
-    timestamp = datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
+    timestamp = utc_compact_timestamp()
     report_dir.mkdir(parents=True, exist_ok=True)
     candidate = report_dir / timestamp
     counter = 1

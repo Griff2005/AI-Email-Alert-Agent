@@ -11,39 +11,50 @@ import json
 import re
 import uuid
 from collections import Counter
-from datetime import datetime, timezone
 from email.utils import getaddresses
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Optional, Tuple
+from typing import Any, Dict, Iterable, List, Optional, Pattern, Tuple, Union
 
-from classifier import _NOISE_PATTERNS, _deterministic_classification
-from claude_client import detect_injection, sanitize_email_content
+from classifier import NOISE_PATTERNS, classify_email_deterministic_only
+from content_safety import detect_injection, sanitize_email_content
+from constants import (
+    CASE_TYPE_CAT1_COMPLIANCE,
+    CASE_TYPE_CAT5_COMPLIANCE,
+    CASE_TYPE_DATA_ABSENCE,
+    CASE_TYPE_GOVERNMENT_DIRECTIVE,
+    CASE_TYPE_MAINTENANCE_HOURS_SHORTFALL,
+    CASE_TYPE_MAJOR_WORK_OVERDUE,
+    CASE_TYPE_UNKNOWN,
+    EVENT_BACKLOG_CASE_CREATED,
+    EVENT_BACKLOG_CASE_UPDATED,
+    EVENT_BACKLOG_EMAIL_IMPORTED,
+    EVENT_BACKLOG_MEMORY_UPDATED,
+    SUPPORTED_CASE_TYPES,
+)
 from config import PROJECT_ROOT
 import database as db
 import extractor
 import memory
+from time_utils import utc_compact_timestamp, utc_display_timestamp
 
-_SUPPORTED_CASE_TYPES: frozenset[str] = frozenset({
-    "CAT1_COMPLIANCE",
-    "CAT5_COMPLIANCE",
-    "DATA_ABSENCE",
-    "MAINTENANCE_HOURS_SHORTFALL",
-    "MAJOR_WORK_OVERDUE",
-    "GOVERNMENT_DIRECTIVE",
-})
-_BACKLOG_SUBJECT_PATTERNS: tuple[tuple[str, str], ...] = (
-    ("data absence:", "DATA_ABSENCE"),
-    ("cat1", "CAT1_COMPLIANCE"),
-    ("cat5", "CAT5_COMPLIANCE"),
-    ("data absence", "DATA_ABSENCE"),
-    ("maintenance data is not up to date", "DATA_ABSENCE"),
-    ("maintenance data has never been submitted", "DATA_ABSENCE"),
-    ("maintenance hours less than required", "MAINTENANCE_HOURS_SHORTFALL"),
-    ("maintenance hours shortfall", "MAINTENANCE_HOURS_SHORTFALL"),
-    ("major scheduled work is overdue", "MAJOR_WORK_OVERDUE"),
-    ("scheduled work is overdue", "MAJOR_WORK_OVERDUE"),
-    ("outstanding government directive", "GOVERNMENT_DIRECTIVE"),
-    ("government directive", "GOVERNMENT_DIRECTIVE"),
+_SUPPORTED_CASE_TYPES: frozenset[str] = frozenset(SUPPORTED_CASE_TYPES)
+_CAT1_SUBJECT_RE = re.compile(r"\bcat\s*1\b", re.IGNORECASE)
+_CAT5_SUBJECT_RE = re.compile(r"\bcat\s*5\b", re.IGNORECASE)
+_SubjectPattern = Union[str, Pattern[str]]
+
+_BACKLOG_SUBJECT_PATTERNS: tuple[tuple[_SubjectPattern, str], ...] = (
+    ("data absence:", CASE_TYPE_DATA_ABSENCE),
+    (_CAT1_SUBJECT_RE, CASE_TYPE_CAT1_COMPLIANCE),
+    (_CAT5_SUBJECT_RE, CASE_TYPE_CAT5_COMPLIANCE),
+    ("data absence", CASE_TYPE_DATA_ABSENCE),
+    ("maintenance data is not up to date", CASE_TYPE_DATA_ABSENCE),
+    ("maintenance data has never been submitted", CASE_TYPE_DATA_ABSENCE),
+    ("maintenance hours less than required", CASE_TYPE_MAINTENANCE_HOURS_SHORTFALL),
+    ("maintenance hours shortfall", CASE_TYPE_MAINTENANCE_HOURS_SHORTFALL),
+    ("major scheduled work is overdue", CASE_TYPE_MAJOR_WORK_OVERDUE),
+    ("scheduled work is overdue", CASE_TYPE_MAJOR_WORK_OVERDUE),
+    ("outstanding government directive", CASE_TYPE_GOVERNMENT_DIRECTIVE),
+    ("government directive", CASE_TYPE_GOVERNMENT_DIRECTIVE),
 )
 _UNSUPPORTED_KPI_PATTERNS: tuple[tuple[str, str], ...] = (
     # Callback families — most specific first, catch-all last
@@ -65,6 +76,8 @@ _UNSUPPORTED_KPI_PATTERNS: tuple[tuple[str, str], ...] = (
     ("maintenance report", "MAINTENANCE_REPORT"),
     # Consultant / report families
     ("consultant report", "CONSULTANT_REPORT"),
+    ("completed government report", "GOVERNMENT_REPORT"),
+    ("government report", "GOVERNMENT_REPORT"),
     # Directive families (unsupported variants)
     ("ahj directive", "AHJ_DIRECTIVE"),
     # System / platform
@@ -82,10 +95,31 @@ _UNSUPPORTED_KPI_PATTERNS: tuple[tuple[str, str], ...] = (
     ("callback ratio too high", "CALLBACK_RATIO_HIGH"),
     ("callbacks exceed expectation", "CALLBACKS_EXCEED"),
     ("all callbacks exceed", "CALLBACKS_EXCEED"),
+    # Service restoration
+    ("returned to normal service", "RETURNED_TO_NORMAL_SERVICE"),
+    # Preventive maintenance - shutdown variant must precede the plain variant
+    ("preventive maintenance [shutdown]", "SCHEDULED_PREVENTIVE_MAINTENANCE_SHUTDOWN"),
+    ("preventive maintenance shutdown", "SCHEDULED_PREVENTIVE_MAINTENANCE_SHUTDOWN"),
+    ("scheduled preventive maintenance", "SCHEDULED_PREVENTIVE_MAINTENANCE"),
+    # Emergency entrapment events (non-SoluTrak "Emergency: Building(Device)" format)
+    ("emergency:", "ENTRAPMENT_OR_OCCUPIED"),
+    # Code Yellow elevator alerts
+    ("code yellow", "CODE_YELLOW"),
+    # SoluBoard connectivity alerts
+    ("soluboard event", "SOLUBOARD_NOT_COMMUNICATING"),
+    # Portfolio and performance reporting
+    ("portfolio summary", "PORTFOLIO_SUMMARY"),
+    ("performance target kpi", "PERFORMANCE_TARGET_KPI"),
+    # Data uploads
+    ("tssa data uploaded", "TSSA_DATA_UPLOADED"),
+    # Budgeting
+    ("budgeting reminder", "BUDGETING_REMINDER"),
+    # System / platform
+    ("exception on kpi", "SYSTEM_NOTIFICATION"),
     # Generic callback catch-all — MUST be last among callback patterns
     ("callback", "CALLBACK_STATUS"),
 )
-_NON_KPI_PATTERNS = _NOISE_PATTERNS + (
+_NON_KPI_PATTERNS = NOISE_PATTERNS + (
     "read receipt",
     "meeting accepted",
     "meeting declined",
@@ -119,6 +153,9 @@ _NON_KPI_PATTERNS = _NOISE_PATTERNS + (
     "new contact",
     # SoluTrak account noise (event alerts handled as SOLUTRAK_EVENT above)
     "solutrak: ",
+    # Security notification system emails (not elevator KPI alerts)
+    "critical security alert",
+    "security alert",
 )
 _DEVICE_PATTERN = re.compile(r"\b[A-Z]-\d+\s*#\d+\b", re.IGNORECASE)
 _WHITESPACE_RE = re.compile(r"\s+")
@@ -131,6 +168,12 @@ def load_backlog(
     limit: Optional[int] = None,
     report_dir: Optional[Path] = None,
 ) -> Dict[str, Any]:
+    """Load staged historical KPI emails into reports or SQLite.
+
+    Backlog mode is intentionally narrower than live/demo processing: JSON
+    source only, deterministic parsing only, no outbound messages, no
+    follow-ups, and no AI calls.
+    """
     if source != "json":
         raise ValueError(f"Unsupported backlog source: {source!r}. Only 'json' is supported.")
     if limit is not None and limit < 0:
@@ -275,6 +318,7 @@ def load_backlog(
 
 
 def _load_json_source(path: Path) -> List[Dict[str, Any]]:
+    """Read and validate the top-level JSON backlog source shape."""
     source_path = Path(path)
     if not source_path.exists():
         raise FileNotFoundError(f"Backlog source file not found: {source_path}")
@@ -292,6 +336,7 @@ def _load_json_source(path: Path) -> List[Dict[str, Any]]:
 
 
 def _normalize_record(raw: Dict[str, Any]) -> Dict[str, Any]:
+    """Normalize a raw JSON record into the importer's internal email shape."""
     subject = str(raw.get("subject", "")).strip()
     body = str(raw.get("body", "")).strip()
     if not subject:
@@ -316,6 +361,7 @@ def _normalize_record(raw: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def _is_obvious_non_kpi(record: Dict[str, Any]) -> Tuple[bool, str]:
+    """Return whether a record is obvious noise before KPI classification."""
     subject = str(record.get("subject", "")).strip()
     body = str(record.get("body", "")).strip()
     if not subject:
@@ -333,23 +379,24 @@ def _is_obvious_non_kpi(record: Dict[str, Any]) -> Tuple[bool, str]:
 
 
 def _classify_for_backlog(record: Dict[str, Any]) -> Dict[str, Any]:
+    """Classify a backlog record through the six-type subject gate."""
     subject_case_type = _match_subject_to_case_type(record["subject"])
     if subject_case_type is None:
         family = _match_subject_to_unsupported_kpi(record["subject"])
         if family:
             return {
                 "source": "backlog_unsupported_kpi",
-                "case_type": "UNKNOWN",
+                "case_type": CASE_TYPE_UNKNOWN,
                 "unsupported_family": family,
                 "reason": f"Recognized unsupported KPI family: {family}.",
             }
         return {
             "source": "backlog_subject_gate",
-            "case_type": "UNKNOWN",
+            "case_type": CASE_TYPE_UNKNOWN,
             "reason": "Subject did not match any supported backlog KPI pattern.",
         }
 
-    result = _deterministic_classification(record["subject"], record["body"])
+    result = classify_email_deterministic_only(record["subject"], record["body"])
     if result["source"] == "deterministic" and result["case_type"] in _SUPPORTED_CASE_TYPES:
         return result
     if result["source"] == "noise":
@@ -366,9 +413,16 @@ def _match_subject_to_case_type(subject: str) -> Optional[str]:
     """Return supported case type if subject matches a known pattern, else None."""
     lowered = subject.lower()
     for pattern, case_type in _BACKLOG_SUBJECT_PATTERNS:
-        if pattern in lowered:
+        if _subject_pattern_matches(pattern, subject, lowered):
             return case_type
     return None
+
+
+def _subject_pattern_matches(pattern: _SubjectPattern, subject: str, lowered_subject: str) -> bool:
+    """Match string or regex subject patterns without broadening short tokens."""
+    if isinstance(pattern, str):
+        return pattern in lowered_subject
+    return bool(pattern.search(subject))
 
 
 def _match_subject_to_unsupported_kpi(subject: str) -> Optional[str]:
@@ -381,12 +435,13 @@ def _match_subject_to_unsupported_kpi(subject: str) -> Optional[str]:
 
 
 def _validate_body_signature(case_type: str, body: str) -> bool:
+    """Return True when the body has minimal evidence for the matched case type."""
     lowered = body.lower()
-    if case_type in {"CAT1_COMPLIANCE", "CAT5_COMPLIANCE"}:
+    if case_type in {CASE_TYPE_CAT1_COMPLIANCE, CASE_TYPE_CAT5_COMPLIANCE}:
         return bool(_DEVICE_PATTERN.search(body)) or (
             ("test" in lowered or "reminder" in lowered) and "building" in lowered
         )
-    if case_type == "DATA_ABSENCE":
+    if case_type == CASE_TYPE_DATA_ABSENCE:
         lowered_stripped = re.sub(r"&\w+;", " ", lowered)
         return any(
             phrase in lowered_stripped
@@ -402,11 +457,11 @@ def _validate_body_signature(case_type: str, body: str) -> bool:
                 "maintenance data",
             )
         )
-    if case_type == "MAINTENANCE_HOURS_SHORTFALL":
+    if case_type == CASE_TYPE_MAINTENANCE_HOURS_SHORTFALL:
         return "hours" in lowered and any(
             phrase in lowered for phrase in ("required", "contract", "actual")
         )
-    if case_type == "MAJOR_WORK_OVERDUE":
+    if case_type == CASE_TYPE_MAJOR_WORK_OVERDUE:
         return any(
             phrase in lowered
             for phrase in (
@@ -417,12 +472,13 @@ def _validate_body_signature(case_type: str, body: str) -> bool:
                 "appear to be overdue",
             )
         )
-    if case_type == "GOVERNMENT_DIRECTIVE":
+    if case_type == CASE_TYPE_GOVERNMENT_DIRECTIVE:
         return any(phrase in lowered for phrase in ("directive", "duedate", "due date"))
     return False
 
 
 def _process_record(record: Dict[str, Any], dry_run: bool) -> Dict[str, Any]:
+    """Process one normalized backlog record and optionally commit it."""
     normalized = _normalize_record(record)
 
     is_non_kpi, reason = _is_obvious_non_kpi(normalized)
@@ -434,7 +490,7 @@ def _process_record(record: Dict[str, Any], dry_run: bool) -> Dict[str, Any]:
             normalized,
             {
                 "action": "review",
-                "case_type": "UNKNOWN",
+                "case_type": CASE_TYPE_UNKNOWN,
                 "reason": "Backlog import review: prompt-injection pattern detected in the email content.",
             },
         )
@@ -454,12 +510,12 @@ def _process_record(record: Dict[str, Any], dry_run: bool) -> Dict[str, Any]:
         )
 
     case_type = classification["case_type"]
-    if case_type == "UNKNOWN":
+    if case_type == CASE_TYPE_UNKNOWN:
         return _decorate_for_report(
             normalized,
             {
                 "action": "review",
-                "case_type": "UNKNOWN",
+                "case_type": CASE_TYPE_UNKNOWN,
                 "reason": "Backlog import review: deterministic classification could not safely match a supported KPI.",
                 "classification": classification,
             },
@@ -591,7 +647,7 @@ def _process_record(record: Dict[str, Any], dry_run: bool) -> Dict[str, Any]:
         db.insert_case_event(
             event_id=str(uuid.uuid4()),
             case_id=case_id,
-            event_type="backlog_case_created",
+            event_type=EVENT_BACKLOG_CASE_CREATED,
             description="Historical backlog case created from a supported KPI email.",
             source_email_id=email_id,
         )
@@ -612,7 +668,7 @@ def _process_record(record: Dict[str, Any], dry_run: bool) -> Dict[str, Any]:
         db.insert_case_event(
             event_id=str(uuid.uuid4()),
             case_id=case_id,
-            event_type="backlog_case_updated",
+            event_type=EVENT_BACKLOG_CASE_UPDATED,
             description="Historical backlog email matched an existing case and refreshed deterministic fields.",
             source_email_id=email_id,
         )
@@ -632,7 +688,7 @@ def _process_record(record: Dict[str, Any], dry_run: bool) -> Dict[str, Any]:
     db.insert_case_event(
         event_id=str(uuid.uuid4()),
         case_id=case_id,
-        event_type="backlog_email_imported",
+        event_type=EVENT_BACKLOG_EMAIL_IMPORTED,
         description=_email_import_description(normalized),
         source_email_id=email_id,
     )
@@ -680,7 +736,7 @@ def _process_record(record: Dict[str, Any], dry_run: bool) -> Dict[str, Any]:
     db.insert_case_event(
         event_id=str(uuid.uuid4()),
         case_id=case_id,
-        event_type="backlog_memory_updated",
+        event_type=EVENT_BACKLOG_MEMORY_UPDATED,
         description=(
             "Backlog memory updated. "
             f"Observations added: {memory_observations_created}. "
@@ -711,6 +767,7 @@ def _process_record(record: Dict[str, Any], dry_run: bool) -> Dict[str, Any]:
 
 
 def _collect_recipient_summary(records: List[Dict[str, Any]]) -> Dict[str, Any]:
+    """Summarize original sender and recipient metadata for the backlog report."""
     unique_recipients: set[str] = set()
     domain_counter: Counter[str] = Counter()
     to_counter: Counter[str] = Counter()
@@ -772,22 +829,12 @@ def _collect_recipient_summary(records: List[Dict[str, Any]]) -> Dict[str, Any]:
 
 
 def _extract_fields_deterministically(subject: str, body: str, case_type: str) -> Tuple[Dict[str, Any], List[str]]:
-    fields = extractor._empty_fields()
-    fields.update(extractor._extract_common_fields(body))
-    case_specific_fields = extractor._extract_case_specific_fields(subject, body, case_type, fields)
-    for field_name, value in case_specific_fields.items():
-        if value is not None:
-            fields[field_name] = value
-
-    missing_required = [
-        field_name
-        for field_name in extractor._REQUIRED_FIELDS.get(case_type, ())
-        if not fields.get(field_name)
-    ]
-    return fields, missing_required
+    """Extract fields through the public no-AI extractor path."""
+    return extractor.extract_fields_deterministic_only(subject, body, case_type)
 
 
 def _estimate_observation_count(case_type: str, fields: Dict[str, Any]) -> int:
+    """Estimate memory observations that a commit should create for one record."""
     count = 2  # case_seen + issue_seen
     if fields.get("building"):
         count += 1
@@ -807,6 +854,7 @@ def _estimate_observation_count(case_type: str, fields: Dict[str, Any]) -> int:
 
 
 def _write_reports(results: Dict[str, Any], report_dir: Path, dry_run: bool) -> None:
+    """Write JSON, Markdown, rejection, review, unsupported, and recipient reports."""
     del dry_run
     report_paths = _report_paths(report_dir)
 
@@ -837,6 +885,7 @@ def _write_reports(results: Dict[str, Any], report_dir: Path, dry_run: bool) -> 
 
 
 def _build_markdown_report(summary: Dict[str, Any]) -> str:
+    """Render the human-readable backlog import report."""
     mode_label = "DRY RUN" if summary["dry_run"] else "COMMIT"
     case_label = "Expected / Created" if summary["dry_run"] else "Created / Updated"
     top_rejected = summary["common_rejected_subjects"]
@@ -944,11 +993,13 @@ def _build_markdown_report(summary: Dict[str, Any]) -> str:
 
 
 def _default_report_dir() -> Path:
-    timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    """Return a timestamped default directory under ``data/backlog_runs``."""
+    timestamp = utc_compact_timestamp()
     return PROJECT_ROOT / "data" / "backlog_runs" / timestamp
 
 
 def _report_paths(report_dir: Path) -> Dict[str, str]:
+    """Return all report output paths for a backlog run directory."""
     return {
         "report_json": str(report_dir / "report.json"),
         "report_md": str(report_dir / "report.md"),
@@ -960,7 +1011,8 @@ def _report_paths(report_dir: Path) -> Dict[str, str]:
 
 
 def _generated_at_timestamp() -> str:
-    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    """Return the report generation timestamp in display format."""
+    return utc_display_timestamp()
 
 
 def _synthetic_message_id(subject: str, received_at: str, body: str) -> str:
@@ -970,6 +1022,7 @@ def _synthetic_message_id(subject: str, received_at: str, body: str) -> str:
 
 
 def _normalize_addresses(value: Any) -> List[str]:
+    """Normalize one or more address strings into lowercase email addresses."""
     if value in (None, "", []):
         return []
     if isinstance(value, str):
@@ -997,6 +1050,7 @@ def _normalize_addresses(value: Any) -> List[str]:
 
 
 def _optional_text(value: Any) -> Optional[str]:
+    """Return stripped text for optional JSON fields, or None when empty."""
     if value is None:
         return None
     text = str(value).strip()
@@ -1004,17 +1058,20 @@ def _optional_text(value: Any) -> Optional[str]:
 
 
 def _domain_for(address: str) -> Optional[str]:
+    """Return the domain portion of an email address, if present."""
     if "@" not in address:
         return None
     return address.rsplit("@", 1)[1].lower()
 
 
 def _body_preview(body: str, limit: int = 200) -> str:
+    """Collapse body whitespace and return a short report preview."""
     collapsed = _WHITESPACE_RE.sub(" ", body).strip()
     return collapsed[:limit]
 
 
 def _result_stub(raw: Dict[str, Any], action: str, reason: str) -> Dict[str, Any]:
+    """Build a report item for records that failed before normalization."""
     subject = str(raw.get("subject", "")).strip()
     body = str(raw.get("body", "")).strip()
     return {
@@ -1032,6 +1089,7 @@ def _result_stub(raw: Dict[str, Any], action: str, reason: str) -> Dict[str, Any
 
 
 def _decorate_for_report(record: Dict[str, Any], details: Dict[str, Any]) -> Dict[str, Any]:
+    """Merge normalized record metadata with outcome-specific report fields."""
     return {
         "message_id": record.get("message_id"),
         "subject": record.get("subject"),
@@ -1047,6 +1105,7 @@ def _decorate_for_report(record: Dict[str, Any], details: Dict[str, Any]) -> Dic
 
 
 def _email_import_description(record: Dict[str, Any]) -> str:
+    """Build an audit-event description preserving original recipient metadata."""
     to_addrs = ", ".join(record.get("to_addrs", [])) or "(none)"
     cc_addrs = ", ".join(record.get("cc_addrs", [])) or "(none)"
     reply_to = record.get("reply_to") or "(none)"
@@ -1060,6 +1119,7 @@ def _email_import_description(record: Dict[str, Any]) -> str:
 
 
 def _count_rows(table_name: str) -> int:
+    """Return a row count for trusted table names used by backlog reporting."""
     conn = db.get_connection()
     row = conn.execute(f"SELECT COUNT(*) AS count FROM {table_name}").fetchone()
     return int(row["count"]) if row else 0
@@ -1116,7 +1176,7 @@ def _review_report_items(items: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
             "from_addr": item.get("from_addr"),
             "received_at": item.get("received_at"),
             "review_reason": item.get("reason"),
-            "classified_as": item.get("case_type") or "UNKNOWN",
+            "classified_as": item.get("case_type") or CASE_TYPE_UNKNOWN,
             "body_preview": item.get("body_preview", ""),
         }
         for item in items
@@ -1154,7 +1214,7 @@ def _top_rejected_subjects(items: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
 def _count_by_family(items: List[Dict[str, Any]]) -> Dict[str, int]:
     counter: Counter[str] = Counter()
     for item in items:
-        family = item.get("unsupported_family") or "UNKNOWN"
+        family = item.get("unsupported_family") or CASE_TYPE_UNKNOWN
         counter[family] += 1
     return dict(counter.most_common())
 
@@ -1171,7 +1231,7 @@ def _top_unknown_subject_patterns(review_items: List[Dict[str, Any]], n: int = 2
     """Return top N subject prefixes from records with UNKNOWN classification."""
     unknown_items = [
         item for item in review_items
-        if item.get("case_type", "UNKNOWN") == "UNKNOWN"
+        if item.get("case_type", CASE_TYPE_UNKNOWN) == CASE_TYPE_UNKNOWN
     ]
     counter: Counter = Counter()
     for item in unknown_items:
@@ -1185,7 +1245,7 @@ def _top_supported_extraction_failures(review_items: List[Dict[str, Any]], n: in
     """Return top N extraction failure reasons from review items that matched a supported KPI."""
     supported_fails = [
         item for item in review_items
-        if item.get("case_type", "UNKNOWN") != "UNKNOWN"
+        if item.get("case_type", CASE_TYPE_UNKNOWN) != CASE_TYPE_UNKNOWN
     ]
     counter: Counter = Counter()
     for item in supported_fails:
