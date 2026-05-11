@@ -14,6 +14,7 @@ from constants import (
     EVENT_BACKLOG_EMAIL_IMPORTED,
     EVENT_CASE_CREATED,
     EVENT_EMAIL_RECEIVED,
+    SUPPORTED_CASE_TYPES,
 )
 from time_utils import utc_now_iso
 
@@ -286,6 +287,31 @@ def init_schema() -> None:
                 resolved_at   TEXT,
                 FOREIGN KEY (case_id) REFERENCES cases(case_id)
             );
+
+            CREATE TABLE IF NOT EXISTS connection_hypotheses (
+                hypothesis_id           TEXT PRIMARY KEY,
+                hypothesis_type         TEXT NOT NULL,
+                summary                 TEXT NOT NULL,
+                confidence              TEXT NOT NULL,
+                risk_level              TEXT NOT NULL,
+                evidence_json           TEXT,
+                reasoning               TEXT,
+                recommended_human_review TEXT,
+                status                  TEXT DEFAULT 'proposed',
+                source                  TEXT DEFAULT 'ai_connection_discovery',
+                created_at              TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS connection_hypothesis_cases (
+                hypothesis_id TEXT NOT NULL,
+                case_id       TEXT NOT NULL,
+                PRIMARY KEY (hypothesis_id, case_id),
+                FOREIGN KEY (hypothesis_id) REFERENCES connection_hypotheses(hypothesis_id),
+                FOREIGN KEY (case_id) REFERENCES cases(case_id)
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_connection_hypotheses_status ON connection_hypotheses(status);
+            CREATE INDEX IF NOT EXISTS idx_connection_hypothesis_cases_case_id ON connection_hypothesis_cases(case_id);
 
             CREATE INDEX IF NOT EXISTS idx_cases_grouping_key ON cases(grouping_key);
             CREATE INDEX IF NOT EXISTS idx_cases_status ON cases(status);
@@ -1667,6 +1693,144 @@ def get_events_for_email(email_id: str) -> list:
         (email_id,),
     ).fetchall()
     return [dict(row) for row in rows]
+
+
+# ---------------------------------------------------------------------------
+# connection_hypotheses / connection_hypothesis_cases tables
+# ---------------------------------------------------------------------------
+
+def insert_connection_hypothesis(
+    hypothesis_id: str,
+    hypothesis_type: str,
+    summary: str,
+    confidence: str,
+    risk_level: str,
+    evidence_json: Optional[str],
+    reasoning: str,
+    recommended_human_review: str,
+    status: str = "proposed",
+) -> None:
+    """Insert a proposed AI-generated connection hypothesis.
+
+    Args:
+        hypothesis_id: Application UUID.
+        hypothesis_type: Short machine-readable label for the hypothesis type.
+        summary: One-sentence human-readable summary.
+        confidence: One of ``'low'``, ``'medium'``, ``'high'``.
+        risk_level: One of ``'info'``, ``'review'``, ``'management_review'``.
+        evidence_json: JSON-encoded evidence dict, or None.
+        reasoning: AI-generated reasoning for the hypothesis.
+        recommended_human_review: What a human reviewer should check.
+        status: Defaults to ``'proposed'``.
+    """
+    now = utc_now_iso()
+    _execute_write(
+        """
+        INSERT INTO connection_hypotheses
+            (hypothesis_id, hypothesis_type, summary, confidence, risk_level,
+             evidence_json, reasoning, recommended_human_review, status, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            hypothesis_id,
+            hypothesis_type,
+            summary,
+            confidence,
+            risk_level,
+            evidence_json,
+            reasoning,
+            recommended_human_review,
+            status,
+            now,
+        ),
+    )
+
+
+def insert_connection_hypothesis_case(hypothesis_id: str, case_id: str) -> None:
+    """Link a case to a connection hypothesis (INSERT OR IGNORE for idempotency)."""
+    _execute_write(
+        """
+        INSERT OR IGNORE INTO connection_hypothesis_cases (hypothesis_id, case_id)
+        VALUES (?, ?)
+        """,
+        (hypothesis_id, case_id),
+    )
+
+
+def get_connection_hypotheses(
+    status_filter: Optional[str] = None,
+    limit: Optional[int] = None,
+) -> List[sqlite3.Row]:
+    """Return connection hypotheses ordered by created_at descending.
+
+    Args:
+        status_filter: Optional status value to filter by (e.g. ``'proposed'``).
+        limit: Optional maximum number of rows to return.
+
+    Returns:
+        List of ``sqlite3.Row`` objects.
+    """
+    conn = get_connection()
+    sql = "SELECT * FROM connection_hypotheses"
+    params: list = []
+    if status_filter:
+        sql += " WHERE status = ?"
+        params.append(status_filter)
+    sql += " ORDER BY created_at DESC"
+    if limit is not None:
+        sql += " LIMIT ?"
+        params.append(limit)
+    return conn.execute(sql, params).fetchall()
+
+
+def get_cases_for_hypothesis(hypothesis_id: str) -> List[str]:
+    """Return the case_ids linked to a hypothesis."""
+    conn = get_connection()
+    rows = conn.execute(
+        "SELECT case_id FROM connection_hypothesis_cases WHERE hypothesis_id = ?",
+        (hypothesis_id,),
+    ).fetchall()
+    return [row["case_id"] for row in rows]
+
+
+def get_supported_cases_for_discovery(
+    building: Optional[str] = None,
+    case_type: Optional[str] = None,
+    limit: Optional[int] = None,
+) -> List[sqlite3.Row]:
+    """Return cases of supported types only for connection discovery.
+
+    Filters strictly to supported KPI case types. Never returns UNKNOWN or
+    any other unsupported type.
+
+    Args:
+        building: Optional building name substring filter.
+        case_type: Optional exact case type (must be a supported type or ignored).
+        limit: Optional maximum rows to return.
+
+    Returns:
+        List of ``sqlite3.Row`` objects ordered by ``created_at`` descending.
+    """
+    supported_placeholders = ", ".join("?" for _ in SUPPORTED_CASE_TYPES)
+    sql = f"SELECT * FROM cases WHERE case_type IN ({supported_placeholders})"
+    params: list = list(SUPPORTED_CASE_TYPES)
+
+    if building:
+        sql += " AND building LIKE ?"
+        params.append(f"%{building}%")
+
+    if case_type and case_type in SUPPORTED_CASE_TYPES:
+        sql += " AND case_type = ?"
+        params.append(case_type)
+
+    sql += " ORDER BY created_at DESC"
+
+    if limit is not None:
+        sql += " LIMIT ?"
+        params.append(limit)
+
+    conn = get_connection()
+    return conn.execute(sql, params).fetchall()
 
 
 def resolve_missing_pattern_flags(case_id: str, active_pattern_types: List[str]) -> int:

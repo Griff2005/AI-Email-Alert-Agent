@@ -466,6 +466,26 @@ def observability_json():
     return jsonify(build_metrics_snapshot())
 
 
+@app.route("/connection-hypotheses.json")
+def connection_hypotheses_json():
+    """Return proposed connection hypotheses as read-only JSON.
+
+    Never triggers AI, sends email, mutates cases, or schedules work.
+    """
+    status_filter = request.args.get("status", "proposed")
+    rows = db.get_connection_hypotheses(status_filter=status_filter or None)
+    hypotheses = []
+    for row in rows:
+        hyp = dict(row)
+        hyp["case_ids"] = db.get_cases_for_hypothesis(hyp["hypothesis_id"])
+        hypotheses.append(hyp)
+    return jsonify({
+        "hypotheses": hypotheses,
+        "count": len(hypotheses),
+        "status_filter": status_filter,
+    })
+
+
 @app.route("/patterns")
 def patterns():
     """Render active memory/pattern flags across all cases."""

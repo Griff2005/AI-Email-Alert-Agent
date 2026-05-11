@@ -620,6 +620,59 @@ def cmd_load_backlog(args):
     return result
 
 
+def cmd_discover_connections(args) -> None:
+    """Discover possible hidden connections across supported KPI cases using AI.
+
+    Requires an explicit AI budget via --max-ai-calls. Never modifies cases,
+    sends emails, schedules follow-ups, escalates, or closes cases. All
+    hypotheses are stored as 'proposed' for human review only.
+
+    Args:
+        args: Parsed argparse namespace. Must include ``max_ai_calls``.
+    """
+    max_ai_calls = getattr(args, "max_ai_calls", 0)
+    if not max_ai_calls:
+        print("[AGENT] ERROR: --max-ai-calls is required and must be > 0 for discover-connections.")
+        sys.exit(1)
+
+    import connection_discovery
+
+    db.init_schema()
+    config.validate()
+
+    gateway = get_ai_gateway()
+    gateway.reset()
+    gateway.configure(
+        AiUsageConfig(
+            enabled=True,
+            max_calls=max_ai_calls,
+            budget_mode="fail",
+            model_name=config.CLAUDE_MODEL,
+            config_version="agent-discover-connections",
+        )
+    )
+    gateway.set_run_metadata(command="discover-connections")
+
+    result = connection_discovery.run_discovery(
+        max_ai_calls=max_ai_calls,
+        limit=getattr(args, "limit", None),
+        building=getattr(args, "building", None),
+        case_type_filter=getattr(args, "case_type", None),
+        dry_run=bool(getattr(args, "dry_run", False)),
+    )
+
+    report_path = _default_ai_report_path("discover-connections")
+    _finalize_ai_report(report_path)
+    _append_command_event(
+        "discover_connections_completed",
+        command="discover-connections",
+        dry_run=bool(getattr(args, "dry_run", False)),
+        cases_analyzed=result.get("cases_analyzed"),
+        hypotheses_proposed=result.get("hypotheses_proposed"),
+        hypotheses_rejected=result.get("hypotheses_rejected"),
+    )
+
+
 def cmd_observability_report(args: argparse.Namespace) -> None:
     """Print and optionally write a local observability snapshot.
 
@@ -715,6 +768,7 @@ Commands:
   memory-report  Print detailed memory context for a case
   observability-report  Print local metrics and safety snapshot
   test-demo-scale  Run the safe offline demo validation harness
+  discover-connections  Discover possible connections across supported cases (requires --max-ai-calls)
 
 Examples:
   python src/agent.py ingest
@@ -727,6 +781,8 @@ Examples:
   python src/agent.py memory-report --case-id <CASE_ID>
   python src/agent.py observability-report --output data/observability/latest.json
   python src/agent.py test-demo-scale --offline --emails 25 --seed 42
+  python src/agent.py discover-connections --max-ai-calls 5
+  python src/agent.py discover-connections --max-ai-calls 5 --dry-run
         """,
     )
     subparsers = parser.add_subparsers(dest="command")
@@ -796,6 +852,45 @@ Examples:
         help="Optional JSON file path for the metrics snapshot",
     )
 
+    discover_parser = subparsers.add_parser(
+        "discover-connections",
+        help="Discover possible connections across supported cases (AI required)",
+    )
+    discover_parser.add_argument(
+        "--max-ai-calls",
+        type=int,
+        default=0,
+        metavar="N",
+        help="Maximum AI calls allowed for this run (required, must be > 0)",
+    )
+    discover_parser.add_argument(
+        "--limit",
+        type=int,
+        default=None,
+        metavar="N",
+        help="Maximum number of cases to include in the analysis",
+    )
+    discover_parser.add_argument(
+        "--building",
+        type=str,
+        default=None,
+        metavar="BUILDING",
+        help="Filter cases by building name (substring match)",
+    )
+    discover_parser.add_argument(
+        "--case-type",
+        type=str,
+        default=None,
+        metavar="TYPE",
+        help="Filter cases by supported case type",
+    )
+    discover_parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        default=False,
+        help="Print hypotheses without writing to the database",
+    )
+
     args = parser.parse_args()
 
     if args.command == "ingest":
@@ -818,6 +913,8 @@ Examples:
         cmd_load_backlog(args)
     elif args.command == "observability-report":
         cmd_observability_report(args)
+    elif args.command == "discover-connections":
+        cmd_discover_connections(args)
     else:
         parser.print_help()
         sys.exit(1)

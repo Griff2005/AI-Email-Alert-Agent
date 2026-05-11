@@ -15,6 +15,7 @@ src/
   content_safety.py     sanitization and prompt-injection helpers
   database.py           SQLite schema and query helpers
   backlog_loader.py     standalone backlog import workflow
+  connection_discovery.py  AI-assisted connection hypothesis discovery (read-only; never mutates cases)
   pst_to_backlog_json.py one-off PST-to-JSON helper for staged backlog files
   classifier.py         supported KPI family classification
   extractor.py          field extraction, grouping keys, outbound templates
@@ -41,6 +42,7 @@ tests/
   test_backlog_loader.py
   test_case_manager_cleanup.py
   test_classifier_extractor_cleanup.py
+  test_connection_discovery.py
   test_content_safety.py
   test_database_reporting.py
   test_demo_scale.py
@@ -91,6 +93,7 @@ The backlog import flow is separate from the main pipeline:
 - `constants.py`: shared strings for the six demo case types, common statuses, event labels, and safety-critical review reasons.
 - `time_utils.py`: centralized UTC timestamp helpers. Database-facing helpers preserve the existing naive ISO text format.
 - `observability.py`: local in-repo observability foundation. Builds JSON metrics snapshots for ingest volume, case/review/event counts, outbound/follow-up status, latency, current-process AI usage, and demo safety checks. Writes structured JSONL operational events without external telemetry dependencies.
+- `connection_discovery.py`: optional AI-assisted connection hypothesis discovery. Main entry point: `run_discovery(max_ai_calls, limit, building, case_type_filter, dry_run)`. Reads supported cases only — never includes UNKNOWN or unsupported types. Validates each AI-produced hypothesis before storage (confidence enum, risk_level enum, non-empty case IDs in the supported set, no prohibited action language). Stores accepted hypotheses as `proposed` items only. Never modifies cases, sends emails, schedules follow-ups, escalates, or closes cases. The caller must pre-configure the AI gateway before calling `run_discovery`. Dry-run mode prints hypotheses without writing to the database. Writes a JSONL observability event with `unsupported_kpi_included=0`.
 - `backlog_loader.py`: standalone backlog import workflow for staged historical KPI emails. Main entry point: `load_backlog(source, path, dry_run, limit, report_dir)`. Validates records through a subject-pattern gate (hardcoded six-type allowlist) before body classification, so classifier expansion cannot silently widen import scope. Dry-run mode previews without touching the database. Imported emails are immediately marked processed. Report output: `data/backlog_runs/<timestamp>/`. Dependencies: `database.py`, deterministic paths in `classifier.py` and `extractor.py`, and `memory.py`.
 - `pst_to_backlog_json.py`: optional one-off PST-to-JSON utility. It imports `libpff-python` lazily so tests and core runtime imports do not fail when PST tooling is absent.
 - `extractor.py`: deterministic field parsing, date normalization, grouping key generation, and outbound templates.
@@ -102,7 +105,7 @@ The backlog import flow is separate from the main pipeline:
 - `claude_client.py`: low-level Claude CLI transport used by `ai_gateway.py`.
 - `email_sender.py`: preserves `intended_to` vs `actual_to` and demo recipient override. Normal new-case processing creates drafts only; `send_draft()` and `create_and_send()` are explicit send helpers.
 - `followup.py`: idempotent follow-up generation and escalation review creation.
-- `web/app.py`: Flask case list, case detail, review queue, event feed, and Memory / Intelligence views. The UI renders deterministic pattern signals, related cases, entity connections, observations, and evidence from stored memory records.
+- `web/app.py`: Flask case list, case detail, review queue, event feed, and Memory / Intelligence views. The UI renders deterministic pattern signals, related cases, entity connections, observations, and evidence from stored memory records. Exposes a read-only `/connection-hypotheses.json` endpoint that returns proposed connection hypotheses without triggering AI, mutating cases, or sending email.
 
 ## Safety-Critical Behavior
 
@@ -141,6 +144,11 @@ Memory tables:
 - `observations`
 - `case_links`
 - `pattern_flags`
+
+Connection discovery tables:
+
+- `connection_hypotheses`
+- `connection_hypothesis_cases`
 
 `cases.grouping_key` is unique and is the deduplication gate.
 
@@ -214,6 +222,31 @@ The backlog importer is intentionally restricted:
 - Review candidates appear in `review_candidates.json` only — they are not written to the live review queue.
 - Reports written to `data/backlog_runs/<timestamp>/`: `report.json`, `report.md`, `rejected.json`, `review_candidates.json`, `recipient_summary.json`.
 - PST conversion, when needed, is handled by the optional `src/pst_to_backlog_json.py` utility before invoking backlog mode. The backlog loader remains JSON-only.
+
+## Connection Discovery
+
+Run a dry-run preview (no database writes):
+
+```bash
+python src/agent.py discover-connections --max-ai-calls 5 --dry-run
+```
+
+Store proposed hypotheses:
+
+```bash
+python src/agent.py discover-connections --max-ai-calls 5
+```
+
+The discovery command is intentionally restricted:
+
+- Requires an explicit `--max-ai-calls N` budget (fails loudly if missing or zero).
+- Analyzes only the six supported KPI case types — UNKNOWN and unsupported types are excluded at every layer.
+- Never modifies cases, sends emails, schedules follow-ups, escalates, or closes cases.
+- Validates all AI-produced hypotheses before storage (confidence enum, risk_level enum, non-empty supported case IDs, no prohibited action language).
+- Stores accepted hypotheses as `status='proposed'` in `connection_hypotheses` + `connection_hypothesis_cases`.
+- Dry-run prints hypotheses without touching the database.
+- Writes a JSONL observability event with `unsupported_kpi_included=0`.
+- Proposed hypotheses are readable at `/connection-hypotheses.json` (read-only Flask endpoint).
 
 ## Known Limitations
 

@@ -152,6 +152,43 @@ Optional arguments: `--limit <N>` limits records processed. `--report-dir <PATH>
 
 The backlog loader itself accepts JSON only. The optional one-off `src/pst_to_backlog_json.py` helper can convert PST data to that JSON shape when `libpff-python` is installed, but PST import is not part of the runtime backlog loader.
 
+## Connection Discovery
+
+Discover possible hidden connections across supported KPI cases using AI. All hypotheses are stored as `proposed` items for human review. The command never modifies cases, sends emails, schedules follow-ups, escalates, or closes cases.
+
+```bash
+# Dry run (preview hypotheses without writing to database):
+python src/agent.py discover-connections --max-ai-calls 5 --dry-run
+
+# Commit (store proposed hypotheses):
+python src/agent.py discover-connections --max-ai-calls 5
+
+# Filter by building or case type:
+python src/agent.py discover-connections --max-ai-calls 5 --building "123 Main St" --case-type CAT1_COMPLIANCE
+
+# Limit cases analyzed:
+python src/agent.py discover-connections --max-ai-calls 5 --limit 50
+```
+
+`--max-ai-calls` is required and must be > 0. The command refuses to run without it.
+
+Hypotheses are validated before storage:
+- `confidence` must be `low`, `medium`, or `high`
+- `risk_level` must be `info`, `review`, or `management_review`
+- `evidence.case_ids` must be non-empty and reference only supported, existing cases
+- `reasoning` and `recommended_human_review` must be present
+- Prohibited action language (`send`, `escalate`, `close`) is rejected
+
+Proposed hypotheses are accessible at:
+
+```text
+http://localhost:5000/connection-hypotheses.json
+```
+
+This endpoint is read-only and never triggers AI, sends email, or mutates cases.
+
+Unsupported KPI emails, rejected records, and backlog families are never included in the AI prompt or hypothesis evidence.
+
 ## Reply Handling
 
 Process a pasted reply for a case:
