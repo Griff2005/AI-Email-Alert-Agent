@@ -328,6 +328,428 @@ class TestFiltering(BacklogLoaderTestCase):
         self.assertEqual(0, self._count_rows("emails"))
 
 
+class TestTriageBuckets(BacklogLoaderTestCase):
+    def test_callback_alert_is_recognized_unsupported_kpi(self):
+        record = {
+            "message_id": "cb-001@test.example",
+            "subject": "Callback Alert - 123 Test Street, Toronto",
+            "from_addr": "alerts@test.example",
+            "to_addrs": ["ops@test.example"],
+            "cc_addrs": [],
+            "bcc_addrs": [],
+            "reply_to": "",
+            "received_at": "2026-01-10T09:00:00",
+            "body": "Client: Test Client\nBuilding: 123 Test Street\nCallback alert: device requires service.",
+        }
+
+        result = self._run_loader([record], dry_run=True)
+
+        self.assertEqual(1, result["recognized_unsupported_kpi"])
+        self.assertEqual(0, result["review_candidates"])
+        self.assertEqual(0, result["accepted_kpi"])
+
+    def test_back_in_service_is_recognized_unsupported_kpi(self):
+        record = {
+            "message_id": "bis-001@test.example",
+            "subject": "Back in Service - 456 Demo Avenue, Toronto",
+            "from_addr": "alerts@test.example",
+            "to_addrs": ["ops@test.example"],
+            "cc_addrs": [],
+            "bcc_addrs": [],
+            "reply_to": "",
+            "received_at": "2026-01-11T09:00:00",
+            "body": "Client: Test Client\nBuilding: 456 Demo Avenue\nDevice is back in service.",
+        }
+
+        result = self._run_loader([record], dry_run=True)
+
+        self.assertEqual(1, result["recognized_unsupported_kpi"])
+        self.assertEqual(0, result["review_candidates"])
+
+    def test_data_absence_evolve_format_accepted(self):
+        record = {
+            "message_id": "da-evolve-001@test.example",
+            "subject": "Data Absence: Maintenance Data is not up to date - 55 Bloor Street, Toronto",
+            "from_addr": "kpi-alerts@test.example",
+            "to_addrs": ["ops@test.example"],
+            "cc_addrs": [],
+            "bcc_addrs": [],
+            "reply_to": "",
+            "received_at": "2026-01-12T09:00:00",
+            "body": (
+                "Client: Test Client\n"
+                "Contractor: Test Maintenance Co\n"
+                "Last Activity Date:&nbsp;06-Jun-2019\n"
+                "Elapsed Days:&nbsp;179\n"
+                "Data Status: Maintenance data is not up to date."
+            ),
+        }
+
+        result = self._run_loader([record], dry_run=True)
+
+        self.assertEqual(1, result["accepted_kpi"])
+        self.assertEqual(0, result["review_candidates"])
+        self.assertEqual(1, result["new_cases_expected_or_created"])
+
+    def test_major_work_overdue_evolve_format_accepted(self):
+        record = {
+            "message_id": "mwo-evolve-001@test.example",
+            "subject": "Major Scheduled Work is Overdue - 99 Demo Road, Toronto",
+            "from_addr": "projects@test.example",
+            "to_addrs": ["facilities@test.example"],
+            "cc_addrs": [],
+            "bcc_addrs": [],
+            "reply_to": "",
+            "received_at": "2026-01-15T10:00:00",
+            "body": (
+                "The scheduled major maintenance at the above noted site appear to be overdue.\n"
+                "Device\n"
+                "ScheduledDate\n"
+                "Description\n"
+                "1 #36578\n"
+                "Scheduled Maintenance\n"
+                "04-Aug-2019\n"
+                "Replace governor rope set."
+            ),
+        }
+
+        result = self._run_loader([record], dry_run=True)
+
+        self.assertEqual(1, result["accepted_kpi"])
+        self.assertEqual(0, result["review_candidates"])
+
+    def test_automatic_reply_is_safe_rejected(self):
+        record = {
+            "message_id": "oof-002@test.example",
+            "subject": "Automatic Reply: Re: CAT1 Tests Reminder",
+            "from_addr": "person@test.example",
+            "to_addrs": ["kpi@test.example"],
+            "cc_addrs": [],
+            "bcc_addrs": [],
+            "reply_to": "",
+            "received_at": "2026-01-16T09:00:00",
+            "body": "I am out of the office.",
+        }
+
+        result = self._run_loader([record], dry_run=True)
+
+        self.assertEqual(1, result["rejected"])
+        self.assertEqual(0, result["review_candidates"])
+
+    def test_ai_calls_zero_after_triage_changes(self):
+        records = [
+            {
+                "message_id": "cb-002@test.example",
+                "subject": "Callback Alert - Building A",
+                "from_addr": "a@test.example",
+                "to_addrs": ["b@test.example"],
+                "cc_addrs": [],
+                "bcc_addrs": [],
+                "reply_to": "",
+                "received_at": "2026-01-17T09:00:00",
+                "body": "callback alert details here",
+            },
+            {
+                "message_id": "bis-002@test.example",
+                "subject": "Back in Service Notification",
+                "from_addr": "a@test.example",
+                "to_addrs": ["b@test.example"],
+                "cc_addrs": [],
+                "bcc_addrs": [],
+                "reply_to": "",
+                "received_at": "2026-01-18T09:00:00",
+                "body": "device back in service confirmed",
+            },
+        ]
+
+        result = self._run_loader(records, dry_run=True)
+
+        self.assertEqual(0, result["ai_calls"])
+        self.assertEqual(0, result["outbound_emails"])
+        self.assertEqual(0, result["followups_scheduled"])
+        self.assertEqual(2, result["recognized_unsupported_kpi"])
+
+    def test_unsupported_kpis_json_written(self):
+        record = {
+            "message_id": "cb-003@test.example",
+            "subject": "Callback Alert",
+            "from_addr": "a@test.example",
+            "to_addrs": ["b@test.example"],
+            "cc_addrs": [],
+            "bcc_addrs": [],
+            "reply_to": "",
+            "received_at": "2026-01-19T09:00:00",
+            "body": "Callback alert details.",
+        }
+
+        self._run_loader([record], dry_run=True)
+
+        self.assertTrue(self._report_path("unsupported_kpis.json").exists())
+
+    def test_report_json_has_recognized_unsupported_kpi_count(self):
+        record = {
+            "message_id": "cb-004@test.example",
+            "subject": "Callback Alert",
+            "from_addr": "a@test.example",
+            "to_addrs": ["b@test.example"],
+            "cc_addrs": [],
+            "bcc_addrs": [],
+            "reply_to": "",
+            "received_at": "2026-01-20T09:00:00",
+            "body": "Callback alert details.",
+        }
+
+        self._run_loader([record], dry_run=True)
+
+        report = self._read_json(self._report_path("report.json"))
+        self.assertIn("recognized_unsupported_kpi", report)
+        self.assertEqual(1, report["recognized_unsupported_kpi"])
+
+
+class TestReduceReview(BacklogLoaderTestCase):
+
+    def _make_record(self, subject: str, body: str, msg_id: str) -> dict:
+        return {
+            "message_id": msg_id,
+            "subject": subject,
+            "from_addr": "no-reply@solucore.com",
+            "to_addrs": ["recipient@example.com"],
+            "cc_addrs": [],
+            "bcc_addrs": [],
+            "reply_to": "",
+            "received_at": "2026-01-10T09:00:00",
+            "body": body,
+        }
+
+    def test_open_callback_reminder_recognized_unsupported(self):
+        record = self._make_record(
+            "Open Callback(s) Reminder - York Mills Centre(36 York Mills), Toronto",
+            "This is a reminder that the following callbacks are open for more than 24 hours.",
+            "ocr-001@test.example",
+        )
+        result = self._run_loader([record], dry_run=True)
+        self.assertEqual(1, result["recognized_unsupported_kpi"])
+        self.assertEqual(0, result["review_candidates"])
+
+    def test_open_callback_reminder_slash_bilingual_recognized_unsupported(self):
+        record = self._make_record(
+            "Open Callback Reminder / Appel de service ouvert - Colliers International",
+            "This is a reminder about an open callback.",
+            "ocr-002@test.example",
+        )
+        result = self._run_loader([record], dry_run=True)
+        self.assertEqual(1, result["recognized_unsupported_kpi"])
+
+    def test_plain_callback_recognized_unsupported(self):
+        record = self._make_record(
+            "Callback N22 #33995 (North_Low_Rise) - 483 Bay St, Toronto",
+            "Please be advised of the following: Elevator Bank: North_Low_Rise Device: N22 #33995.",
+            "cb-plain-001@test.example",
+        )
+        result = self._run_loader([record], dry_run=True)
+        self.assertEqual(1, result["recognized_unsupported_kpi"])
+        self.assertEqual(0, result["review_candidates"])
+
+    def test_possible_shutdown_recognized_unsupported(self):
+        record = self._make_record(
+            "Possible Shutdown Alert - JLL - 11 King St W, Toronto (2 #14165)",
+            "This device may be shut down. Please investigate.",
+            "psd-001@test.example",
+        )
+        result = self._run_loader([record], dry_run=True)
+        self.assertEqual(1, result["recognized_unsupported_kpi"])
+
+    def test_apps_exception_recognized_unsupported(self):
+        record = self._make_record(
+            "APPS EXCEPTION - OtisServiceCaller",
+            "An application exception occurred in OtisServiceCaller. Please review logs.",
+            "appsex-001@test.example",
+        )
+        result = self._run_loader([record], dry_run=True)
+        self.assertEqual(1, result["recognized_unsupported_kpi"])
+
+    def test_activities_uploaded_recognized_unsupported(self):
+        record = self._make_record(
+            "Activities Uploaded (#U834C128)",
+            "Service activities have been uploaded to the system.",
+            "act-001@test.example",
+        )
+        result = self._run_loader([record], dry_run=True)
+        self.assertEqual(1, result["recognized_unsupported_kpi"])
+
+    def test_no_car_running_recognized_unsupported(self):
+        record = self._make_record(
+            "*** EMERGENCY - NO CAR RUNNING IN THE BANK *** Callback / *** URGENCE ***",
+            "Emergency: no car running in the bank. Immediate attention required.",
+            "ncr-001@test.example",
+        )
+        result = self._run_loader([record], dry_run=True)
+        self.assertEqual(1, result["recognized_unsupported_kpi"])
+
+    def test_evolve_account_setup_safe_rejected(self):
+        record = self._make_record(
+            "Your e-volve account has been set up",
+            "Welcome to e-volve. Your account has been created.",
+            "acct-001@test.example",
+        )
+        result = self._run_loader([record], dry_run=True)
+        self.assertEqual(1, result["rejected"])
+        self.assertEqual(0, result["review_candidates"])
+
+    def test_evolve_login_safe_rejected(self):
+        record = self._make_record(
+            "Your eVolve Login",
+            "Here are your login credentials for eVolve.",
+            "login-001@test.example",
+        )
+        result = self._run_loader([record], dry_run=True)
+        self.assertEqual(1, result["rejected"])
+
+    def test_new_contact_safe_rejected(self):
+        record = self._make_record(
+            "New Contact",
+            "A new contact has been added to the system.",
+            "nc-001@test.example",
+        )
+        result = self._run_loader([record], dry_run=True)
+        self.assertEqual(1, result["rejected"])
+
+    def test_data_absence_two_column_contractor_extracted(self):
+        """Real e-volve DATA_ABSENCE format extracts contractor from two-column table."""
+        record = self._make_record(
+            "Data Absence: Maintenance Data is not up to date - 55 Bloor Street, Toronto",
+            (
+                "Dear recipient:\r\n"
+                " Per your request, this e-mail was sent to inform you that this is the"
+                " last maintenance data received from the following contractor.\r\n"
+                " \r\n \r\n \r\n"
+                " Contractor \r\n Details \r\n \r\n \r\n"
+                " Schindler Elevator Corporation \r\n"
+                " Last Activity Date:&nbsp;06-Jun-2019 \r\n"
+                "Elapsed Days:&nbsp;179 \r\n"
+                " \r\n Regards, \r\ne_volve TM Webmaster"
+            ),
+            "da-extract-001@test.example",
+        )
+        result = self._run_loader([record], dry_run=True)
+        self.assertEqual(1, result["accepted_kpi"])
+        self.assertEqual(0, result["review_candidates"])
+
+    def test_data_absence_inline_contractor_extracted(self):
+        """Flattened e-volve DATA_ABSENCE body still extracts contractor."""
+        record = self._make_record(
+            "Data Absence: Maintenance Data is not up to date - 375 University Avenue,\r\n Toronto",
+            (
+                "Dear recipient: Per your request, this e-mail was sent to inform you that "
+                "this is the last maintenance data received from the following contractor. "
+                "Contractor Details ThyssenKrupp Elevator (Canada) Limited "
+                "Last Activity Date:&nbsp;04-Apr-2017 Elapsed Days:&nbsp;1063 Regards, "
+                "e_volve TM Webmaster"
+            ),
+            "da-extract-003@test.example",
+        )
+        result = self._run_loader([record], dry_run=True)
+        self.assertEqual(1, result["accepted_kpi"])
+        self.assertEqual(0, result["review_candidates"])
+
+    def test_data_absence_multiline_subject_building_extracted(self):
+        """Subject with embedded \\r\\n still yields correct building."""
+        record = self._make_record(
+            "Data Absence: Maintenance Data is not up to date - 55 Bloor Street,\r\n Toronto",
+            (
+                "Dear recipient:\r\n"
+                " Contractor \r\n Details \r\n \r\n"
+                " Schindler Elevator Corporation \r\n"
+                " Last Activity Date:&nbsp;01-Jan-2020 \r\n"
+                "Elapsed Days:&nbsp;90 \r\n Regards"
+            ),
+            "da-extract-002@test.example",
+        )
+        result = self._run_loader([record], dry_run=True)
+        self.assertEqual(1, result["accepted_kpi"])
+
+    def test_government_directive_building_device_duedate_extracted(self):
+        """Real e-volve GOVERNMENT_DIRECTIVE format extracts all required fields."""
+        record = self._make_record(
+            "Outstanding Government Directive - 45 St. Clair Avenue, Toronto",
+            (
+                "Dear recipient: This e-mail was sent to inform you that the government "
+                "directives at the above noted site appear to be outstanding. "
+                "ThyssenKrupp Elevator (Canada) Limited "
+                "Device DueDate Description "
+                "1 #19363 28-Nov-2019 8.6.1 (CAD)\r\n"
+                "The overdue scheduled maintenance task for brakes shall be performed."
+            ),
+            "gd-extract-001@test.example",
+        )
+        result = self._run_loader([record], dry_run=True)
+        self.assertEqual(1, result["accepted_kpi"])
+        self.assertEqual(0, result["review_candidates"])
+
+    def test_government_directive_multiline_subject_building_extracted(self):
+        """Subject with \\r\\n still yields correct building for GOVERNMENT_DIRECTIVE."""
+        record = self._make_record(
+            "Outstanding Government Directive - Lansing Square (2550 Victoria\r\n Park), North York",
+            (
+                "Dear recipient: Government directives are outstanding. "
+                "ThyssenKrupp Elevator (Canada) Limited "
+                "Device DueDate Description "
+                "3 #60599 02-Apr-2020 8.6.1 (CAD)\r\n"
+                "The overdue scheduled maintenance task for governors shall be performed."
+            ),
+            "gd-extract-002@test.example",
+        )
+        result = self._run_loader([record], dry_run=True)
+        self.assertEqual(1, result["accepted_kpi"])
+
+    def test_report_json_has_top_unknown_subject_patterns(self):
+        """report.json includes top_unknown_subject_patterns key."""
+        record = self._make_record(
+            "Completely Unknown Subject Type XYZ",
+            "This is a completely unknown email type.",
+            "unk-report-001@test.example",
+        )
+        self._run_loader([record], dry_run=True)
+        report = self._read_json(self._report_path("report.json"))
+        self.assertIn("top_unknown_subject_patterns", report)
+
+    def test_ai_calls_remain_zero(self):
+        records = [
+            self._make_record(
+                "Open Callback(s) Reminder - Test Building",
+                "Open callback reminder.",
+                f"ai-zero-{i:03d}@test.example",
+            )
+            for i in range(5)
+        ]
+        result = self._run_loader(records, dry_run=True)
+        self.assertEqual(0, result["ai_calls"])
+
+    def test_outbound_remains_zero(self):
+        records = [
+            self._make_record(
+                "Possible Shutdown Alert - Test Building",
+                "Shutdown alert details.",
+                f"out-zero-{i:03d}@test.example",
+            )
+            for i in range(3)
+        ]
+        result = self._run_loader(records, dry_run=True)
+        self.assertEqual(0, result["outbound_emails"])
+
+    def test_followups_remain_zero(self):
+        records = [
+            self._make_record(
+                "Activities Uploaded (#U001)",
+                "Activities have been uploaded.",
+                f"fu-zero-{i:03d}@test.example",
+            )
+            for i in range(3)
+        ]
+        result = self._run_loader(records, dry_run=True)
+        self.assertEqual(0, result["followups_scheduled"])
+
+
 class TestDeduplication(BacklogLoaderTestCase):
     def test_duplicate_input_in_json(self):
         record = _make_kpi_email("CAT1_COMPLIANCE", 1)

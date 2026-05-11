@@ -32,6 +32,7 @@ _SUPPORTED_CASE_TYPES: frozenset[str] = frozenset({
     "GOVERNMENT_DIRECTIVE",
 })
 _BACKLOG_SUBJECT_PATTERNS: tuple[tuple[str, str], ...] = (
+    ("data absence:", "DATA_ABSENCE"),
     ("cat1", "CAT1_COMPLIANCE"),
     ("cat5", "CAT5_COMPLIANCE"),
     ("data absence", "DATA_ABSENCE"),
@@ -44,6 +45,46 @@ _BACKLOG_SUBJECT_PATTERNS: tuple[tuple[str, str], ...] = (
     ("outstanding government directive", "GOVERNMENT_DIRECTIVE"),
     ("government directive", "GOVERNMENT_DIRECTIVE"),
 )
+_UNSUPPORTED_KPI_PATTERNS: tuple[tuple[str, str], ...] = (
+    # Callback families — most specific first, catch-all last
+    ("callback alert", "CALLBACK_ALERT"),
+    ("open callback", "OPEN_CALLBACK_REMINDER"),
+    ("callback status", "CALLBACK_STATUS"),
+    ("callbacks uploaded", "CALLBACKS_UPLOADED"),
+    # Service / shutdown families
+    ("back in service", "BACK_IN_SERVICE"),
+    ("possible shutdown", "DEVICE_SHUTDOWN"),
+    ("no car running", "NO_CAR_RUNNING"),
+    ("out-of-service report", "DEVICE_OUT_OF_SERVICE"),
+    ("entrapment", "ENTRAPMENT_OR_OCCUPIED"),
+    ("solutrak event", "SOLUTRAK_EVENT"),
+    ("solutrak emergency event", "SOLUTRAK_EVENT"),
+    # Report upload families
+    ("activities uploaded", "ACTIVITIES_UPLOADED"),
+    ("maintenance uploaded", "MAINTENANCE_UPLOADED"),
+    ("maintenance report", "MAINTENANCE_REPORT"),
+    # Consultant / report families
+    ("consultant report", "CONSULTANT_REPORT"),
+    # Directive families (unsupported variants)
+    ("ahj directive", "AHJ_DIRECTIVE"),
+    # System / platform
+    ("service alert", "SERVICE_ALERT"),
+    ("apps exception", "SYSTEM_NOTIFICATION"),
+    ("exception on servicecaller", "SYSTEM_NOTIFICATION"),
+    # License / permit
+    ("expiring licen", "EXPIRING_LICENSE"),
+    ("expiring permit", "EXPIRING_PERMIT"),
+    ("license expiry", "LICENSE_EXPIRY"),
+    ("licence expiry", "LICENSE_EXPIRY"),
+    # KPI metric families
+    ("uptime lower than expectation", "UPTIME_LOW"),
+    ("mtbc too low", "MTBC_TOO_LOW"),
+    ("callback ratio too high", "CALLBACK_RATIO_HIGH"),
+    ("callbacks exceed expectation", "CALLBACKS_EXCEED"),
+    ("all callbacks exceed", "CALLBACKS_EXCEED"),
+    # Generic callback catch-all — MUST be last among callback patterns
+    ("callback", "CALLBACK_STATUS"),
+)
 _NON_KPI_PATTERNS = _NOISE_PATTERNS + (
     "read receipt",
     "meeting accepted",
@@ -51,6 +92,33 @@ _NON_KPI_PATTERNS = _NOISE_PATTERNS + (
     "invoice",
     "statement",
     "newsletter",
+    "undeliverable",
+    "delivery status notification",
+    "delivery failure",
+    "mail delivery",
+    "postmaster",
+    "auto-reply",
+    "auto reply",
+    "out of office",
+    "automatic reply",
+    "ndr:",
+    "system notification",
+    "password reset",
+    "login notification",
+    "account notification",
+    "subscription",
+    "unsubscribe",
+    # e-volve account / login setup notifications
+    "e-volve account",
+    "evolve account",
+    "evolve login",
+    "evolve login",
+    "your e-volve",
+    "your evolve",
+    # Contact and CRM noise
+    "new contact",
+    # SoluTrak account noise (event alerts handled as SOLUTRAK_EVENT above)
+    "solutrak: ",
 )
 _DEVICE_PATTERN = re.compile(r"\b[A-Z]-\d+\s*#\d+\b", re.IGNORECASE)
 _WHITESPACE_RE = re.compile(r"\s+")
@@ -79,6 +147,7 @@ def load_backlog(
     rejected_items: List[Dict[str, Any]] = []
     duplicate_items: List[Dict[str, Any]] = []
     review_items: List[Dict[str, Any]] = []
+    unsupported_kpi_items: List[Dict[str, Any]] = []
     accepted_results: List[Dict[str, Any]] = []
     seen_message_ids: set[str] = set()
     planned_grouping_keys: set[str] = set()
@@ -127,6 +196,8 @@ def load_backlog(
                     planned_grouping_keys.add(grouping_key)
         elif result["action"] == "review":
             review_items.append(result)
+        elif result["action"] == "recognized_unsupported_kpi":
+            unsupported_kpi_items.append(result)
         elif result["action"] == "rejected":
             rejected_items.append(result)
         elif result["action"] == "duplicate":
@@ -159,6 +230,7 @@ def load_backlog(
         "dry_run": dry_run,
         "emails_scanned": len(raw_records),
         "accepted_kpi": accepted_kpi,
+        "recognized_unsupported_kpi": len(unsupported_kpi_items),
         "rejected": rejected_count,
         "review_candidates": review_count,
         "duplicate_inputs": duplicates,
@@ -170,6 +242,8 @@ def load_backlog(
         "unique_recipients": recipient_summary["unique_recipients"],
         "recipient_summary": recipient_summary,
         "common_rejected_subjects": _top_rejected_subjects(rejected_items),
+        "top_unknown_subject_patterns": _top_unknown_subject_patterns(review_items),
+        "top_supported_extraction_failures": _top_supported_extraction_failures(review_items),
         "ai_calls": ai_report["total_ai_calls"],
         "outbound_emails": 0,
         "followups_scheduled": 0,
@@ -177,6 +251,8 @@ def load_backlog(
         "rejected_items": rejected_items,
         "duplicate_items": duplicate_items,
         "review_items": review_items,
+        "unsupported_kpi_items": unsupported_kpi_items,
+        "unsupported_kpi_counts_by_family": _count_by_family(unsupported_kpi_items),
         "report_dir": str(run_dir),
         "report_paths": _report_paths(run_dir),
         # Backward-compatible aliases for existing callers/tests.
@@ -250,6 +326,8 @@ def _is_obvious_non_kpi(record: Dict[str, Any]) -> Tuple[bool, str]:
     normalized_subject = subject.lower()
     for pattern in _NON_KPI_PATTERNS:
         if pattern in normalized_subject:
+            if pattern == "solutrak: " and _match_subject_to_unsupported_kpi(subject) == "SOLUTRAK_EVENT":
+                continue
             return True, f"Matched obvious non-KPI pattern: {pattern}."
     return False, ""
 
@@ -257,6 +335,14 @@ def _is_obvious_non_kpi(record: Dict[str, Any]) -> Tuple[bool, str]:
 def _classify_for_backlog(record: Dict[str, Any]) -> Dict[str, Any]:
     subject_case_type = _match_subject_to_case_type(record["subject"])
     if subject_case_type is None:
+        family = _match_subject_to_unsupported_kpi(record["subject"])
+        if family:
+            return {
+                "source": "backlog_unsupported_kpi",
+                "case_type": "UNKNOWN",
+                "unsupported_family": family,
+                "reason": f"Recognized unsupported KPI family: {family}.",
+            }
         return {
             "source": "backlog_subject_gate",
             "case_type": "UNKNOWN",
@@ -285,6 +371,15 @@ def _match_subject_to_case_type(subject: str) -> Optional[str]:
     return None
 
 
+def _match_subject_to_unsupported_kpi(subject: str) -> Optional[str]:
+    """Return recognized-but-unsupported KPI family name, or None."""
+    lowered = subject.lower()
+    for pattern, family in _UNSUPPORTED_KPI_PATTERNS:
+        if pattern in lowered:
+            return family
+    return None
+
+
 def _validate_body_signature(case_type: str, body: str) -> bool:
     lowered = body.lower()
     if case_type in {"CAT1_COMPLIANCE", "CAT5_COMPLIANCE"}:
@@ -292,15 +387,36 @@ def _validate_body_signature(case_type: str, body: str) -> bool:
             ("test" in lowered or "reminder" in lowered) and "building" in lowered
         )
     if case_type == "DATA_ABSENCE":
-        return "data" in lowered and any(
-            phrase in lowered for phrase in ("missing", "not submitted", "absence", "elapsed", "not up to date")
+        lowered_stripped = re.sub(r"&\w+;", " ", lowered)
+        return any(
+            phrase in lowered_stripped
+            for phrase in (
+                "missing",
+                "not submitted",
+                "absence",
+                "elapsed",
+                "not up to date",
+                "never been submitted",
+                "data has never",
+                "last activity",
+                "maintenance data",
+            )
         )
     if case_type == "MAINTENANCE_HOURS_SHORTFALL":
         return "hours" in lowered and any(
             phrase in lowered for phrase in ("required", "contract", "actual")
         )
     if case_type == "MAJOR_WORK_OVERDUE":
-        return any(phrase in lowered for phrase in ("scheduled", "overdue", "scheduleddate"))
+        return any(
+            phrase in lowered
+            for phrase in (
+                "scheduled",
+                "overdue",
+                "scheduleddate",
+                "major maintenance",
+                "appear to be overdue",
+            )
+        )
     if case_type == "GOVERNMENT_DIRECTIVE":
         return any(phrase in lowered for phrase in ("directive", "duedate", "due date"))
     return False
@@ -326,6 +442,16 @@ def _process_record(record: Dict[str, Any], dry_run: bool) -> Dict[str, Any]:
     classification = _classify_for_backlog(normalized)
     if classification["source"] == "noise":
         return _decorate_for_report(normalized, {"action": "rejected", "reason": classification["reason"]})
+    if classification.get("unsupported_family"):
+        return _decorate_for_report(
+            normalized,
+            {
+                "action": "recognized_unsupported_kpi",
+                "unsupported_family": classification["unsupported_family"],
+                "reason": classification["reason"],
+                "classification": classification,
+            },
+        )
 
     case_type = classification["case_type"]
     if case_type == "UNKNOWN":
@@ -700,6 +826,10 @@ def _write_reports(results: Dict[str, Any], report_dir: Path, dry_run: bool) -> 
         json.dumps(_review_report_items(results["review_items"]), indent=2, sort_keys=True),
         encoding="utf-8",
     )
+    Path(report_paths["unsupported_kpis_json"]).write_text(
+        json.dumps(_unsupported_kpi_report_items(results["unsupported_kpi_items"]), indent=2, sort_keys=True),
+        encoding="utf-8",
+    )
     Path(report_paths["recipient_summary_json"]).write_text(
         json.dumps(results["recipient_summary"], indent=2, sort_keys=True),
         encoding="utf-8",
@@ -710,6 +840,8 @@ def _build_markdown_report(summary: Dict[str, Any]) -> str:
     mode_label = "DRY RUN" if summary["dry_run"] else "COMMIT"
     case_label = "Expected / Created" if summary["dry_run"] else "Created / Updated"
     top_rejected = summary["common_rejected_subjects"]
+    unsupported_counts = summary["unsupported_kpi_counts_by_family"]
+    top_review_reasons = _top_review_reasons(summary.get("review_items", []))
     lines = [
         "# Backlog Loading Mode Report",
         "",
@@ -727,10 +859,47 @@ def _build_markdown_report(summary: Dict[str, Any]) -> str:
             "| Metric | Count |",
             "| --- | ---: |",
             f"| Emails scanned | {summary['emails_scanned']} |",
-            f"| Accepted (KPI) | {summary['accepted_kpi']} |",
-            f"| Rejected | {summary['rejected']} |",
-            f"| Review candidates | {summary['review_candidates']} |",
+            f"| Accepted (supported KPI) | {summary['accepted_kpi']} |",
+            f"| Recognized unsupported KPI | {summary['recognized_unsupported_kpi']} |",
+            f"| Safe rejected (non-KPI) | {summary['rejected']} |",
+            f"| Review required | {summary['review_candidates']} |",
             f"| Duplicate inputs | {summary['duplicate_inputs']} |",
+            "",
+            "## Unsupported KPI Families",
+            "",
+            "| Family | Count |",
+            "| --- | ---: |",
+        ]
+    )
+    if unsupported_counts:
+        for family, count in unsupported_counts.items():
+            lines.append(f"| {family} | {count} |")
+    else:
+        lines.append("| None | 0 |")
+    lines.extend(
+        [
+            "",
+            "## Top Review Reasons",
+            "",
+        ]
+    )
+    if top_review_reasons:
+        for item in top_review_reasons:
+            lines.append(f"- `{item['reason']}` — {item['count']}")
+    else:
+        lines.append("- None.")
+    if summary.get("top_unknown_subject_patterns"):
+        lines += [
+            "",
+            "## Top Unknown Subject Patterns",
+            "",
+            "| Count | Subject Prefix |",
+            "|------:|----------------|",
+        ]
+        for entry in summary["top_unknown_subject_patterns"][:15]:
+            lines.append(f"| {entry['count']} | `{entry['subject_prefix']}` |")
+    lines.extend(
+        [
             "",
             "## Cases",
             "",
@@ -745,7 +914,11 @@ def _build_markdown_report(summary: Dict[str, Any]) -> str:
             "",
             "## Safety",
             "",
-            f"AI calls: {summary['ai_calls']} | Outbound: {summary['outbound_emails']} | Follow-ups: {summary['followups_scheduled']}",
+            (
+                f"AI calls: {summary['ai_calls']} | "
+                f"Outbound: {summary['outbound_emails']} | "
+                f"Follow-ups: {summary['followups_scheduled']}"
+            ),
             "",
             "## Top Rejected Subjects",
             "",
@@ -753,9 +926,7 @@ def _build_markdown_report(summary: Dict[str, Any]) -> str:
     )
     if top_rejected:
         for item in top_rejected:
-            lines.append(
-                f"- `{item['subject']}` — {item['count']} ({item['reason']})"
-            )
+            lines.append(f"- `{item['subject']}` — {item['count']} ({item['reason']})")
     else:
         lines.append("- None.")
     lines.extend(
@@ -765,6 +936,7 @@ def _build_markdown_report(summary: Dict[str, Any]) -> str:
             "",
             "- [rejected.json](rejected.json)",
             "- [review_candidates.json](review_candidates.json)",
+            "- [unsupported_kpis.json](unsupported_kpis.json)",
             "- [recipient_summary.json](recipient_summary.json)",
         ]
     )
@@ -782,6 +954,7 @@ def _report_paths(report_dir: Path) -> Dict[str, str]:
         "report_md": str(report_dir / "report.md"),
         "rejected_json": str(report_dir / "rejected.json"),
         "review_candidates_json": str(report_dir / "review_candidates.json"),
+        "unsupported_kpis_json": str(report_dir / "unsupported_kpis.json"),
         "recipient_summary_json": str(report_dir / "recipient_summary.json"),
     }
 
@@ -899,6 +1072,7 @@ def _report_json_payload(summary: Dict[str, Any]) -> Dict[str, Any]:
         "source_path": summary["source_path"],
         "emails_scanned": summary["emails_scanned"],
         "accepted_kpi": summary["accepted_kpi"],
+        "recognized_unsupported_kpi": summary["recognized_unsupported_kpi"],
         "rejected": summary["rejected"],
         "review_candidates": summary["review_candidates"],
         "duplicate_inputs": summary["duplicate_inputs"],
@@ -911,6 +1085,10 @@ def _report_json_payload(summary: Dict[str, Any]) -> Dict[str, Any]:
         "outbound_emails": summary["outbound_emails"],
         "followups_scheduled": summary["followups_scheduled"],
         "common_rejected_subjects": summary["common_rejected_subjects"],
+        "unsupported_kpi_counts_by_family": summary["unsupported_kpi_counts_by_family"],
+        "top_review_reasons": _top_review_reasons(summary.get("review_items", [])),
+        "top_unknown_subject_patterns": summary.get("top_unknown_subject_patterns", []),
+        "top_supported_extraction_failures": summary.get("top_supported_extraction_failures", []),
         "unique_recipients": summary["unique_recipients"],
     }
     if summary["dry_run"]:
@@ -945,6 +1123,20 @@ def _review_report_items(items: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     ]
 
 
+def _unsupported_kpi_report_items(items: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    return [
+        {
+            "subject": item.get("subject"),
+            "from_addr": item.get("from_addr"),
+            "received_at": item.get("received_at"),
+            "unsupported_family": item.get("unsupported_family"),
+            "reason": item.get("reason"),
+            "body_preview": item.get("body_preview", ""),
+        }
+        for item in items
+    ]
+
+
 def _top_rejected_subjects(items: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     counter = Counter(
         (
@@ -957,6 +1149,49 @@ def _top_rejected_subjects(items: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         {"subject": subject, "count": count, "reason": reason}
         for (subject, reason), count in counter.most_common(10)
     ]
+
+
+def _count_by_family(items: List[Dict[str, Any]]) -> Dict[str, int]:
+    counter: Counter[str] = Counter()
+    for item in items:
+        family = item.get("unsupported_family") or "UNKNOWN"
+        counter[family] += 1
+    return dict(counter.most_common())
+
+
+def _top_review_reasons(items: List[Dict[str, Any]], limit: int = 10) -> List[Dict[str, Any]]:
+    counter: Counter[str] = Counter()
+    for item in items:
+        reason = item.get("reason", "unknown")
+        counter[reason] += 1
+    return [{"reason": reason, "count": count} for reason, count in counter.most_common(limit)]
+
+
+def _top_unknown_subject_patterns(review_items: List[Dict[str, Any]], n: int = 20) -> List[Dict[str, Any]]:
+    """Return top N subject prefixes from records with UNKNOWN classification."""
+    unknown_items = [
+        item for item in review_items
+        if item.get("case_type", "UNKNOWN") == "UNKNOWN"
+    ]
+    counter: Counter = Counter()
+    for item in unknown_items:
+        subj = re.sub(r"\s+", " ", str(item.get("subject", ""))).strip()
+        prefix = subj[:70] if subj else "(empty)"
+        counter[prefix] += 1
+    return [{"subject_prefix": subj, "count": cnt} for subj, cnt in counter.most_common(n)]
+
+
+def _top_supported_extraction_failures(review_items: List[Dict[str, Any]], n: int = 15) -> List[Dict[str, Any]]:
+    """Return top N extraction failure reasons from review items that matched a supported KPI."""
+    supported_fails = [
+        item for item in review_items
+        if item.get("case_type", "UNKNOWN") != "UNKNOWN"
+    ]
+    counter: Counter = Counter()
+    for item in supported_fails:
+        reason = str(item.get("reason", ""))
+        counter[reason] += 1
+    return [{"reason": r, "count": c} for r, c in counter.most_common(n)]
 
 
 def _report_dir_for_display(path: str) -> str:
@@ -974,11 +1209,12 @@ def _print_summary(summary: Dict[str, Any]) -> None:
     print(border)
     print(f"[BACKLOG] Backlog Loading Mode — {mode_label}")
     print(border)
-    print(f"[BACKLOG]   Emails scanned:        {summary['emails_scanned']}")
-    print(f"[BACKLOG]   Accepted (KPI):        {summary['accepted_kpi']}")
-    print(f"[BACKLOG]   Rejected:              {summary['rejected']}")
-    print(f"[BACKLOG]   Review candidates:     {summary['review_candidates']}")
-    print(f"[BACKLOG]   Duplicate inputs:      {summary['duplicate_inputs']}")
+    print(f"[BACKLOG]   Emails scanned:             {summary['emails_scanned']}")
+    print(f"[BACKLOG]   Accepted (supported KPI):   {summary['accepted_kpi']}")
+    print(f"[BACKLOG]   Recognized unsupported KPI: {summary['recognized_unsupported_kpi']}")
+    print(f"[BACKLOG]   Safe rejected (non-KPI):    {summary['rejected']}")
+    print(f"[BACKLOG]   Review required:            {summary['review_candidates']}")
+    print(f"[BACKLOG]   Duplicate inputs:           {summary['duplicate_inputs']}")
     print(f"[BACKLOG]   New cases:             {summary['new_cases_expected_or_created']}")
     print(f"[BACKLOG]   Case updates:          {summary['case_updates_expected_or_done']}")
     print(f"[BACKLOG]   AI calls:              {summary['ai_calls']}")
