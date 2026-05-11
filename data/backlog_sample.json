@@ -1,0 +1,123 @@
+[
+  {
+    "message_id": "backlog-cat1-001@example.test",
+    "subject": "CAT1 Tests Reminder",
+    "from_addr": "kpi-alerts@example.test",
+    "to_addrs": ["ops@example.test"],
+    "cc_addrs": ["manager@example.test"],
+    "bcc_addrs": [],
+    "reply_to": "kpi-alerts@example.test",
+    "received_at": "2026-01-15T09:00:00",
+    "body": "Client: Example Client 001\nBuilding: 123 Example Road, Example City\nDevice: B-1 #700001\nContractor: Example Maintenance Co\nCAT1 Tests Reminder: CAT1 compliance tests are due for this device.\nLoggedDate: 2026-01-15"
+  },
+  {
+    "message_id": "backlog-cat5-001@demo.test",
+    "subject": "CAT5 Tests Reminder",
+    "from_addr": "kpi-alerts@demo.test",
+    "to_addrs": ["facilities@demo.test"],
+    "cc_addrs": ["manager@example.test"],
+    "bcc_addrs": [],
+    "reply_to": "kpi-alerts@demo.test",
+    "received_at": "2026-02-01T10:30:00",
+    "body": "Client: Example Client 002\nBuilding: 456 Demo Street, Sample Town\nDevice: B-2 #700042\nContractor: Demo Lift Services Ltd\nCAT5 Tests Reminder: CAT5 compliance tests are due for this device.\nLoggedDate: 2026-02-01"
+  },
+  {
+    "message_id": "backlog-data-001@example.test",
+    "subject": "Maintenance Data is not up to date",
+    "from_addr": "notices@example.test",
+    "to_addrs": ["ops@example.test"],
+    "cc_addrs": [],
+    "bcc_addrs": [],
+    "reply_to": "notices@example.test",
+    "received_at": "2026-02-03T08:15:00",
+    "body": "Client: Example Client 001\nBuilding: 123 Example Road, Example City\nContractor: Example Maintenance Co\nLast Activity Date: 2026-01-05\nElapsed Days: 29\nData Status: Maintenance data is not up to date."
+  },
+  {
+    "message_id": "backlog-hours-001@example.test",
+    "subject": "Maintenance Hours Less Than Required",
+    "from_addr": "reports@example.test",
+    "to_addrs": ["ops@example.test", "facilities@demo.test"],
+    "cc_addrs": ["manager@example.test"],
+    "bcc_addrs": [],
+    "reply_to": "reports@example.test",
+    "received_at": "2026-02-05T11:00:00",
+    "body": "Client: Example Client 001\nBuilding: 123 Example Road, Example City\nContractor: Example Maintenance Co\nReporting Period: January 2026\nContract Hours: 40\nActual Hours: 22\nDevice | Required | Actual\nB-1 #700001 | 40 | 22\nStatus: Maintenance hours are below the required threshold for this period."
+  },
+  {
+    "message_id": "backlog-major-001@demo.test",
+    "subject": "Major Scheduled Work is Overdue",
+    "from_addr": "projects@demo.test",
+    "to_addrs": ["facilities@demo.test"],
+    "cc_addrs": ["ops@example.test"],
+    "bcc_addrs": [],
+    "reply_to": "projects@demo.test",
+    "received_at": "2026-02-10T14:45:00",
+    "body": "Client: Example Client 001\nBuilding: 123 Example Road, Example City\nDevice: B-1 #700001\nContractor: Example Maintenance Co\nScheduledDate: 2026-03-10\nDescription: Replace governor rope set.\nStatus: Scheduled work is overdue."
+  },
+  {
+    "message_id": "backlog-directive-001@demo.test",
+    "subject": "Outstanding Government Directive",
+    "from_addr": "compliance@demo.test",
+    "to_addrs": ["facilities@demo.test"],
+    "cc_addrs": ["manager@example.test"],
+    "bcc_addrs": [],
+    "reply_to": "compliance@demo.test",
+    "received_at": "2026-02-12T09:20:00",
+    "body": "Client: Example Client 002\nBuilding: 456 Demo Street, Sample Town\nContractor: Demo Lift Services Ltd\nB-2 #700042 / 2026-02-01 | 2026-03-15 | Submit directive corrective action confirmation\nDirective: Government directive remains outstanding."
+  },
+  {
+    "message_id": "backlog-oof-001@example.test",
+    "subject": "Out of Office Automatic Reply",
+    "from_addr": "ops@example.test",
+    "to_addrs": ["kpi-alerts@example.test"],
+    "cc_addrs": [],
+    "bcc_addrs": [],
+    "reply_to": "ops@example.test",
+    "received_at": "2026-02-13T12:00:00",
+    "body": "Automatic reply. I am out of the office and will respond when I return."
+  },
+  {
+    "message_id": "backlog-statement-001@example.test",
+    "subject": "Monthly Statement for January 2026",
+    "from_addr": "billing@example.test",
+    "to_addrs": ["ops@example.test"],
+    "cc_addrs": [],
+    "bcc_addrs": [],
+    "reply_to": "billing@example.test",
+    "received_at": "2026-02-14T07:30:00",
+    "body": "Statement notice for Example Client 001. This is a placeholder financial message and not a KPI alert."
+  },
+  {
+    "message_id": "backlog-newsletter-001@demo.test",
+    "subject": "Operations Newsletter - February 2026",
+    "from_addr": "news@demo.test",
+    "to_addrs": ["ops@example.test"],
+    "cc_addrs": [],
+    "bcc_addrs": [],
+    "reply_to": "news@demo.test",
+    "received_at": "2026-02-15T08:00:00",
+    "body": "Newsletter update for Example Client 002 with placeholder operational highlights."
+  },
+  {
+    "message_id": "backlog-review-001@example.test",
+    "subject": "Compliance Review Required for Example Client 001",
+    "from_addr": "alerts@example.test",
+    "to_addrs": ["ops@example.test"],
+    "cc_addrs": ["manager@example.test"],
+    "bcc_addrs": [],
+    "reply_to": "alerts@example.test",
+    "received_at": "2026-02-16T16:10:00",
+    "body": "Client: Example Client 001\nBuilding: 123 Example Road, Example City\nDevice: B-1 #700001\nCompliance summary is pending follow-up review."
+  },
+  {
+    "message_id": "backlog-cat1-001@example.test",
+    "subject": "CAT1 Tests Reminder",
+    "from_addr": "kpi-alerts@example.test",
+    "to_addrs": ["ops@example.test"],
+    "cc_addrs": ["manager@example.test"],
+    "bcc_addrs": [],
+    "reply_to": "kpi-alerts@example.test",
+    "received_at": "2026-01-15T09:00:00",
+    "body": "Client: Example Client 001\nBuilding: 123 Example Road, Example City\nDevice: B-1 #700001\nContractor: Example Maintenance Co\nCAT1 Tests Reminder: CAT1 compliance tests are due for this device.\nLoggedDate: 2026-01-15"
+  }
+]

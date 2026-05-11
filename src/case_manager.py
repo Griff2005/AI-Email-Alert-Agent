@@ -385,13 +385,13 @@ def _create_new_case(
         source_email_id=email_id,
     )
 
-    # Schedule follow-up
-    deadline = (datetime.utcnow() + timedelta(days=_DEFAULT_FOLLOWUP_DAYS)).isoformat()
-    db.upsert_followup(
-        followup_id=_new_id(),
-        case_id=case_id,
-        deadline=deadline,
-    )
+    if runtime_options.get().followups_enabled:
+        deadline = (datetime.utcnow() + timedelta(days=_DEFAULT_FOLLOWUP_DAYS)).isoformat()
+        db.upsert_followup(
+            followup_id=_new_id(),
+            case_id=case_id,
+            deadline=deadline,
+        )
 
     memory_context = _record_inbound_memory(
         case_id=case_id,

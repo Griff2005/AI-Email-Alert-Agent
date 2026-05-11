@@ -86,6 +86,43 @@ Optional:
 python src/agent.py test-demo-scale --offline --emails 50 --seed 42 --enable-followups
 ```
 
+## Backlog Loading Mode
+
+Backlog Loading Mode imports staged historical KPI emails from JSON into the same SQLite case history used by the demo so the UI can show prior alerts, related events, and memory signals before new inbox traffic arrives. It is a standalone import path: No AI. No outbound mail. No follow-ups. No escalations.
+
+```bash
+# Dry-run (preview only, no database changes):
+python src/agent.py load-backlog --source json --path data/backlog_sample.json --dry-run
+
+# Commit (import into database):
+python src/agent.py load-backlog --source json --path data/backlog_sample.json --commit
+```
+
+Input format (top-level array of records):
+
+```json
+[
+  {
+    "message_id": "backlog-001@example.test",
+    "thread_id": null,
+    "subject": "CAT1 Tests Reminder",
+    "from_addr": "kpi-alerts@example.test",
+    "to_addrs": ["ops@example.test"],
+    "cc_addrs": ["manager@example.test"],
+    "bcc_addrs": [],
+    "reply_to": "kpi-alerts@example.test",
+    "received_at": "2026-01-15T09:00:00",
+    "body": "Client: Example Client 001\nBuilding: 123 Example Road, Example City\n..."
+  }
+]
+```
+
+Supported case types: `CAT1_COMPLIANCE`, `CAT5_COMPLIANCE`, `DATA_ABSENCE`, `MAINTENANCE_HOURS_SHORTFALL`, `MAJOR_WORK_OVERDUE`, `GOVERNMENT_DIRECTIVE`.
+Filtering behavior: supported KPI records are imported, obvious non-KPI messages are rejected, and supported subjects with weak bodies or missing required fields go to review.
+Safety: No AI. No outbound emails. No follow-ups. No escalations.
+Reports are written to `data/backlog_runs/<timestamp>/` after each run.
+Optional arguments: `--limit <N>` limits records processed. `--report-dir <PATH>` overrides the default report output directory.
+
 ## Reply Handling
 
 Process a pasted reply for a case:

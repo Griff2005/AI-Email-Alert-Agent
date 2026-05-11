@@ -370,6 +370,15 @@ def get_email_by_id(email_id: str) -> Optional[sqlite3.Row]:
     ).fetchone()
 
 
+def get_email_by_message_id(message_id: str) -> Optional[sqlite3.Row]:
+    """Return a single email row by its unique message identifier."""
+    conn = get_connection()
+    return conn.execute(
+        "SELECT * FROM emails WHERE message_id = ?",
+        (message_id,),
+    ).fetchone()
+
+
 # ---------------------------------------------------------------------------
 # cases table
 # ---------------------------------------------------------------------------

@@ -241,6 +241,11 @@ def cmd_demo(args):
     print("  Solucore Email Alert Triage Agent — DEMO")
     print("=" * 70)
 
+    # Demo mode is for deterministic case history only; keep it free of
+    # generated outbound drafts and scheduled follow-up rows unless a
+    # separate command explicitly opts into those behaviors.
+    args.disable_outbound_generation = True
+    args.disable_followups = True
     report_path = _configure_runtime_from_args(args, "demo")
     db.init_schema()
     config.validate()
@@ -545,6 +550,24 @@ def cmd_test_demo_scale(args):
         sys.exit(1)
 
 
+def cmd_load_backlog(args):
+    """Import staged backlog KPI emails from a JSON source."""
+    if bool(args.dry_run) == bool(args.commit):
+        print("[AGENT] ERROR: Set exactly one of --dry-run or --commit.")
+        sys.exit(1)
+
+    import backlog_loader
+
+    db.init_schema()
+    return backlog_loader.load_backlog(
+        source=args.source,
+        path=args.path,
+        dry_run=bool(args.dry_run),
+        limit=args.limit,
+        report_dir=args.report_dir,
+    )
+
+
 def _add_common_ai_args(parser, *, include_outbound: bool, include_followups: bool) -> None:
     parser.add_argument("--enable-ai", action="store_true", help="Allow AI usage for ambiguous work only")
     parser.add_argument("--no-ai", action="store_false", dest="enable_ai", help="Disable AI usage explicitly")
@@ -599,6 +622,7 @@ Commands:
   ingest       Process sample emails from data/sample_emails.json
   demo         Run demo mode: ingest all samples and display results
   run          Start full agent (IMAP polling + scheduler + Flask)
+  load-backlog Import staged historical KPI emails from JSON
   reply        Interactive reply handler
   memory-rebuild  Backfill deterministic memory tables from existing records
   patterns     Print active pattern flags
@@ -609,6 +633,7 @@ Examples:
   python src/agent.py ingest
   python src/agent.py demo
   python src/agent.py run
+  python src/agent.py load-backlog --source json --path data/backlog_sample.json --dry-run
   python src/agent.py reply --case-id <CASE_ID>
   python src/agent.py memory-rebuild
   python src/agent.py patterns
@@ -659,6 +684,19 @@ Examples:
     )
     scale_parser.add_argument("--verbose", action="store_true", help="Print verbose pipeline output during the harness run")
 
+    backlog_parser = subparsers.add_parser("load-backlog", help="Import staged backlog KPI emails from JSON")
+    backlog_parser.add_argument("--source", required=True, choices=["json"], help="Source format (json only)")
+    backlog_parser.add_argument("--path", required=True, type=Path, help="Path to backlog JSON file")
+    backlog_parser.add_argument("--dry-run", action="store_true", default=False, help="Parse and classify without writing to database")
+    backlog_parser.add_argument("--commit", action="store_true", default=False, help="Import accepted emails into database")
+    backlog_parser.add_argument("--limit", type=int, default=None, help="Maximum number of records to process")
+    backlog_parser.add_argument(
+        "--report-dir",
+        type=Path,
+        default=None,
+        help="Directory for report output (default: data/backlog_runs/<timestamp>/)",
+    )
+
     args = parser.parse_args()
 
     if args.command == "ingest":
@@ -677,6 +715,8 @@ Examples:
         cmd_memory_report(args)
     elif args.command == "test-demo-scale":
         cmd_test_demo_scale(args)
+    elif args.command == "load-backlog":
+        cmd_load_backlog(args)
     else:
         parser.print_help()
         sys.exit(1)

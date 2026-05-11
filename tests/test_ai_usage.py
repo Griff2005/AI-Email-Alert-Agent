@@ -11,6 +11,7 @@ if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
 
 import ai_gateway
+import agent
 import database as db
 import followup
 from classifier import classify_email
@@ -137,6 +138,50 @@ class AiUsageGuardTests(unittest.TestCase):
         self.assertEqual("CAT1_COMPLIANCE", result["case_type"])
         self.assertEqual("deterministic", result["source"])
         self.assertEqual(0, gateway.build_report()["total_ai_calls"])
+
+    def test_demo_command_does_not_create_outbound_or_followups_by_default(self):
+        args = type(
+            "Args",
+            (),
+            {
+                "enable_ai": False,
+                "allow_uncapped_ai": False,
+                "max_ai_calls": 0,
+                "max_ai_calls_per_email": 0,
+                "max_ai_calls_per_case": 0,
+                "max_ai_calls_for": [],
+                "ai_budget_mode": "manual_review",
+                "ai_report_path": Path(self.temp_dir.name) / "demo_ai_usage.json",
+                "disable_outbound_generation": False,
+                "template_outbound_only": True,
+                "ai_outbound_enabled": False,
+            },
+        )()
+        sample_email = {
+            "id": "demo-email-1",
+            "subject": "CAT1 Tests Reminder",
+            "from": "alerts@example.com",
+            "to": "ops@example.com",
+            "date": "2026-01-15T09:00:00",
+            "body": (
+                "Client: Example Client\n"
+                "Building: 123 Example Road\n"
+                "Device: B-4 #731842\n"
+                "Contractor: Example Elevator Company\n"
+                "CAT1 Tests Reminder: CAT1 compliance tests are due."
+            ),
+        }
+
+        with patch.object(agent, "_load_sample_emails", return_value=[sample_email]):
+            with patch.object(agent, "_finalize_ai_report", return_value=None):
+                with patch("builtins.print"):
+                    agent.cmd_demo(args)
+
+        conn = db.get_connection()
+        outbound_count = int(conn.execute("SELECT COUNT(*) AS count FROM outbound_messages").fetchone()["count"])
+        followup_count = int(conn.execute("SELECT COUNT(*) AS count FROM followups").fetchone()["count"])
+        self.assertEqual(0, outbound_count)
+        self.assertEqual(0, followup_count)
 
     def test_ambiguous_classification_goes_to_manual_review_when_ai_is_disabled(self):
         gateway = ai_gateway.get_ai_gateway()

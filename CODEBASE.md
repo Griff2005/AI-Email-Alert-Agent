@@ -10,6 +10,7 @@ src/
   config.py             .env loading and static configuration
   runtime_options.py    run-scoped AI/outbound/follow-up switches
   database.py           SQLite schema and query helpers
+  backlog_loader.py     standalone backlog import workflow
   classifier.py         supported KPI family classification
   extractor.py          field extraction, grouping keys, outbound templates
   case_manager.py       email and reply orchestration
@@ -51,6 +52,7 @@ Reply handling uses `case_manager.process_reply()` and `reply_analyzer.analyze_r
 ## Core Modules
 
 - `classifier.py`: supported case type matching plus prompt-injection detection. Unsupported alert families should resolve to `UNKNOWN` unless intentionally added to the MVP.
+- `backlog_loader.py`: standalone backlog import workflow for staged historical KPI emails. Main entry point: `load_backlog(source, path, dry_run, limit, report_dir)`. Key functions: normalize records, classify/filter supported KPI, validate body signatures, extract deterministic fields, generate grouping keys, and write reports. Safety: deterministic only, no outbound, no follow-up, and dry-run does not write the database. Report output: `data/backlog_runs/<timestamp>/`. Dependencies: `database.py`, deterministic paths in `classifier.py` and `extractor.py`, and `memory.py`.
 - `extractor.py`: deterministic field parsing, date normalization, grouping key generation, and outbound templates.
 - `case_manager.py`: the main orchestration point. Keep safety decisions visible here.
 - `database.py`: owns schema creation and all SQL helpers. Prefer additive schema changes and avoid table/column renames without a migration plan.
