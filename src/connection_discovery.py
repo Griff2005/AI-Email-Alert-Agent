@@ -23,7 +23,19 @@ from constants import (
 from time_utils import utc_now_iso
 
 _DISCOVERY_SOURCE = "ai_connection_discovery"
-_PROHIBITED_ACTIONS = re.compile(r"\b(send|escalate|close)\b", re.IGNORECASE)
+
+# Reject hypotheses that contain action, conclusion, or blame language.
+_PROHIBITED_LANGUAGE = re.compile(
+    r"\b(send|escalate|close|confirmed)\b"
+    r"|root cause"
+    r"|contractor failure"
+    r"|mechanic caused"
+    r"|client must be notified"
+    r"|notify client"
+    r"|contact client"
+    r"|email the contractor",
+    re.IGNORECASE,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -140,6 +152,14 @@ def _validate_hypothesis(
 
     Returns (is_valid, rejection_reason). Empty rejection_reason means valid.
     """
+    hypothesis_type = (hypothesis.get("hypothesis_type") or "").strip()
+    if not hypothesis_type:
+        return False, "Missing or empty hypothesis_type"
+
+    summary = (hypothesis.get("summary") or "").strip()
+    if not summary:
+        return False, "Missing or empty summary"
+
     confidence = hypothesis.get("confidence")
     if confidence not in VALID_HYPOTHESIS_CONFIDENCES:
         return False, f"Invalid confidence: {confidence!r}"
@@ -168,13 +188,9 @@ def _validate_hypothesis(
     if not review_text:
         return False, "Missing recommended_human_review"
 
-    combined = (
-        f"{hypothesis.get('summary', '')} "
-        f"{reasoning} "
-        f"{review_text}"
-    )
-    if _PROHIBITED_ACTIONS.search(combined):
-        return False, "Hypothesis contains prohibited action language (send/escalate/close)"
+    combined = f"{summary} {reasoning} {review_text}"
+    if _PROHIBITED_LANGUAGE.search(combined):
+        return False, "Hypothesis contains prohibited language (action, conclusion, or blame)"
 
     return True, ""
 
@@ -188,8 +204,8 @@ def _store_hypothesis(hypothesis: Dict[str, Any], dry_run: bool) -> str:
     if not dry_run:
         db.insert_connection_hypothesis(
             hypothesis_id=hypothesis_id,
-            hypothesis_type=hypothesis.get("hypothesis_type", "unknown"),
-            summary=hypothesis.get("summary", ""),
+            hypothesis_type=hypothesis["hypothesis_type"],
+            summary=hypothesis["summary"],
             confidence=hypothesis["confidence"],
             risk_level=hypothesis["risk_level"],
             evidence_json=json.dumps(evidence),
@@ -276,14 +292,16 @@ def run_discovery(
         caller="connection_discovery",
     )
 
-    _write_observability_event(
-        cases_analyzed=len(cases),
-        ai_outcome=outcome.status,
-        dry_run=dry_run,
-    )
-
     if outcome.status == "blocked" or outcome.payload is None:
         print(f"[DISCOVERY] AI call blocked or returned no result: {outcome.reason}")
+        _write_observability_event(
+            cases_analyzed=len(cases),
+            ai_outcome=outcome.status,
+            dry_run=dry_run,
+            hypotheses_proposed=0,
+            hypotheses_rejected=0,
+            hypotheses_stored=0,
+        )
         return {
             "cases_analyzed": len(cases),
             "hypotheses_proposed": 0,
@@ -333,6 +351,16 @@ def run_discovery(
     if dry_run:
         print("[DISCOVERY] Dry run — no database writes.")
 
+    hypotheses_stored = 0 if dry_run else len(proposed)
+    _write_observability_event(
+        cases_analyzed=len(cases),
+        ai_outcome=outcome.status,
+        dry_run=dry_run,
+        hypotheses_proposed=len(proposed),
+        hypotheses_rejected=len(rejected),
+        hypotheses_stored=hypotheses_stored,
+    )
+
     return {
         "cases_analyzed": len(cases),
         "hypotheses_proposed": len(proposed),
@@ -346,6 +374,9 @@ def _write_observability_event(
     cases_analyzed: int,
     ai_outcome: str,
     dry_run: bool,
+    hypotheses_proposed: int = 0,
+    hypotheses_rejected: int = 0,
+    hypotheses_stored: int = 0,
 ) -> None:
     from observability import append_structured_event
 
@@ -353,8 +384,11 @@ def _write_observability_event(
         append_structured_event(
             component="connection_discovery",
             event_name="discovery_run",
-            status="ok" if ai_outcome not in ("blocked",) else "blocked",
+            status="ok" if ai_outcome != "blocked" else "blocked",
             cases_analyzed=cases_analyzed,
+            hypotheses_proposed=hypotheses_proposed,
+            hypotheses_rejected=hypotheses_rejected,
+            hypotheses_stored=hypotheses_stored,
             unsupported_kpi_included=0,
             ai_outcome=ai_outcome,
             dry_run=dry_run,

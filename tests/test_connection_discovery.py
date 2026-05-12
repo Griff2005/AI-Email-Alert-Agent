@@ -536,6 +536,160 @@ class TestConnectionDiscovery(unittest.TestCase):
         self.assertIn(result.overall_result, ("PASS", "PASS WITH WARNINGS"))
 
     # -----------------------------------------------------------------------
+    # Test: missing hypothesis_type and empty summary rejected
+    # -----------------------------------------------------------------------
+
+    def test_hypothesis_missing_hypothesis_type_rejected(self):
+        """A hypothesis with no hypothesis_type is rejected."""
+        case_id = _insert_supported_case(CASE_TYPE_CAT1_COMPLIANCE, idx=30)
+
+        def mock_transport(prompt, model):
+            payload = _valid_hypothesis_payload([case_id])
+            del payload["hypotheses"][0]["hypothesis_type"]
+            return payload
+
+        self._configure_gateway(transport=mock_transport)
+        result = run_discovery(max_ai_calls=5)
+        self.assertEqual(0, result["hypotheses_proposed"])
+        self.assertEqual(1, result["hypotheses_rejected"])
+
+    def test_hypothesis_empty_summary_rejected(self):
+        """A hypothesis with an empty summary string is rejected."""
+        case_id = _insert_supported_case(CASE_TYPE_CAT1_COMPLIANCE, idx=31)
+
+        def mock_transport(prompt, model):
+            payload = _valid_hypothesis_payload([case_id])
+            payload["hypotheses"][0]["summary"] = ""
+            return payload
+
+        self._configure_gateway(transport=mock_transport)
+        result = run_discovery(max_ai_calls=5)
+        self.assertEqual(0, result["hypotheses_proposed"])
+        self.assertEqual(1, result["hypotheses_rejected"])
+
+    # -----------------------------------------------------------------------
+    # Test: prohibited blame/conclusion language rejected
+    # -----------------------------------------------------------------------
+
+    def test_hypothesis_with_root_cause_language_rejected(self):
+        """A hypothesis containing 'root cause' is rejected."""
+        case_id = _insert_supported_case(CASE_TYPE_CAT1_COMPLIANCE, idx=32)
+
+        def mock_transport(prompt, model):
+            payload = _valid_hypothesis_payload([case_id])
+            payload["hypotheses"][0]["reasoning"] = "This is the root cause of the outages."
+            return payload
+
+        self._configure_gateway(transport=mock_transport)
+        result = run_discovery(max_ai_calls=5)
+        self.assertEqual(0, result["hypotheses_proposed"])
+        self.assertEqual(1, result["hypotheses_rejected"])
+
+    def test_hypothesis_with_contractor_failure_language_rejected(self):
+        """A hypothesis containing 'contractor failure' is rejected."""
+        case_id = _insert_supported_case(CASE_TYPE_DATA_ABSENCE, idx=33)
+
+        def mock_transport(prompt, model):
+            payload = _valid_hypothesis_payload([case_id])
+            payload["hypotheses"][0]["summary"] = "Possible contractor failure across sites."
+            return payload
+
+        self._configure_gateway(transport=mock_transport)
+        result = run_discovery(max_ai_calls=5)
+        self.assertEqual(0, result["hypotheses_proposed"])
+        self.assertEqual(1, result["hypotheses_rejected"])
+
+    def test_hypothesis_with_confirmed_language_rejected(self):
+        """A hypothesis containing 'confirmed' is rejected."""
+        case_id = _insert_supported_case(CASE_TYPE_CAT1_COMPLIANCE, idx=34)
+
+        def mock_transport(prompt, model):
+            payload = _valid_hypothesis_payload([case_id])
+            payload["hypotheses"][0]["reasoning"] = "Confirmed pattern across both buildings."
+            return payload
+
+        self._configure_gateway(transport=mock_transport)
+        result = run_discovery(max_ai_calls=5)
+        self.assertEqual(0, result["hypotheses_proposed"])
+        self.assertEqual(1, result["hypotheses_rejected"])
+
+    def test_hypothesis_with_notify_client_language_rejected(self):
+        """A hypothesis containing 'notify client' in recommended_human_review is rejected."""
+        case_id = _insert_supported_case(CASE_TYPE_DATA_ABSENCE, idx=35)
+
+        def mock_transport(prompt, model):
+            payload = _valid_hypothesis_payload([case_id])
+            payload["hypotheses"][0]["recommended_human_review"] = "Notify client of the findings."
+            return payload
+
+        self._configure_gateway(transport=mock_transport)
+        result = run_discovery(max_ai_calls=5)
+        self.assertEqual(0, result["hypotheses_proposed"])
+        self.assertEqual(1, result["hypotheses_rejected"])
+
+    # -----------------------------------------------------------------------
+    # Test: observability event includes hypothesis counts
+    # -----------------------------------------------------------------------
+
+    def test_observability_event_includes_hypothesis_counts(self):
+        """The discovery_run observability event includes proposed/rejected/stored counts."""
+        case_id = _insert_supported_case(CASE_TYPE_CAT1_COMPLIANCE, idx=36)
+
+        def mock_transport(prompt, model):
+            return _valid_hypothesis_payload([case_id])
+
+        self._configure_gateway(transport=mock_transport)
+        run_discovery(max_ai_calls=5)
+
+        log_path = config.OBSERVABILITY_LOG_PATH
+        self.assertTrue(log_path.exists())
+
+        events = []
+        with open(log_path, "r") as f:
+            for line in f:
+                line = line.strip()
+                if line:
+                    events.append(json.loads(line))
+
+        discovery_events = [
+            e for e in events if e.get("component") == "connection_discovery"
+        ]
+        self.assertGreater(len(discovery_events), 0)
+
+        last = discovery_events[-1]
+        self.assertIn("hypotheses_proposed", last)
+        self.assertIn("hypotheses_rejected", last)
+        self.assertIn("hypotheses_stored", last)
+        self.assertEqual(1, last["hypotheses_proposed"])
+        self.assertEqual(0, last["hypotheses_rejected"])
+        self.assertEqual(1, last["hypotheses_stored"])
+
+    def test_observability_event_dry_run_hypotheses_stored_zero(self):
+        """In dry-run mode, hypotheses_stored is 0 even when hypotheses pass validation."""
+        case_id = _insert_supported_case(CASE_TYPE_DATA_ABSENCE, idx=37)
+
+        def mock_transport(prompt, model):
+            return _valid_hypothesis_payload([case_id])
+
+        self._configure_gateway(transport=mock_transport)
+        run_discovery(max_ai_calls=5, dry_run=True)
+
+        log_path = config.OBSERVABILITY_LOG_PATH
+        events = []
+        with open(log_path, "r") as f:
+            for line in f:
+                line = line.strip()
+                if line:
+                    events.append(json.loads(line))
+
+        discovery_events = [
+            e for e in events if e.get("component") == "connection_discovery"
+        ]
+        last = discovery_events[-1]
+        self.assertEqual(1, last["hypotheses_proposed"])
+        self.assertEqual(0, last["hypotheses_stored"])
+
+    # -----------------------------------------------------------------------
     # Validate-hypothesis unit tests (no DB required)
     # -----------------------------------------------------------------------
 
@@ -555,9 +709,42 @@ class TestConnectionDiscovery(unittest.TestCase):
         self.assertTrue(is_valid)
         self.assertEqual("", reason)
 
+    def test_validate_hypothesis_missing_type(self):
+        """Missing hypothesis_type produces a clear rejection."""
+        valid_ids = {"case-1"}
+        hyp = {
+            "summary": "Possible connection.",
+            "confidence": "low",
+            "risk_level": "info",
+            "evidence": {"case_ids": ["case-1"], "description": "x"},
+            "reasoning": "Evidence indicates something.",
+            "recommended_human_review": "Needs review.",
+        }
+        is_valid, reason = _validate_hypothesis(hyp, valid_ids)
+        self.assertFalse(is_valid)
+        self.assertIn("hypothesis_type", reason)
+
+    def test_validate_hypothesis_empty_summary(self):
+        """Empty summary produces a clear rejection."""
+        valid_ids = {"case-1"}
+        hyp = {
+            "hypothesis_type": "test_type",
+            "summary": "   ",
+            "confidence": "low",
+            "risk_level": "info",
+            "evidence": {"case_ids": ["case-1"], "description": "x"},
+            "reasoning": "Evidence indicates something.",
+            "recommended_human_review": "Needs review.",
+        }
+        is_valid, reason = _validate_hypothesis(hyp, valid_ids)
+        self.assertFalse(is_valid)
+        self.assertIn("summary", reason)
+
     def test_validate_hypothesis_invalid_confidence(self):
         valid_ids = {"case-1"}
         hyp = {
+            "hypothesis_type": "test_type",
+            "summary": "Possible connection.",
             "confidence": "very_high",
             "risk_level": "review",
             "evidence": {"case_ids": ["case-1"], "description": "x"},
@@ -571,6 +758,8 @@ class TestConnectionDiscovery(unittest.TestCase):
     def test_validate_hypothesis_invalid_risk_level(self):
         valid_ids = {"case-1"}
         hyp = {
+            "hypothesis_type": "test_type",
+            "summary": "Possible connection.",
             "confidence": "low",
             "risk_level": "urgent",
             "evidence": {"case_ids": ["case-1"], "description": "x"},
