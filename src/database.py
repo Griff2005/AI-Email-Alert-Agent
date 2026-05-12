@@ -5,15 +5,41 @@ Uses a module-level write lock for thread safety with Flask + APScheduler.
 
 import sqlite3
 import threading
-from datetime import datetime
-from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from config import config
+from constants import (
+    EVENT_BACKLOG_CASE_CREATED,
+    EVENT_BACKLOG_CASE_UPDATED,
+    EVENT_BACKLOG_EMAIL_IMPORTED,
+    EVENT_CASE_CREATED,
+    EVENT_EMAIL_RECEIVED,
+    SUPPORTED_CASE_TYPES,
+)
+from time_utils import utc_now_iso
 
 # Thread-local storage for connections — each thread gets its own connection
 _local = threading.local()
 _write_lock = threading.Lock()
+
+_ALLOWED_CASE_UPDATE_FIELDS = frozenset(
+    {
+        "status",
+        "owner",
+        "priority",
+        "building",
+        "device",
+        "contractor",
+        "due_date",
+        "period",
+    }
+)
+_CREATED_EMAIL_EVENT_TYPES = (EVENT_CASE_CREATED, EVENT_BACKLOG_CASE_CREATED)
+_UPDATED_EMAIL_EVENT_TYPES = (
+    EVENT_EMAIL_RECEIVED,
+    EVENT_BACKLOG_CASE_UPDATED,
+    EVENT_BACKLOG_EMAIL_IMPORTED,
+)
 
 
 def get_connection() -> sqlite3.Connection:
@@ -262,6 +288,31 @@ def init_schema() -> None:
                 FOREIGN KEY (case_id) REFERENCES cases(case_id)
             );
 
+            CREATE TABLE IF NOT EXISTS connection_hypotheses (
+                hypothesis_id           TEXT PRIMARY KEY,
+                hypothesis_type         TEXT NOT NULL,
+                summary                 TEXT NOT NULL,
+                confidence              TEXT NOT NULL,
+                risk_level              TEXT NOT NULL,
+                evidence_json           TEXT,
+                reasoning               TEXT,
+                recommended_human_review TEXT,
+                status                  TEXT DEFAULT 'proposed',
+                source                  TEXT DEFAULT 'ai_connection_discovery',
+                created_at              TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS connection_hypothesis_cases (
+                hypothesis_id TEXT NOT NULL,
+                case_id       TEXT NOT NULL,
+                PRIMARY KEY (hypothesis_id, case_id),
+                FOREIGN KEY (hypothesis_id) REFERENCES connection_hypotheses(hypothesis_id),
+                FOREIGN KEY (case_id) REFERENCES cases(case_id)
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_connection_hypotheses_status ON connection_hypotheses(status);
+            CREATE INDEX IF NOT EXISTS idx_connection_hypothesis_cases_case_id ON connection_hypothesis_cases(case_id);
+
             CREATE INDEX IF NOT EXISTS idx_cases_grouping_key ON cases(grouping_key);
             CREATE INDEX IF NOT EXISTS idx_cases_status ON cases(status);
             CREATE INDEX IF NOT EXISTS idx_case_events_case_id ON case_events(case_id);
@@ -370,6 +421,15 @@ def get_email_by_id(email_id: str) -> Optional[sqlite3.Row]:
     ).fetchone()
 
 
+def get_email_by_message_id(message_id: str) -> Optional[sqlite3.Row]:
+    """Return a single email row by its unique message identifier."""
+    conn = get_connection()
+    return conn.execute(
+        "SELECT * FROM emails WHERE message_id = ?",
+        (message_id,),
+    ).fetchone()
+
+
 # ---------------------------------------------------------------------------
 # cases table
 # ---------------------------------------------------------------------------
@@ -438,7 +498,7 @@ def insert_case(
         sqlite3.IntegrityError: If a case with the same ``grouping_key``
             already exists (UNIQUE constraint violation).
     """
-    now = datetime.utcnow().isoformat()
+    now = utc_now_iso()
     _execute_write(
         """
         INSERT INTO cases
@@ -452,22 +512,29 @@ def insert_case(
 
 
 def update_case(case_id: str, updates: Dict[str, Any]) -> None:
-    """Update arbitrary fields on an existing case.
+    """Update allowed mutable fields on an existing case.
 
-    Always appends ``updated_at = <now>`` to ``updates`` regardless of what
-    other fields are included. Builds the SET clause dynamically from the
-    dict keys.
-
-    Note: ``updates`` is modified in-place — ``updated_at`` is added to the
-    dict before the SQL statement executes.
+    Always writes ``updated_at = <now>`` alongside the supplied fields. The
+    caller's ``updates`` dict is not mutated.
 
     Args:
         case_id: UUID of the case to update.
         updates: Dict mapping column names to new values.
+
+    Raises:
+        ValueError: If ``updates`` contains a field outside the case update
+            allowlist.
     """
-    updates["updated_at"] = datetime.utcnow().isoformat()
-    set_clause = ", ".join(f"{k} = ?" for k in updates)
-    values = list(updates.values()) + [case_id]
+    unsupported_fields = sorted(set(updates) - _ALLOWED_CASE_UPDATE_FIELDS)
+    if unsupported_fields:
+        raise ValueError(
+            "Unsupported case update field(s): "
+            + ", ".join(unsupported_fields)
+        )
+    values_to_update = dict(updates)
+    values_to_update["updated_at"] = utc_now_iso()
+    set_clause = ", ".join(f"{k} = ?" for k in values_to_update)
+    values = list(values_to_update.values()) + [case_id]
     _execute_write(
         f"UPDATE cases SET {set_clause} WHERE case_id = ?",
         tuple(values),
@@ -520,7 +587,7 @@ def insert_case_event(
         description: Human-readable description.
         source_email_id: UUID of the triggering email, or None for system events.
     """
-    now = datetime.utcnow().isoformat()
+    now = utc_now_iso()
     _execute_write(
         """
         INSERT INTO case_events
@@ -714,7 +781,7 @@ def get_overdue_followups() -> List[sqlite3.Row]:
     Returns:
         Rows with all ``followups`` columns plus ``case_status`` from the join.
     """
-    now = datetime.utcnow().isoformat()
+    now = utc_now_iso()
     conn = get_connection()
     return conn.execute(
         """
@@ -741,7 +808,7 @@ def increment_followup_count(case_id: str) -> int:
     Returns:
         New ``follow_count`` value after incrementing, or 0 if not found.
     """
-    now = datetime.utcnow().isoformat()
+    now = utc_now_iso()
     with _write_lock:
         conn = get_connection()
         conn.execute(
@@ -762,7 +829,7 @@ def increment_followup_count(case_id: str) -> int:
 
 def reschedule_followup(case_id: str, deadline: str) -> None:
     """Move the next follow-up deadline forward after a successful reminder."""
-    now = datetime.utcnow().isoformat()
+    now = utc_now_iso()
     _execute_write(
         """
         UPDATE followups
@@ -813,7 +880,7 @@ def reserve_followup_action(
     scheduled_bucket: str,
 ) -> bool:
     """Reserve a follow-up action slot, returning False when it already exists."""
-    now = datetime.utcnow().isoformat()
+    now = utc_now_iso()
     cursor = _execute_write(
         """
         INSERT OR IGNORE INTO followup_actions
@@ -842,7 +909,7 @@ def mark_followup_action_status(
     outbound_msg_id: Optional[str] = None,
 ) -> None:
     """Update the state of a reserved follow-up action."""
-    now = datetime.utcnow().isoformat()
+    now = utc_now_iso()
     _execute_write(
         """
         UPDATE followup_actions
@@ -899,7 +966,7 @@ def insert_manual_review(
         email_id: UUID of the triggering email, or None for system-triggered reviews.
         reason: Human-readable explanation of why review is required.
     """
-    now = datetime.utcnow().isoformat()
+    now = utc_now_iso()
     _execute_write(
         """
         INSERT INTO manual_reviews
@@ -972,7 +1039,7 @@ def upsert_entity_record(
     seen_at: Optional[str] = None,
 ) -> int:
     """Insert or update a canonical entity record and return its integer ID."""
-    now = datetime.utcnow().isoformat()
+    now = utc_now_iso()
     seen_at = seen_at or now
     with _write_lock:
         conn = get_connection()
@@ -1034,7 +1101,7 @@ def upsert_entity_alias_record(
     seen_at: Optional[str] = None,
 ) -> int:
     """Insert or refresh an alternate name for a canonical entity."""
-    now = datetime.utcnow().isoformat()
+    now = utc_now_iso()
     seen_at = seen_at or now
     with _write_lock:
         conn = get_connection()
@@ -1312,7 +1379,7 @@ def upsert_pattern_flag_record(
     status: str = "active",
 ) -> Dict[str, Any]:
     """Insert or refresh a pattern flag and report whether it was created or updated."""
-    now = datetime.utcnow().isoformat()
+    now = utc_now_iso()
     with _write_lock:
         conn = get_connection()
         if case_id is None:
@@ -1511,13 +1578,15 @@ def get_email_pipeline_summary() -> dict:
     row = conn.execute("SELECT COUNT(*) AS n FROM emails WHERE processed = 1").fetchone()
     result["processed"] = int(row["n"])
 
+    created_placeholders = ", ".join("?" for _ in _CREATED_EMAIL_EVENT_TYPES)
     row = conn.execute(
-        """
+        f"""
         SELECT COUNT(DISTINCT e.email_id) AS n
         FROM emails e
         INNER JOIN case_events ce ON ce.source_email_id = e.email_id
-        WHERE ce.event_type = 'case_created'
-        """
+        WHERE ce.event_type IN ({created_placeholders})
+        """,
+        _CREATED_EMAIL_EVENT_TYPES,
     ).fetchone()
     result["created_cases"] = int(row["n"])
 
@@ -1592,9 +1661,9 @@ def get_email_backlog(limit: int = 100, status_filter: str = "") -> list:
             action = "injection_flag"
         elif review_count > 0:
             action = "review"
-        elif first_event == "case_created":
+        elif first_event in _CREATED_EMAIL_EVENT_TYPES:
             action = "created"
-        elif first_event is not None:
+        elif first_event in _UPDATED_EMAIL_EVENT_TYPES or first_event is not None:
             action = "updated"
         elif email.get("processed"):
             action = "skipped"
@@ -1626,9 +1695,147 @@ def get_events_for_email(email_id: str) -> list:
     return [dict(row) for row in rows]
 
 
+# ---------------------------------------------------------------------------
+# connection_hypotheses / connection_hypothesis_cases tables
+# ---------------------------------------------------------------------------
+
+def insert_connection_hypothesis(
+    hypothesis_id: str,
+    hypothesis_type: str,
+    summary: str,
+    confidence: str,
+    risk_level: str,
+    evidence_json: Optional[str],
+    reasoning: str,
+    recommended_human_review: str,
+    status: str = "proposed",
+) -> None:
+    """Insert a proposed AI-generated connection hypothesis.
+
+    Args:
+        hypothesis_id: Application UUID.
+        hypothesis_type: Short machine-readable label for the hypothesis type.
+        summary: One-sentence human-readable summary.
+        confidence: One of ``'low'``, ``'medium'``, ``'high'``.
+        risk_level: One of ``'info'``, ``'review'``, ``'management_review'``.
+        evidence_json: JSON-encoded evidence dict, or None.
+        reasoning: AI-generated reasoning for the hypothesis.
+        recommended_human_review: What a human reviewer should check.
+        status: Defaults to ``'proposed'``.
+    """
+    now = utc_now_iso()
+    _execute_write(
+        """
+        INSERT INTO connection_hypotheses
+            (hypothesis_id, hypothesis_type, summary, confidence, risk_level,
+             evidence_json, reasoning, recommended_human_review, status, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            hypothesis_id,
+            hypothesis_type,
+            summary,
+            confidence,
+            risk_level,
+            evidence_json,
+            reasoning,
+            recommended_human_review,
+            status,
+            now,
+        ),
+    )
+
+
+def insert_connection_hypothesis_case(hypothesis_id: str, case_id: str) -> None:
+    """Link a case to a connection hypothesis (INSERT OR IGNORE for idempotency)."""
+    _execute_write(
+        """
+        INSERT OR IGNORE INTO connection_hypothesis_cases (hypothesis_id, case_id)
+        VALUES (?, ?)
+        """,
+        (hypothesis_id, case_id),
+    )
+
+
+def get_connection_hypotheses(
+    status_filter: Optional[str] = None,
+    limit: Optional[int] = None,
+) -> List[sqlite3.Row]:
+    """Return connection hypotheses ordered by created_at descending.
+
+    Args:
+        status_filter: Optional status value to filter by (e.g. ``'proposed'``).
+        limit: Optional maximum number of rows to return.
+
+    Returns:
+        List of ``sqlite3.Row`` objects.
+    """
+    conn = get_connection()
+    sql = "SELECT * FROM connection_hypotheses"
+    params: list = []
+    if status_filter:
+        sql += " WHERE status = ?"
+        params.append(status_filter)
+    sql += " ORDER BY created_at DESC"
+    if limit is not None:
+        sql += " LIMIT ?"
+        params.append(limit)
+    return conn.execute(sql, params).fetchall()
+
+
+def get_cases_for_hypothesis(hypothesis_id: str) -> List[str]:
+    """Return the case_ids linked to a hypothesis."""
+    conn = get_connection()
+    rows = conn.execute(
+        "SELECT case_id FROM connection_hypothesis_cases WHERE hypothesis_id = ?",
+        (hypothesis_id,),
+    ).fetchall()
+    return [row["case_id"] for row in rows]
+
+
+def get_supported_cases_for_discovery(
+    building: Optional[str] = None,
+    case_type: Optional[str] = None,
+    limit: Optional[int] = None,
+) -> List[sqlite3.Row]:
+    """Return cases of supported types only for connection discovery.
+
+    Filters strictly to supported KPI case types. Never returns UNKNOWN or
+    any other unsupported type.
+
+    Args:
+        building: Optional building name substring filter.
+        case_type: Optional exact case type (must be a supported type or ignored).
+        limit: Optional maximum rows to return.
+
+    Returns:
+        List of ``sqlite3.Row`` objects ordered by ``created_at`` descending.
+    """
+    supported_placeholders = ", ".join("?" for _ in SUPPORTED_CASE_TYPES)
+    sql = f"SELECT * FROM cases WHERE case_type IN ({supported_placeholders})"
+    params: list = list(SUPPORTED_CASE_TYPES)
+
+    if building:
+        sql += " AND building LIKE ?"
+        params.append(f"%{building}%")
+
+    if case_type and case_type in SUPPORTED_CASE_TYPES:
+        sql += " AND case_type = ?"
+        params.append(case_type)
+
+    sql += " ORDER BY created_at DESC"
+
+    if limit is not None:
+        sql += " LIMIT ?"
+        params.append(limit)
+
+    conn = get_connection()
+    return conn.execute(sql, params).fetchall()
+
+
 def resolve_missing_pattern_flags(case_id: str, active_pattern_types: List[str]) -> int:
     """Resolve active pattern flags for a case that were not present in the latest run."""
-    now = datetime.utcnow().isoformat()
+    now = utc_now_iso()
     with _write_lock:
         conn = get_connection()
         if active_pattern_types:

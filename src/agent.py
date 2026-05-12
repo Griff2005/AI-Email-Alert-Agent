@@ -6,6 +6,7 @@ Usage:
   python src/agent.py run            Start IMAP polling + scheduler + Flask web server
   python src/agent.py reply --case-id CASE_ID   Interactive reply handler
   python src/agent.py demo           Run all sample emails and display results
+  python src/agent.py observability-report      Print local metrics/safety snapshot
   python src/agent.py test-demo-scale   Run the safe offline demo validation harness
 
 All paths are resolved relative to the project root (parent of src/).
@@ -16,27 +17,29 @@ import json
 import sys
 import time
 import uuid
-from datetime import datetime
 from pathlib import Path
+from typing import Any
 
 # Add src/ to path so all modules are importable regardless of CWD
 _SRC_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(_SRC_DIR))
 
 from ai_gateway import AiUsageConfig, get_ai_gateway
-from config import config, PROJECT_ROOT
-import database as db
 from case_manager import process_email, process_reply
+from config import PROJECT_ROOT, config
+from constants import EVENT_CASE_CLOSED
+import database as db
 from email_reader import poll_inbox
 import memory
 from runtime_options import RuntimeOptions, runtime_options
+from time_utils import utc_compact_timestamp
 
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _load_sample_emails():
+def _load_sample_emails() -> list[dict]:
     """Load and return the sample email list from ``data/sample_emails.json``.
 
     Returns:
@@ -64,7 +67,7 @@ def _store_email(em: dict) -> str:
     Returns:
         The ``email_id`` string used for the inserted record.
     """
-    from claude_client import sanitize_email_content
+    from content_safety import sanitize_email_content
     email_id = em.get("id") or str(uuid.uuid4())
     normalized = sanitize_email_content(em.get("body", ""))
     db.insert_email(
@@ -81,7 +84,8 @@ def _store_email(em: dict) -> str:
     return email_id
 
 
-def _parse_purpose_caps(values) -> dict:
+def _parse_purpose_caps(values) -> dict[str, int]:
+    """Parse ``--max-ai-calls-for`` values into a purpose-to-cap mapping."""
     caps = {}
     for raw in values or []:
         if "=" not in raw:
@@ -96,11 +100,13 @@ def _parse_purpose_caps(values) -> dict:
 
 
 def _default_ai_report_path(command_name: str) -> Path:
-    timestamp = datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
+    """Return the default per-command AI usage report path."""
+    timestamp = utc_compact_timestamp()
     return PROJECT_ROOT / "data" / "ai_usage" / f"{command_name}_{timestamp}.json"
 
 
-def _configure_runtime_from_args(args, command_name: str) -> Path:
+def _configure_runtime_from_args(args: argparse.Namespace, command_name: str) -> Path:
+    """Configure runtime options and the AI gateway from parsed CLI arguments."""
     enable_ai = bool(getattr(args, "enable_ai", False))
     allow_uncapped_ai = bool(getattr(args, "allow_uncapped_ai", False))
     max_ai_calls = getattr(args, "max_ai_calls", 0)
@@ -161,6 +167,7 @@ def _configure_runtime_from_args(args, command_name: str) -> Path:
 
 
 def _finalize_ai_report(report_path: Path, **metadata) -> None:
+    """Write the AI usage report and print a compact CLI summary."""
     gateway = get_ai_gateway()
     if metadata:
         gateway.set_run_metadata(**metadata)
@@ -172,6 +179,22 @@ def _finalize_ai_report(report_path: Path, **metadata) -> None:
     print(f"- Cache hits: {summary['cache_hits']}")
     print(f"- Blocked AI calls: {summary['total_ai_calls_blocked']}")
     print(f"- Usage report: {report_path}")
+
+
+def _append_command_event(event_name: str, **context: Any) -> None:
+    """Append a best-effort structured event for a completed CLI command."""
+    from observability import append_structured_event
+
+    try:
+        append_structured_event(
+            component="agent",
+            event_name=event_name,
+            status="ok",
+            command=context.pop("command", None),
+            **context,
+        )
+    except OSError as exc:
+        print(f"[AGENT] WARNING: could not write observability event: {exc}")
 
 
 # ---------------------------------------------------------------------------
@@ -225,6 +248,15 @@ def cmd_ingest(args):
     )
     print(f"[AGENT] View cases at http://localhost:{config.FLASK_PORT}/cases")
     _finalize_ai_report(report_path, emails_processed=len(results), cases_created=created, cases_updated=updated)
+    _append_command_event(
+        "ingest_completed",
+        command="ingest",
+        emails_processed=len(results),
+        cases_created=created,
+        cases_updated=updated,
+        skipped=skipped,
+        reviews_flagged=reviewed,
+    )
 
 
 def cmd_demo(args):
@@ -241,6 +273,11 @@ def cmd_demo(args):
     print("  Solucore Email Alert Triage Agent — DEMO")
     print("=" * 70)
 
+    # Demo mode is for deterministic case history only; keep it free of
+    # generated outbound drafts and scheduled follow-up rows unless a
+    # separate command explicitly opts into those behaviors.
+    args.disable_outbound_generation = True
+    args.disable_followups = True
     report_path = _configure_runtime_from_args(args, "demo")
     db.init_schema()
     config.validate()
@@ -300,6 +337,13 @@ def cmd_demo(args):
     created = sum(1 for _, result in results if result["action"] == "created")
     updated = sum(1 for _, result in results if result["action"] == "updated")
     _finalize_ai_report(report_path, emails_processed=len(results), cases_created=created, cases_updated=updated)
+    _append_command_event(
+        "demo_completed",
+        command="demo",
+        emails_processed=len(results),
+        cases_created=created,
+        cases_updated=updated,
+    )
 
 
 def cmd_run(args):
@@ -452,7 +496,7 @@ def cmd_reply(args):
             db.insert_case_event(
                 event_id=str(uuid.uuid4()),
                 case_id=case_id,
-                event_type="case_closed",
+                event_type=EVENT_CASE_CLOSED,
                 description="Case manually closed via CLI reply handler after reviewing reply.",
             )
             print(f"[AGENT] Case {case_id} closed.")
@@ -545,6 +589,124 @@ def cmd_test_demo_scale(args):
         sys.exit(1)
 
 
+def cmd_load_backlog(args):
+    """Import staged backlog KPI emails from a JSON source."""
+    if bool(args.dry_run) == bool(args.commit):
+        print("[AGENT] ERROR: Set exactly one of --dry-run or --commit.")
+        sys.exit(1)
+
+    import backlog_loader
+
+    db.init_schema()
+    result = backlog_loader.load_backlog(
+        source=args.source,
+        path=args.path,
+        dry_run=bool(args.dry_run),
+        limit=args.limit,
+        report_dir=args.report_dir,
+    )
+    _append_command_event(
+        "backlog_dry_run_completed" if args.dry_run else "backlog_commit_completed",
+        command="load-backlog",
+        dry_run=bool(args.dry_run),
+        emails_scanned=result.get("emails_scanned"),
+        accepted_kpi=result.get("accepted_kpi"),
+        new_cases=result.get("new_cases_expected_or_created"),
+        case_updates=result.get("case_updates_expected_or_done"),
+        review_candidates=result.get("review_candidates"),
+        rejected=result.get("rejected"),
+        report_dir=result.get("report_dir"),
+    )
+    return result
+
+
+def cmd_discover_connections(args) -> None:
+    """Discover possible hidden connections across supported KPI cases using AI.
+
+    Requires an explicit AI budget via --max-ai-calls. Never modifies cases,
+    sends emails, schedules follow-ups, escalates, or closes cases. All
+    hypotheses are stored as 'proposed' for human review only.
+
+    Args:
+        args: Parsed argparse namespace. Must include ``max_ai_calls``.
+    """
+    max_ai_calls = getattr(args, "max_ai_calls", 0)
+    if not max_ai_calls:
+        print("[AGENT] ERROR: --max-ai-calls is required and must be > 0 for discover-connections.")
+        sys.exit(1)
+
+    import connection_discovery
+
+    db.init_schema()
+    config.validate()
+
+    gateway = get_ai_gateway()
+    gateway.reset()
+    gateway.configure(
+        AiUsageConfig(
+            enabled=True,
+            max_calls=max_ai_calls,
+            budget_mode="fail",
+            model_name=config.CLAUDE_MODEL,
+            config_version="agent-discover-connections",
+        )
+    )
+    gateway.set_run_metadata(command="discover-connections")
+
+    result = connection_discovery.run_discovery(
+        max_ai_calls=max_ai_calls,
+        limit=getattr(args, "limit", None),
+        building=getattr(args, "building", None),
+        case_type_filter=getattr(args, "case_type", None),
+        dry_run=bool(getattr(args, "dry_run", False)),
+    )
+
+    report_path = _default_ai_report_path("discover-connections")
+    _finalize_ai_report(report_path)
+    _append_command_event(
+        "discover_connections_completed",
+        command="discover-connections",
+        dry_run=bool(getattr(args, "dry_run", False)),
+        cases_analyzed=result.get("cases_analyzed"),
+        hypotheses_proposed=result.get("hypotheses_proposed"),
+        hypotheses_rejected=result.get("hypotheses_rejected"),
+    )
+
+
+def cmd_observability_report(args: argparse.Namespace) -> None:
+    """Print and optionally write a local observability snapshot.
+
+    This command ensures the SQLite schema exists before reading. Aside from
+    optional report/schema/log writes, it does not enable AI, poll IMAP, send
+    SMTP, or schedule follow-ups.
+    """
+    from observability import (
+        append_structured_event,
+        build_metrics_snapshot,
+        write_metrics_snapshot,
+    )
+    import contextlib
+    import io
+
+    # Keep stdout machine-readable for callers that pipe the JSON snapshot.
+    with contextlib.redirect_stdout(io.StringIO()):
+        db.init_schema()
+    run_id = str(uuid.uuid4())
+    snapshot = build_metrics_snapshot()
+    output_path = getattr(args, "output", None)
+    if output_path:
+        write_metrics_snapshot(output_path, snapshot=snapshot)
+        append_structured_event(
+            component="agent",
+            event_name="observability_report_written",
+            status="ok",
+            run_id=run_id,
+            report_path=output_path,
+            command="observability-report",
+        )
+    print(json.dumps(snapshot, indent=2, sort_keys=True))
+
+
 def _add_common_ai_args(parser, *, include_outbound: bool, include_followups: bool) -> None:
     parser.add_argument("--enable-ai", action="store_true", help="Allow AI usage for ambiguous work only")
     parser.add_argument("--no-ai", action="store_false", dest="enable_ai", help="Disable AI usage explicitly")
@@ -599,21 +761,28 @@ Commands:
   ingest       Process sample emails from data/sample_emails.json
   demo         Run demo mode: ingest all samples and display results
   run          Start full agent (IMAP polling + scheduler + Flask)
+  load-backlog Import staged historical KPI emails from JSON
   reply        Interactive reply handler
   memory-rebuild  Backfill deterministic memory tables from existing records
   patterns     Print active pattern flags
   memory-report  Print detailed memory context for a case
+  observability-report  Print local metrics and safety snapshot
   test-demo-scale  Run the safe offline demo validation harness
+  discover-connections  Discover possible connections across supported cases (requires --max-ai-calls)
 
 Examples:
   python src/agent.py ingest
   python src/agent.py demo
   python src/agent.py run
+  python src/agent.py load-backlog --source json --path data/backlog_sample.json --dry-run
   python src/agent.py reply --case-id <CASE_ID>
   python src/agent.py memory-rebuild
   python src/agent.py patterns
   python src/agent.py memory-report --case-id <CASE_ID>
+  python src/agent.py observability-report --output data/observability/latest.json
   python src/agent.py test-demo-scale --offline --emails 25 --seed 42
+  python src/agent.py discover-connections --max-ai-calls 5
+  python src/agent.py discover-connections --max-ai-calls 5 --dry-run
         """,
     )
     subparsers = parser.add_subparsers(dest="command")
@@ -659,6 +828,69 @@ Examples:
     )
     scale_parser.add_argument("--verbose", action="store_true", help="Print verbose pipeline output during the harness run")
 
+    backlog_parser = subparsers.add_parser("load-backlog", help="Import staged backlog KPI emails from JSON")
+    backlog_parser.add_argument("--source", required=True, choices=["json"], help="Source format (json only)")
+    backlog_parser.add_argument("--path", required=True, type=Path, help="Path to backlog JSON file")
+    backlog_parser.add_argument("--dry-run", action="store_true", default=False, help="Parse and classify without writing to database")
+    backlog_parser.add_argument("--commit", action="store_true", default=False, help="Import accepted emails into database")
+    backlog_parser.add_argument("--limit", type=int, default=None, help="Maximum number of records to process")
+    backlog_parser.add_argument(
+        "--report-dir",
+        type=Path,
+        default=None,
+        help="Directory for report output (default: data/backlog_runs/<timestamp>/)",
+    )
+
+    observability_parser = subparsers.add_parser(
+        "observability-report",
+        help="Print local metrics and safety snapshot",
+    )
+    observability_parser.add_argument(
+        "--output",
+        type=Path,
+        default=None,
+        help="Optional JSON file path for the metrics snapshot",
+    )
+
+    discover_parser = subparsers.add_parser(
+        "discover-connections",
+        help="Discover possible connections across supported cases (AI required)",
+    )
+    discover_parser.add_argument(
+        "--max-ai-calls",
+        type=int,
+        default=0,
+        metavar="N",
+        help="Maximum AI calls allowed for this run (required, must be > 0)",
+    )
+    discover_parser.add_argument(
+        "--limit",
+        type=int,
+        default=None,
+        metavar="N",
+        help="Maximum number of cases to include in the analysis",
+    )
+    discover_parser.add_argument(
+        "--building",
+        type=str,
+        default=None,
+        metavar="BUILDING",
+        help="Filter cases by building name (substring match)",
+    )
+    discover_parser.add_argument(
+        "--case-type",
+        type=str,
+        default=None,
+        metavar="TYPE",
+        help="Filter cases by supported case type",
+    )
+    discover_parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        default=False,
+        help="Print hypotheses without writing to the database",
+    )
+
     args = parser.parse_args()
 
     if args.command == "ingest":
@@ -677,6 +909,12 @@ Examples:
         cmd_memory_report(args)
     elif args.command == "test-demo-scale":
         cmd_test_demo_scale(args)
+    elif args.command == "load-backlog":
+        cmd_load_backlog(args)
+    elif args.command == "observability-report":
+        cmd_observability_report(args)
+    elif args.command == "discover-connections":
+        cmd_discover_connections(args)
     else:
         parser.print_help()
         sys.exit(1)

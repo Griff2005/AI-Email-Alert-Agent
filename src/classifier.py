@@ -12,17 +12,19 @@ from dataclasses import dataclass
 from typing import Any, Dict, List
 
 from ai_gateway import get_ai_gateway
-from claude_client import detect_injection, sanitize_email_content
+from content_safety import detect_injection, sanitize_email_content
+from constants import (
+    CASE_TYPE_CAT1_COMPLIANCE,
+    CASE_TYPE_CAT5_COMPLIANCE,
+    CASE_TYPE_DATA_ABSENCE,
+    CASE_TYPE_GOVERNMENT_DIRECTIVE,
+    CASE_TYPE_MAINTENANCE_HOURS_SHORTFALL,
+    CASE_TYPE_MAJOR_WORK_OVERDUE,
+    CASE_TYPE_UNKNOWN,
+    CLASSIFIABLE_CASE_TYPES,
+)
 
-CASE_TYPES = [
-    "CAT1_COMPLIANCE",
-    "CAT5_COMPLIANCE",
-    "DATA_ABSENCE",
-    "MAINTENANCE_HOURS_SHORTFALL",
-    "MAJOR_WORK_OVERDUE",
-    "GOVERNMENT_DIRECTIVE",
-    "UNKNOWN",
-]
+CASE_TYPES = list(CLASSIFIABLE_CASE_TYPES)
 
 _NOISE_PATTERNS = (
     "out of office",
@@ -33,22 +35,50 @@ _NOISE_PATTERNS = (
     "mail delivery failed",
     "undeliverable",
 )
+NOISE_PATTERNS = _NOISE_PATTERNS
 
 
 @dataclass(frozen=True)
 class _Rule:
+    """Deterministic KPI classifier rule."""
+
     case_type: str
     confidence: float
     rules: List[str]
 
 
 _RULES = (
-    _Rule("CAT1_COMPLIANCE", 0.99, ["cat1"]),
-    _Rule("CAT5_COMPLIANCE", 0.99, ["cat5"]),
-    _Rule("DATA_ABSENCE", 0.98, ["maintenance data is not up to date", "data absence alert", "maintenance data has never been submitted", "no maintenance records"]),
-    _Rule("MAINTENANCE_HOURS_SHORTFALL", 0.98, ["maintenance hours less than required", "maintenance hours shortfall"]),
-    _Rule("MAJOR_WORK_OVERDUE", 0.98, ["scheduled work is overdue", "major scheduled work overdue", "scheduled work is overdue or outstanding"]),
-    _Rule("GOVERNMENT_DIRECTIVE", 0.98, ["government directive", "outstanding government directive"]),
+    _Rule(CASE_TYPE_CAT1_COMPLIANCE, 0.99, ["cat1"]),
+    _Rule(CASE_TYPE_CAT5_COMPLIANCE, 0.99, ["cat5"]),
+    _Rule(
+        CASE_TYPE_DATA_ABSENCE,
+        0.98,
+        [
+            "maintenance data is not up to date",
+            "data absence alert",
+            "maintenance data has never been submitted",
+            "no maintenance records",
+        ],
+    ),
+    _Rule(
+        CASE_TYPE_MAINTENANCE_HOURS_SHORTFALL,
+        0.98,
+        ["maintenance hours less than required", "maintenance hours shortfall"],
+    ),
+    _Rule(
+        CASE_TYPE_MAJOR_WORK_OVERDUE,
+        0.98,
+        [
+            "scheduled work is overdue",
+            "major scheduled work overdue",
+            "scheduled work is overdue or outstanding",
+        ],
+    ),
+    _Rule(
+        CASE_TYPE_GOVERNMENT_DIRECTIVE,
+        0.98,
+        ["government directive", "outstanding government directive"],
+    ),
 )
 
 
@@ -82,10 +112,10 @@ def classify_email(subject: str, body: str) -> Dict[str, Any]:
             prompt_type="noise_filter",
             caller="classifier.classify_email",
             reason=deterministic["reason"],
-            case_type="UNKNOWN",
+            case_type=CASE_TYPE_UNKNOWN,
         )
         return {
-            "case_type": "UNKNOWN",
+            "case_type": CASE_TYPE_UNKNOWN,
             "confidence": 1.0,
             "source": "deterministic",
             "reason": deterministic["reason"],
@@ -104,7 +134,7 @@ def classify_email(subject: str, body: str) -> Dict[str, Any]:
     )
     if outcome.payload is None:
         return {
-            "case_type": "UNKNOWN",
+            "case_type": CASE_TYPE_UNKNOWN,
             "confidence": 0.0,
             "source": "manual_review",
             "reason": f"Ambiguous email and AI unavailable: {outcome.reason}",
@@ -114,9 +144,9 @@ def classify_email(subject: str, body: str) -> Dict[str, Any]:
         }
 
     result = dict(outcome.payload)
-    case_type = result.get("case_type", "UNKNOWN")
+    case_type = result.get("case_type", CASE_TYPE_UNKNOWN)
     if case_type not in CASE_TYPES:
-        case_type = "UNKNOWN"
+        case_type = CASE_TYPE_UNKNOWN
     try:
         confidence = float(result.get("confidence", 0.5))
     except (TypeError, ValueError):
@@ -134,14 +164,20 @@ def classify_email(subject: str, body: str) -> Dict[str, Any]:
     }
 
 
+def classify_email_deterministic_only(subject: str, body: str) -> Dict[str, Any]:
+    """Classify a message without AI for offline-only workflows."""
+    return _deterministic_classification(subject, body)
+
+
 def _deterministic_classification(subject: str, body: str) -> Dict[str, Any]:
+    """Return the deterministic classification result for supported KPI rules."""
     normalized_subject = subject.lower()
     normalized_body = body.lower()
 
     if any(pattern in normalized_subject for pattern in _NOISE_PATTERNS):
         matched = [pattern for pattern in _NOISE_PATTERNS if pattern in normalized_subject]
         return {
-            "case_type": "UNKNOWN",
+            "case_type": CASE_TYPE_UNKNOWN,
             "confidence": 1.0,
             "source": "noise",
             "reason": f"Matched obvious non-KPI noise pattern(s): {', '.join(matched)}.",
@@ -173,7 +209,7 @@ def _deterministic_classification(subject: str, body: str) -> Dict[str, Any]:
         }
 
     return {
-        "case_type": "UNKNOWN",
+        "case_type": CASE_TYPE_UNKNOWN,
         "confidence": 0.0,
         "source": "ambiguous",
         "reason": "No deterministic KPI classification rule matched.",
@@ -182,6 +218,7 @@ def _deterministic_classification(subject: str, body: str) -> Dict[str, Any]:
 
 
 def _build_ai_prompt(subject: str, body: str) -> str:
+    """Build the guarded classification prompt used only by ``ai_gateway``."""
     sanitized = sanitize_email_content(body)
     case_type_lines = "\n".join(f"- {case_type}" for case_type in CASE_TYPES)
     return f"""You are a KPI alert email classifier for an elevator compliance management system.

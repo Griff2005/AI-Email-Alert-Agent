@@ -9,7 +9,15 @@ from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple
 
 from ai_gateway import get_ai_gateway
-from claude_client import sanitize_email_content
+from content_safety import sanitize_email_content
+from constants import (
+    CASE_TYPE_CAT1_COMPLIANCE,
+    CASE_TYPE_CAT5_COMPLIANCE,
+    CASE_TYPE_DATA_ABSENCE,
+    CASE_TYPE_GOVERNMENT_DIRECTIVE,
+    CASE_TYPE_MAINTENANCE_HOURS_SHORTFALL,
+    CASE_TYPE_MAJOR_WORK_OVERDUE,
+)
 from runtime_options import runtime_options
 
 _FIELD_NAMES = [
@@ -35,7 +43,7 @@ _FIELD_NAMES = [
 _LABELS = {
     "building": ("Building",),
     "device": ("Device",),
-    "contractor": ("Contractor",),
+    "contractor": ("Contractor", "Details"),
     "due_date": ("Compliance Due Date", "DueDate"),
     "scheduled_date": ("ScheduledDate", "Scheduled Date"),
     "period": ("Reporting Period", "Period"),
@@ -47,12 +55,18 @@ _LABELS = {
 }
 
 _REQUIRED_FIELDS = {
-    "CAT1_COMPLIANCE": ("building", "device"),
-    "CAT5_COMPLIANCE": ("building", "device"),
-    "DATA_ABSENCE": ("building", "contractor"),
-    "MAINTENANCE_HOURS_SHORTFALL": ("building", "contractor", "period", "hours_required", "hours_actual"),
-    "MAJOR_WORK_OVERDUE": ("building", "contractor", "device", "scheduled_date"),
-    "GOVERNMENT_DIRECTIVE": ("building", "device", "due_date"),
+    CASE_TYPE_CAT1_COMPLIANCE: ("building", "device"),
+    CASE_TYPE_CAT5_COMPLIANCE: ("building", "device"),
+    CASE_TYPE_DATA_ABSENCE: ("building", "contractor"),
+    CASE_TYPE_MAINTENANCE_HOURS_SHORTFALL: (
+        "building",
+        "contractor",
+        "period",
+        "hours_required",
+        "hours_actual",
+    ),
+    CASE_TYPE_MAJOR_WORK_OVERDUE: ("building", "device", "scheduled_date"),
+    CASE_TYPE_GOVERNMENT_DIRECTIVE: ("building", "device", "due_date"),
 }
 
 _DATE_FORMATS = (
@@ -74,14 +88,16 @@ def extract_fields(subject: str, body: str, case_type: str) -> Dict[str, Any]:
     return fields
 
 
-def extract_fields_with_meta(
+def extract_fields_deterministic_only(
     subject: str,
     body: str,
     case_type: str,
-    email_id: Optional[str] = None,
-    case_id: Optional[str] = None,
-) -> Tuple[Dict[str, Any], Dict[str, Any]]:
-    """Extract fields deterministically first, using AI only when necessary."""
+) -> Tuple[Dict[str, Any], List[str]]:
+    """Extract known fields without AI and report unresolved required fields.
+
+    This is the safe shared path for code that must remain offline, such as
+    Backlog Loading Mode. It intentionally does not call ``ai_gateway``.
+    """
     fields = _empty_fields()
     fields.update(_extract_common_fields(body))
     for field_name, value in _extract_case_specific_fields(subject, body, case_type, fields).items():
@@ -93,6 +109,18 @@ def extract_fields_with_meta(
         for field_name in _REQUIRED_FIELDS.get(case_type, ())
         if not fields.get(field_name)
     ]
+    return fields, missing_required
+
+
+def extract_fields_with_meta(
+    subject: str,
+    body: str,
+    case_type: str,
+    email_id: Optional[str] = None,
+    case_id: Optional[str] = None,
+) -> Tuple[Dict[str, Any], Dict[str, Any]]:
+    """Extract fields deterministically first, using AI only when necessary."""
+    fields, missing_required = extract_fields_deterministic_only(subject, body, case_type)
     gateway = get_ai_gateway()
     if not missing_required:
         gateway.record_skip(
@@ -232,10 +260,12 @@ def generate_email_body(
 
 
 def _empty_fields() -> Dict[str, Optional[str]]:
+    """Return a field dict initialized with all known extraction keys."""
     return {field_name: None for field_name in _FIELD_NAMES}
 
 
 def _extract_common_fields(body: str) -> Dict[str, Optional[str]]:
+    """Extract fields that use simple ``Label: value`` body lines."""
     fields = _empty_fields()
     for field_name, labels in _LABELS.items():
         for label in labels:
@@ -255,16 +285,45 @@ def _extract_common_fields(body: str) -> Dict[str, Optional[str]]:
     return fields
 
 
+def _extract_data_absence_contractor(body: str) -> Optional[str]:
+    """Extract contractor name from e-volve two-column table format.
+
+    Handles the format where Contractor and Details are separate column
+    headers, and the contractor name appears on a subsequent line.
+    """
+    clean = _strip_html_entities(body)
+    standard = _capture_line(clean, "Contractor")
+    if standard:
+        return standard
+    m = re.search(
+        r'(?:^|\n)\s*Details\s*\r?\n(?:[ \t]*\r?\n)*[ \t]*([A-Za-z][^\r\n:]{4,80})',
+        clean,
+        re.IGNORECASE,
+    )
+    if m:
+        return m.group(1).strip() or None
+    collapsed = re.sub(r"\s+", " ", clean).strip()
+    m = re.search(
+        r"\bContractor\s+Details\s+(.+?)\s+"
+        r"(?:Last\s+Activity\s+Date|Elapsed\s+Days|Data\s+Status|Regards\b|$)",
+        collapsed,
+        re.IGNORECASE,
+    )
+    if m:
+        return m.group(1).strip(" .") or None
+    return None
+
+
 def _extract_case_specific_fields(
     subject: str,
     body: str,
     case_type: str,
     fields: Dict[str, Optional[str]],
 ) -> Dict[str, Optional[str]]:
-    del subject
+    """Extract fields that require case-family-specific parsing rules."""
     extracted = _empty_fields()
 
-    if case_type in {"CAT1_COMPLIANCE", "CAT5_COMPLIANCE"}:
+    if case_type in {CASE_TYPE_CAT1_COMPLIANCE, CASE_TYPE_CAT5_COMPLIANCE}:
         extracted["description"] = None
         logged = _capture_line(body, "LoggedDate") or _capture_line(body, "Date Logged")
         if logged and not fields.get("due_date"):
@@ -273,12 +332,34 @@ def _extract_case_specific_fields(
             extracted["contractor"] = _capture_line(body, "Contractor")
         return extracted
 
-    if case_type == "DATA_ABSENCE":
-        if not fields.get("description"):
+    if case_type == CASE_TYPE_DATA_ABSENCE:
+        clean_body = _strip_html_entities(body)
+        if not fields.get("building") and " - " in subject:
+            norm_subject = re.sub(r"\s+", " ", subject)
+            extracted["building"] = norm_subject.rsplit(" - ", 1)[-1].strip()
+        if not fields.get("contractor"):
+            extracted["contractor"] = _extract_data_absence_contractor(body)
+        for field_name, labels in _LABELS.items():
+            if field_name in {"building", "contractor"}:
+                continue
+            if fields.get(field_name) or extracted.get(field_name):
+                continue
+            for label in labels:
+                value = _capture_line(clean_body, label)
+                if not value:
+                    continue
+                normalized = _strip_html_entities(value).strip()
+                if field_name in {"due_date", "scheduled_date", "last_activity_date"}:
+                    normalized = _normalize_date(normalized)
+                if field_name == "elapsed_days":
+                    normalized = _capture_digits(normalized) or normalized
+                extracted[field_name] = normalized
+                break
+        if not fields.get("description") and not extracted.get("description"):
             extracted["description"] = "Maintenance data has never been submitted"
         return extracted
 
-    if case_type == "MAINTENANCE_HOURS_SHORTFALL":
+    if case_type == CASE_TYPE_MAINTENANCE_HOURS_SHORTFALL:
         rows = _parse_hours_rows(body)
         if rows:
             extracted["hours_required"] = f"{sum(row['required'] for row in rows):.2f}"
@@ -287,14 +368,24 @@ def _extract_case_specific_fields(
             extracted["device"] = None
         return extracted
 
-    if case_type == "MAJOR_WORK_OVERDUE":
+    if case_type == CASE_TYPE_MAJOR_WORK_OVERDUE:
+        if not fields.get("building") and " - " in subject:
+            extracted["building"] = subject.rsplit(" - ", 1)[-1].strip()
         if not fields.get("description"):
             extracted["description"] = _capture_line(body, "Description") or _capture_line(body, "Work Description")
+        if not fields.get("device") or not fields.get("scheduled_date"):
+            vertical = _parse_major_work_vertical(body)
+            for field_name, value in vertical.items():
+                if value and not fields.get(field_name) and not extracted.get(field_name):
+                    extracted[field_name] = value
         if extracted["description"]:
             extracted["work_item"] = extracted["description"]
         return extracted
 
-    if case_type == "GOVERNMENT_DIRECTIVE":
+    if case_type == CASE_TYPE_GOVERNMENT_DIRECTIVE:
+        if not fields.get("building") and " - " in subject:
+            norm_subject = re.sub(r"\s+", " ", subject)
+            extracted["building"] = norm_subject.rsplit(" - ", 1)[-1].strip()
         directive = _capture_directive_row(body)
         if directive:
             extracted["device"] = directive["device"]
@@ -307,6 +398,7 @@ def _extract_case_specific_fields(
 
 
 def _normalize_ai_fields(payload: Dict[str, Any]) -> Dict[str, Optional[str]]:
+    """Normalize an AI JSON payload into known extractor fields only."""
     fields = _empty_fields()
     for field_name in _FIELD_NAMES:
         value = payload.get(field_name)
@@ -324,6 +416,7 @@ def _normalize_ai_fields(payload: Dict[str, Any]) -> Dict[str, Optional[str]]:
 
 
 def _build_meta(source: str, case_type: str, missing_required_fields: List[str], reason: str) -> Dict[str, Any]:
+    """Build extraction metadata used by the case manager and tests."""
     return {
         "source": source,
         "case_type": case_type,
@@ -450,6 +543,7 @@ def _template_email_body(
 
 
 def _capture_line(body: str, label: str) -> Optional[str]:
+    """Return the value for a ``Label: value`` line in an email body."""
     match = re.search(rf"^{re.escape(label)}:\s*(.+)$", body, re.MULTILINE)
     if not match:
         return None
@@ -458,6 +552,7 @@ def _capture_line(body: str, label: str) -> Optional[str]:
 
 
 def _normalize_date(value: str) -> str:
+    """Normalize known date formats to ``YYYY-MM-DD`` and otherwise return input."""
     candidate = value.strip()
     for fmt in _DATE_FORMATS:
         try:
@@ -468,11 +563,23 @@ def _normalize_date(value: str) -> str:
 
 
 def _capture_digits(value: str) -> Optional[str]:
+    """Return the first digit run in a string, if present."""
     match = re.search(r"\d+", value)
     return match.group(0) if match else None
 
 
+def _strip_html_entities(text: str) -> str:
+    """Replace common HTML entities and &nbsp; with plain text equivalents."""
+    text = re.sub(r"&nbsp;", " ", text)
+    text = re.sub(r"&amp;", "&", text)
+    text = re.sub(r"&lt;", "<", text)
+    text = re.sub(r"&gt;", ">", text)
+    text = re.sub(r"&[a-zA-Z]+;", " ", text)
+    return text
+
+
 def _parse_hours_rows(body: str) -> List[Dict[str, float]]:
+    """Parse pipe-separated maintenance-hours rows from demo KPI emails."""
     rows: List[Dict[str, float]] = []
     for line in body.splitlines():
         if "|" not in line or line.lower().startswith("device |"):
@@ -493,7 +600,72 @@ def _parse_hours_rows(body: str) -> List[Dict[str, float]]:
     return rows
 
 
+def _parse_major_work_vertical(body: str) -> Dict[str, Optional[str]]:
+    """Parse e-volve vertical-layout MAJOR_WORK_OVERDUE body."""
+    result: Dict[str, Optional[str]] = {
+        "device": None,
+        "scheduled_date": None,
+        "description": None,
+    }
+    lines = [line.strip() for line in body.splitlines() if line.strip()]
+    try:
+        header_idx = next(
+            i for i, line in enumerate(lines)
+            if line.lower() in ("scheduleddate", "scheduled date", "scheduled_date")
+        )
+    except StopIteration:
+        header_idx = None
+
+    device_pattern = re.compile(r"[A-Za-z0-9()/-]+(?:\s+[A-Za-z0-9()/-]+)*\s+#\w+", re.IGNORECASE)
+    if header_idx is not None:
+        after = lines[header_idx + 1:]
+        if after and after[0].lower() == "description":
+            after = after[1:]
+        device_idx = next((i for i, line in enumerate(after) if device_pattern.search(line)), None)
+        if device_idx is not None:
+            device_match = device_pattern.search(after[device_idx])
+            if device_match:
+                result["device"] = device_match.group(0).strip()
+            for offset in range(device_idx + 1, len(after)):
+                normalized = _normalize_date(after[offset])
+                if normalized != after[offset]:
+                    result["scheduled_date"] = normalized
+                    if offset + 1 < len(after):
+                        result["description"] = after[offset + 1]
+                    return result
+
+    collapsed = re.sub(r"\s+", " ", body).strip()
+    header_match = re.search(r"Device\s+ScheduledDate\s+Description\s+(?P<tail>.+)", collapsed, re.IGNORECASE)
+    if not header_match:
+        return result
+    tail = re.split(r"\bRegards\b|À qui de droit|------------------------------", header_match.group("tail"), maxsplit=1)[0]
+    device_match = device_pattern.search(tail)
+    if not device_match:
+        return result
+
+    result["device"] = device_match.group(0).strip()
+    after_device = tail[device_match.end():].strip()
+    date_match = re.search(
+        r"\b(?:\d{4}-\d{2}-\d{2}|\d{1,2}-[A-Za-z]{3,9}-\d{4}|\d{1,2}/\d{1,2}/\d{2,4})\b",
+        after_device,
+    )
+    if not date_match:
+        return result
+
+    result["scheduled_date"] = _normalize_date(date_match.group(0))
+    description = after_device[date_match.end():].strip()
+    if description:
+        result["description"] = description
+    return result
+
+
 def _capture_directive_row(body: str) -> Optional[Dict[str, str]]:
+    """Extract device, due_date, description from a government directive email body.
+
+    Supports two formats:
+    1. Pipe-separated: "device / report_date | due_date | description"
+    2. e-volve space-separated: "... Device DueDate Description <device> <date> <desc>"
+    """
     for line in body.splitlines():
         if "|" not in line or "/" not in line:
             continue
@@ -505,5 +677,20 @@ def _capture_directive_row(body: str) -> Optional[Dict[str, str]]:
             "device": device,
             "due_date": parts[1],
             "description": parts[2],
+        }
+
+    m = re.search(
+        r"Device(?:/Report\s+Date)?\s+DueDate\s+Description\s+"
+        r"([A-Za-z0-9#()\s/\-]{1,40}?)\s+"
+        r"(\d{2}-[A-Za-z]+-\d{4})\s+"
+        r"(.+?)(?:\r?\n|$)",
+        body,
+        re.DOTALL,
+    )
+    if m:
+        return {
+            "device": m.group(1).strip(),
+            "due_date": m.group(2).strip(),
+            "description": m.group(3).strip(),
         }
     return None
