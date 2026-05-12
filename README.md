@@ -152,6 +152,10 @@ Optional arguments: `--limit <N>` limits records processed. `--report-dir <PATH>
 
 The backlog loader itself accepts JSON only. The optional one-off `src/pst_to_backlog_json.py` helper can convert PST data to that JSON shape when `libpff-python` is installed, but PST import is not part of the runtime backlog loader.
 
+```bash
+python src/pst_to_backlog_json.py Email_Backlog.pst data/my_backlog.json
+```
+
 ## Connection Discovery
 
 Discover possible hidden connections across supported KPI cases using AI. All hypotheses are stored as `proposed` items for human review. The command never modifies cases, sends emails, schedules follow-ups, escalates, or closes cases.
