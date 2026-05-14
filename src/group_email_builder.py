@@ -16,6 +16,7 @@ from config import config
 from constants import EMAIL_TYPES, STATUS_CLOSED
 from response_requirements import (
     calculate_case_completeness,
+    build_case_requirements,
     get_required_response_items,
     validate_required_response_in_email,
 )
@@ -64,16 +65,25 @@ def build_consolidated_email(group_id: str) -> dict[str, Any]:
 
 
 def build_clarification_email(case_ids: list[str]) -> dict[str, Any]:
-    """Build a clarification draft asking only for missing requirement fields."""
+    """Build a clarification draft asking only for missing requirement fields.
+
+    Uses case_data_requirements to identify missing items per case.
+    Preserves demo recipient override.
+    """
     cases = [_case_to_dict(case_id) for case_id in case_ids]
     cases = [case for case in cases if case is not None]
     if not cases:
         raise ValueError("At least one valid case ID is required for a clarification email.")
 
+    # Build requirements for each case (ensures DB rows exist)
+    for case in cases:
+        build_case_requirements(case["case_id"])
+
     building = cases[0].get("building") or "the building"
     contractor = cases[0].get("contractor") or "the contractor"
     intended_to = _resolve_intended_to({"contractor": contractor}, cases)
     actual_to = config.DEMO_RECIPIENT_EMAIL if config.DEMO_MODE else intended_to
+
     lines = [
         "Hello,",
         "",
@@ -81,28 +91,38 @@ def build_clarification_email(case_ids: list[str]) -> dict[str, Any]:
         f"Contractor: {contractor}",
         "",
     ]
+
     for index, case in enumerate(cases, 1):
         completeness = calculate_case_completeness(case["case_id"])
         lines.append(f"{index}. Case {case['case_id']}")
         lines.append(f"- Case type: {case['case_type']}")
         lines.append("Missing details:")
-        for key in completeness["missing_keys"]:
-            item = _requirement_by_key(case["case_type"], key)
-            label = item["label"] if item else key.replace("_", " ")
-            lines.append(f"- {label}")
+
+        if not completeness["missing_keys"]:
+            lines.append("- No missing items (all requirements provided)")
+        else:
+            for key in completeness["missing_keys"]:
+                item = _requirement_by_key(case["case_type"], key)
+                label = item["label"] if item else key.replace("_", " ")
+                lines.append(f"- {label}")
+
         lines.append("")
+
     lines.extend(["Thank you,", "Solucore"])
+    summary_json = {
+        "case_ids": case_ids,
+        "case_count": len(cases),
+        "building": building,
+        "contractor": contractor,
+    }
+
     return {
         "subject": f"Clarification Required: Open KPI Items for {building}",
         "body": "\n".join(lines).strip(),
         "intended_to": intended_to,
         "intended_cc": "",
         "actual_to": actual_to,
-        "summary_json": {
-            "case_ids": [case["case_id"] for case in cases],
-            "case_count": len(cases),
-            "email_type": "clarification",
-        },
+        "summary_json": summary_json,
     }
 
 
