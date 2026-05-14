@@ -227,7 +227,7 @@ class DiscoveryPacketsTestCase(unittest.TestCase):
         self._link_group_case(group_id, supported_id)
         self._link_group_case(group_id, unsupported_id)
 
-        packets = discovery_packets.build_building_group_packets(group_id)
+        packets = discovery_packets.build_building_group_packets("run-building-groups-test")
 
         payload = json.dumps(packets)
         self.assertIn(supported_id, payload)
@@ -408,6 +408,25 @@ class DiscoveryPacketsTestCase(unittest.TestCase):
         self.assertEqual(1, result["ai_calls_used"])
         self.assertEqual(1, result["packets_analyzed"])
         self.assertGreaterEqual(result["packets_created"], 3)
+
+    def test_existing_small_case_discovery_behavior_preserved(self):
+        """run_discovery without scope still uses small-case path and returns expected keys."""
+        import connection_discovery
+
+        case_id = self._insert_case("small-case-compat-1")
+        self._configure_gateway(
+            lambda prompt, model: {"hypotheses": []},
+            max_calls=5,
+        )
+
+        result = connection_discovery.run_discovery(max_ai_calls=5)
+
+        # Small-case path returns cases_analyzed, not packets_created
+        self.assertIn("cases_analyzed", result)
+        self.assertIn("hypotheses_proposed", result)
+        self.assertIn("hypotheses_rejected", result)
+        # Must not contain packetized-scope keys
+        self.assertNotIn("packets_created", result)
 
 
 if __name__ == "__main__":

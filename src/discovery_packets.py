@@ -8,6 +8,7 @@ case types in returned packet payloads.
 from __future__ import annotations
 
 import json
+import re
 import uuid
 from collections import defaultdict
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
@@ -598,9 +599,11 @@ def _count_unsupported_records(packet: Dict[str, Any]) -> int:
     for case in packet.get("cases") or []:
         if case.get("case_type") not in _SUPPORTED_CASE_TYPES:
             unsupported += 1
-    payload = json.dumps(packet, sort_keys=True, default=str)
+    # Scan only JSON keys (not values) to avoid false positives from field data
+    # that legitimately contains the marker strings as substrings.
+    all_keys = re.findall(r'"([^"]+)"\s*:', json.dumps(packet, sort_keys=True, default=str))
     for marker in _RAW_EMAIL_MARKERS:
-        if marker in payload:
+        if marker in all_keys:
             unsupported += 1
     return unsupported
 
