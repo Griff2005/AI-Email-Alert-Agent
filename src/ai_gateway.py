@@ -30,6 +30,7 @@ AI_PURPOSES = {
     "reply_analysis",
     "pattern_analysis",
     "manual_review_reasoning",
+    "connection_discovery",
     "other",
 }
 

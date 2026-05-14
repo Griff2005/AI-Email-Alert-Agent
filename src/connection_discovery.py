@@ -340,7 +340,7 @@ def _run_small_case_discovery(
     gateway = get_ai_gateway()
     outcome = gateway.call_json(
         prompt=prompt,
-        purpose="other",
+        purpose="connection_discovery",
         prompt_type="connection_discovery",
         caller="connection_discovery",
     )
@@ -664,7 +664,7 @@ def _analyze_packet(
     try:
         outcome = gateway.call_json(
             prompt=prompt,
-            purpose="other",
+            purpose="connection_discovery",
             prompt_type="connection_discovery_packet",
             caller="connection_discovery",
         )
