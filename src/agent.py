@@ -795,8 +795,12 @@ def cmd_discover_connections(args) -> None:
         args: Parsed argparse namespace. Must include ``max_ai_calls``.
     """
     max_ai_calls = getattr(args, "max_ai_calls", 0)
-    if not max_ai_calls:
-        print("[AGENT] ERROR: --max-ai-calls is required and must be > 0 for discover-connections.")
+    dry_run = bool(getattr(args, "dry_run", False))
+    if max_ai_calls is None or max_ai_calls < 0 or (max_ai_calls == 0 and not dry_run):
+        print(
+            "[AGENT] ERROR: --max-ai-calls is required and must be > 0 "
+            "unless --dry-run is set."
+        )
         sys.exit(1)
 
     import connection_discovery
@@ -804,11 +808,21 @@ def cmd_discover_connections(args) -> None:
     db.init_schema()
     config.validate()
 
+    report_path = _default_ai_report_path("discover-connections")
+    ai_enabled = not (dry_run and max_ai_calls == 0)
+    runtime_options.configure(
+        RuntimeOptions(
+            ai_enabled=ai_enabled,
+            max_ai_calls=max_ai_calls,
+            ai_budget_mode="fail",
+            ai_report_path=report_path,
+        )
+    )
     gateway = get_ai_gateway()
     gateway.reset()
     gateway.configure(
         AiUsageConfig(
-            enabled=True,
+            enabled=ai_enabled,
             max_calls=max_ai_calls,
             budget_mode="fail",
             model_name=config.CLAUDE_MODEL,
@@ -822,18 +836,77 @@ def cmd_discover_connections(args) -> None:
         limit=getattr(args, "limit", None),
         building=getattr(args, "building", None),
         case_type_filter=getattr(args, "case_type", None),
-        dry_run=bool(getattr(args, "dry_run", False)),
+        dry_run=dry_run,
+        scope=getattr(args, "scope", None),
+        packet_by=getattr(args, "packet_by", "entity"),
+        batch_size=getattr(args, "batch_size", 25),
+        max_prompt_chars=getattr(args, "max_prompt_chars", 40000),
     )
 
-    report_path = _default_ai_report_path("discover-connections")
     _finalize_ai_report(report_path)
     _append_command_event(
         "discover_connections_completed",
         command="discover-connections",
-        dry_run=bool(getattr(args, "dry_run", False)),
+        dry_run=dry_run,
+        scope=getattr(args, "scope", None) or "small-case",
         cases_analyzed=result.get("cases_analyzed"),
+        packets_created=result.get("packets_created"),
+        packets_analyzed=result.get("packets_analyzed"),
+        ai_calls_used=result.get("ai_calls_used"),
         hypotheses_proposed=result.get("hypotheses_proposed"),
         hypotheses_rejected=result.get("hypotheses_rejected"),
+        unsupported_records_included=result.get("unsupported_records_included"),
+    )
+
+
+def cmd_merge_connection_hypotheses(args) -> None:
+    """Merge duplicate proposed connection hypotheses without calling AI."""
+    max_ai_calls = getattr(args, "max_ai_calls", 0)
+    if max_ai_calls is None or max_ai_calls < 0:
+        print("[AGENT] ERROR: --max-ai-calls must be a non-negative integer.")
+        sys.exit(1)
+
+    import connection_discovery
+
+    db.init_schema()
+    report_path = _default_ai_report_path("merge-connection-hypotheses")
+    runtime_options.configure(
+        RuntimeOptions(
+            ai_enabled=False,
+            max_ai_calls=max_ai_calls,
+            ai_report_path=report_path,
+        )
+    )
+    gateway = get_ai_gateway()
+    gateway.reset()
+    gateway.configure(
+        AiUsageConfig(
+            enabled=False,
+            max_calls=max_ai_calls,
+            budget_mode="fail",
+            model_name=config.CLAUDE_MODEL,
+            config_version="agent-merge-connection-hypotheses",
+        )
+    )
+    gateway.set_run_metadata(command="merge-connection-hypotheses")
+
+    dry_run = bool(getattr(args, "dry_run", False))
+    result = connection_discovery.merge_duplicate_hypotheses(dry_run=dry_run)
+    action = "would mark" if dry_run else "marked"
+    print(
+        f"[DISCOVERY] Merge complete: {result['duplicate_groups']} duplicate group(s), "
+        f"{action} {result['hypotheses_marked_merged']} duplicate hypothesis row(s)."
+    )
+
+    _finalize_ai_report(report_path)
+    _append_command_event(
+        "merge_connection_hypotheses_completed",
+        command="merge-connection-hypotheses",
+        dry_run=dry_run,
+        duplicate_groups=result.get("duplicate_groups"),
+        hypotheses_marked_merged=result.get("hypotheses_marked_merged"),
+        hypotheses_updated=result.get("hypotheses_updated"),
+        ai_calls_used=0,
     )
 
 
@@ -951,6 +1024,9 @@ Examples:
   python src/agent.py test-demo-scale --offline --emails 25 --seed 42
   python src/agent.py discover-connections --max-ai-calls 5
   python src/agent.py discover-connections --max-ai-calls 5 --dry-run
+  python src/agent.py discover-connections --scope patterns --max-ai-calls 20
+  python src/agent.py discover-connections --scope all-supported --packet-by entity --max-ai-calls 100
+  python src/agent.py merge-connection-hypotheses --max-ai-calls 0 --dry-run
         """,
     )
     subparsers = parser.add_subparsers(dest="command")
@@ -1080,7 +1156,7 @@ Examples:
         type=int,
         default=0,
         metavar="N",
-        help="Maximum AI calls allowed for this run (required, must be > 0)",
+        help="Maximum AI calls allowed for this run (required; may be 0 with --dry-run)",
     )
     discover_parser.add_argument(
         "--limit",
@@ -1104,10 +1180,58 @@ Examples:
         help="Filter cases by supported case type",
     )
     discover_parser.add_argument(
+        "--scope",
+        type=str,
+        default=None,
+        metavar="SCOPE",
+        choices=["patterns", "building-groups", "all-supported"],
+        help="Discovery scope: patterns | building-groups | all-supported (default: small-case mode)",
+    )
+    discover_parser.add_argument(
+        "--packet-by",
+        type=str,
+        default="entity",
+        metavar="BY",
+        choices=["building", "contractor", "device", "case-type", "entity"],
+        help="Packetization strategy for all-supported scope (default: entity)",
+    )
+    discover_parser.add_argument(
+        "--batch-size",
+        type=int,
+        default=25,
+        metavar="N",
+        help="Max cases per packet (default: 25)",
+    )
+    discover_parser.add_argument(
+        "--max-prompt-chars",
+        type=int,
+        default=40000,
+        metavar="N",
+        help="Max prompt characters per packet before splitting (default: 40000)",
+    )
+    discover_parser.add_argument(
         "--dry-run",
         action="store_true",
         default=False,
-        help="Print hypotheses without writing to the database",
+        help="Print what would run without calling AI when --max-ai-calls is 0",
+    )
+
+    merge_parser = subparsers.add_parser(
+        "merge-connection-hypotheses",
+        help="Merge duplicate connection hypotheses deterministically",
+    )
+    merge_parser.add_argument(
+        "--max-ai-calls",
+        type=int,
+        default=0,
+        metavar="N",
+        help="Explicit AI call cap for this no-AI command; use 0 for dry-run",
+    )
+    merge_parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        default=False,
+        help="Show duplicate groups without marking any as merged",
     )
 
     args = parser.parse_args()
@@ -1140,6 +1264,8 @@ Examples:
         cmd_observability_report(args)
     elif args.command == "discover-connections":
         cmd_discover_connections(args)
+    elif args.command == "merge-connection-hypotheses":
+        cmd_merge_connection_hypotheses(args)
     else:
         parser.print_help()
         sys.exit(1)
