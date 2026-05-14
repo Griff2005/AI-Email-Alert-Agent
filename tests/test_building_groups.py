@@ -57,6 +57,18 @@ class BuildingGroupsTestCase(unittest.TestCase):
             sql += f" WHERE {where}"
         return conn.execute(sql, params).fetchone()["count"]
 
+    def _manual_reviews_for_case(self, case_id):
+        conn = db.get_connection()
+        return conn.execute(
+            """
+            SELECT *
+            FROM manual_reviews
+            WHERE case_id = ?
+            ORDER BY flagged_at ASC
+            """,
+            (case_id,),
+        ).fetchall()
+
     def _insert_case(
         self,
         case_id,
@@ -198,6 +210,51 @@ class BuildingGroupsTestCase(unittest.TestCase):
         self.assertEqual(0, self._count_rows("building_issue_groups"))
         self.assertEqual(0, self._count_rows("building_issue_group_cases"))
 
+    def test_missing_building_creates_manual_review(self):
+        self._insert_case("case-no-building-review", building=None, contractor="Example Elevator Company")
+
+        group_id = attach_case_to_group("case-no-building-review")
+
+        reviews = self._manual_reviews_for_case("case-no-building-review")
+        self.assertIsNone(group_id)
+        self.assertEqual(1, len(reviews))
+        self.assertEqual(0, reviews[0]["resolved"])
+        self.assertIn("building", reviews[0]["reason"].lower())
+        self.assertIn("grouping", reviews[0]["reason"].lower())
+
+    def test_missing_contractor_creates_manual_review(self):
+        self._insert_case("case-no-contractor-review", building="123 Example Road", contractor=None)
+
+        group_id = attach_case_to_group("case-no-contractor-review")
+
+        reviews = self._manual_reviews_for_case("case-no-contractor-review")
+        self.assertIsNone(group_id)
+        self.assertEqual(1, len(reviews))
+        self.assertEqual(0, reviews[0]["resolved"])
+        self.assertIn("contractor", reviews[0]["reason"].lower())
+        self.assertIn("grouping", reviews[0]["reason"].lower())
+
+    def test_missing_grouping_data_backlog_does_not_create_review(self):
+        self._insert_case("case-backlog-missing-building", building=None, contractor="Example Elevator Company")
+
+        group_id = attach_case_to_group(
+            "case-backlog-missing-building",
+            source="backlog_import",
+            enqueue=False,
+        )
+
+        self.assertIsNone(group_id)
+        self.assertEqual(0, len(self._manual_reviews_for_case("case-backlog-missing-building")))
+
+    def test_missing_grouping_review_not_duplicated(self):
+        self._insert_case("case-no-building-duplicate", building=None, contractor="Example Elevator Company")
+
+        attach_case_to_group("case-no-building-duplicate")
+        attach_case_to_group("case-no-building-duplicate")
+
+        reviews = self._manual_reviews_for_case("case-no-building-duplicate")
+        self.assertEqual(1, len(reviews))
+
     def test_rebuild_all_groups_is_idempotent(self):
         self._insert_case("case-rebuild-1")
         self._insert_case("case-rebuild-2", building="123 example road", contractor="Example Elevator Company")
@@ -209,6 +266,17 @@ class BuildingGroupsTestCase(unittest.TestCase):
         self.assertEqual(0, second["attached"])
         self.assertEqual(1, self._count_rows("building_issue_groups"))
         self.assertEqual(2, self._count_rows("building_issue_group_cases"))
+
+    def test_rebuild_missing_grouping_data_creates_manual_review(self):
+        self._insert_case("case-rebuild-missing-building", building=None, contractor="Example Elevator Company")
+
+        summary = rebuild_all_groups()
+
+        reviews = self._manual_reviews_for_case("case-rebuild-missing-building")
+        self.assertEqual(1, summary["skipped_missing_building"])
+        self.assertEqual(1, len(reviews))
+        self.assertIn("building", reviews[0]["reason"].lower())
+        self.assertIn("grouping", reviews[0]["reason"].lower())
 
     def test_backlog_imported_case_can_be_grouped(self):
         result = self._run_backlog_import()
@@ -231,6 +299,69 @@ class BuildingGroupsTestCase(unittest.TestCase):
         self._run_backlog_import()
 
         self.assertEqual(0, self._count_rows("outbound_messages", "status = ?", ("draft",)))
+
+    def test_case_has_at_most_one_active_group_link(self):
+        self._insert_case(
+            "case-moves-groups",
+            building="123 Example Road",
+            contractor="Example Elevator Company",
+        )
+        first_group_id = attach_case_to_group("case-moves-groups")
+        db.insert_extracted_field(
+            field_id="field-contractor-case-moves-groups-updated",
+            case_id="case-moves-groups",
+            email_id="email-case-moves-groups",
+            field_name="contractor",
+            field_value="Different Elevator Company",
+            confidence_score=1.0,
+        )
+
+        second_group_id = attach_case_to_group("case-moves-groups")
+
+        conn = db.get_connection()
+        active_links = conn.execute(
+            """
+            SELECT *
+            FROM building_issue_group_cases
+            WHERE case_id = ? AND status = 'active'
+            """,
+            ("case-moves-groups",),
+        ).fetchall()
+        self.assertNotEqual(first_group_id, second_group_id)
+        self.assertEqual(1, len(active_links))
+        self.assertEqual(second_group_id, active_links[0]["group_id"])
+
+    def test_stale_group_link_is_removed_not_deleted(self):
+        self._insert_case(
+            "case-stale-link",
+            building="123 Example Road",
+            contractor="Example Elevator Company",
+        )
+        first_group_id = attach_case_to_group("case-stale-link")
+        db.insert_extracted_field(
+            field_id="field-contractor-case-stale-link-updated",
+            case_id="case-stale-link",
+            email_id="email-case-stale-link",
+            field_name="contractor",
+            field_value="Different Elevator Company",
+            confidence_score=1.0,
+        )
+
+        second_group_id = attach_case_to_group("case-stale-link")
+
+        conn = db.get_connection()
+        old_link = conn.execute(
+            """
+            SELECT *
+            FROM building_issue_group_cases
+            WHERE group_id = ? AND case_id = ?
+            """,
+            (first_group_id, "case-stale-link"),
+        ).fetchone()
+        self.assertIsNotNone(old_link)
+        self.assertNotEqual(first_group_id, second_group_id)
+        self.assertEqual("removed", old_link["status"])
+        self.assertEqual(2, self._count_rows("building_issue_group_cases", "case_id = ?", ("case-stale-link",)))
 
     def test_unsupported_case_type_does_not_group(self):
         self._insert_case(

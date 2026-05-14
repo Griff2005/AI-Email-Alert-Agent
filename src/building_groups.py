@@ -104,11 +104,14 @@ def attach_case_to_group(
         The group ID, or None when the case is unsupported or lacks extracted
         building/contractor fields.
     """
-    del enqueue
     if source not in _CASE_GROUP_SOURCES:
         raise ValueError(f"Unsupported case group source: {source}")
 
-    case_data = _eligible_case_group_data(case_id, include_closed=True)
+    case_data = _eligible_case_group_data(
+        case_id,
+        include_closed=True,
+        review_missing_grouping=enqueue and source != "backlog_import",
+    )
     if case_data is None:
         return None
 
@@ -159,9 +162,13 @@ def rebuild_all_groups(include_closed: bool = False, dry_run: bool = False) -> d
         contractor = fields.get("contractor")
         if not building:
             summary["skipped_missing_building"] += 1
+            if not dry_run and case["status"] != STATUS_CLOSED:
+                _ensure_missing_grouping_review(case["case_id"], _missing_grouping_fields(fields))
             continue
         if not contractor:
             summary["skipped_missing_contractor"] += 1
+            if not dry_run and case["status"] != STATUS_CLOSED:
+                _ensure_missing_grouping_review(case["case_id"], _missing_grouping_fields(fields))
             continue
 
         summary["eligible"] += 1
@@ -328,7 +335,12 @@ def get_group_summary(group_id: str) -> dict:
     }
 
 
-def _eligible_case_group_data(case_id: str, *, include_closed: bool) -> Optional[dict[str, Any]]:
+def _eligible_case_group_data(
+    case_id: str,
+    *,
+    include_closed: bool,
+    review_missing_grouping: bool = False,
+) -> Optional[dict[str, Any]]:
     case = db.get_case_by_id(case_id)
     if not case:
         return None
@@ -340,7 +352,10 @@ def _eligible_case_group_data(case_id: str, *, include_closed: bool) -> Optional
     fields = _latest_group_fields(case_id)
     building = fields.get("building")
     contractor = fields.get("contractor")
-    if not building or not contractor:
+    missing_fields = _missing_grouping_fields(fields)
+    if missing_fields:
+        if review_missing_grouping and case["status"] != STATUS_CLOSED:
+            _ensure_missing_grouping_review(case_id, missing_fields)
         return None
     return {
         "case": dict(case),
@@ -367,6 +382,37 @@ def _latest_group_fields(case_id: str) -> dict[str, str]:
         if value:
             fields[row["field_name"]] = value
     return fields
+
+
+def _missing_grouping_fields(fields: dict[str, str]) -> list[str]:
+    missing = []
+    if not fields.get("building"):
+        missing.append("building")
+    if not fields.get("contractor"):
+        missing.append("contractor")
+    return missing
+
+
+def _ensure_missing_grouping_review(case_id: str, missing_fields: list[str]) -> None:
+    if not missing_fields:
+        return
+    reason = _missing_grouping_review_reason(missing_fields)
+    if db.has_open_manual_review(case_id, reason):
+        return
+    db.insert_manual_review(
+        review_id=str(uuid.uuid4()),
+        case_id=case_id,
+        email_id=None,
+        reason=reason,
+    )
+
+
+def _missing_grouping_review_reason(missing_fields: list[str]) -> str:
+    if len(missing_fields) == 1:
+        field_text = missing_fields[0]
+    else:
+        field_text = ", ".join(missing_fields[:-1]) + f" and {missing_fields[-1]}"
+    return f"Missing grouping data for building issue group: {field_text}."
 
 
 def _get_group_by_key(grouping_key: str) -> Optional[dict]:
@@ -399,6 +445,28 @@ def _upsert_group_case_link(group_id: str, case_id: str, source: str, status: st
     now = utc_now_iso()
     with db._write_lock:
         conn = db.get_connection()
+        stale_active_links = conn.execute(
+            """
+            SELECT group_id
+            FROM building_issue_group_cases
+            WHERE case_id = ?
+              AND group_id != ?
+              AND status = 'active'
+            """,
+            (case_id, group_id),
+        ).fetchall()
+        stale_group_ids = [row["group_id"] for row in stale_active_links]
+        if stale_group_ids:
+            conn.execute(
+                """
+                UPDATE building_issue_group_cases
+                SET status = 'removed'
+                WHERE case_id = ?
+                  AND group_id != ?
+                  AND status = 'active'
+                """,
+                (case_id, group_id),
+            )
         existing = conn.execute(
             """
             SELECT *
@@ -426,6 +494,8 @@ def _upsert_group_case_link(group_id: str, case_id: str, source: str, status: st
                 """,
                 (group_id, case_id, now, status, source),
             )
+        for stale_group_id in stale_group_ids:
+            _refresh_group_status_locked(conn, stale_group_id, now)
         _refresh_group_status_locked(conn, group_id, now)
         conn.commit()
 
