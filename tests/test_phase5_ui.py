@@ -12,6 +12,7 @@ if str(SRC_DIR) not in sys.path:
 import database as db
 from config import config
 from constants import CASE_TYPE_DATA_ABSENCE
+import ai_gateway
 from ai_gateway import get_ai_gateway
 import building_groups as bg
 
@@ -42,7 +43,7 @@ class Phase5UiTests(unittest.TestCase):
 
         db.close_connection()
         db.init_schema()
-        get_ai_gateway().reset_gateway()
+        ai_gateway.reset_gateway()
 
         flask_app.config.update(TESTING=True)
         self.client = flask_app.test_client()
@@ -50,7 +51,7 @@ class Phase5UiTests(unittest.TestCase):
         self._seed_test_data()
 
     def tearDown(self):
-        get_ai_gateway().reset_gateway()
+        ai_gateway.reset_gateway()
         db.close_connection()
         config.DATABASE_PATH = self.original_database_path
         config.DEMO_MODE = self.original_demo_mode
