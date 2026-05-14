@@ -1,0 +1,206 @@
+{% extends "base.html" %}
+
+{% block title %}Review #{{ review['review_id'][:8] }}{% endblock %}
+
+{% block content %}
+<div class="container mt-4">
+    <h1>Manual Review Detail</h1>
+
+    <div class="row">
+        <div class="col-md-8">
+            <!-- Review Info -->
+            <div class="card mb-4">
+                <div class="card-header">
+                    <h5>Review Information</h5>
+                </div>
+                <div class="card-body">
+                    <dl class="row">
+                        <dt class="col-sm-3">Review ID</dt>
+                        <dd class="col-sm-9"><code>{{ review['review_id'][:12] }}...</code></dd>
+
+                        <dt class="col-sm-3">Category</dt>
+                        <dd class="col-sm-9">
+                            <span class="badge badge-info">{{ review.get('review_category', 'uncategorized') | replace('_', ' ') | title }}</span>
+                        </dd>
+
+                        <dt class="col-sm-3">Blocking</dt>
+                        <dd class="col-sm-9">
+                            {% if review.get('blocking') %}
+                                <span class="badge badge-danger">Blocking</span>
+                            {% else %}
+                                <span class="badge badge-secondary">Informational</span>
+                            {% endif %}
+                        </dd>
+
+                        <dt class="col-sm-3">Flagged</dt>
+                        <dd class="col-sm-9">{{ review.get('flagged_at') }}</dd>
+
+                        <dt class="col-sm-3">Resolved</dt>
+                        <dd class="col-sm-9">
+                            {% if review.get('resolved') %}
+                                <span class="badge badge-success">Yes</span>
+                            {% else %}
+                                <span class="badge badge-warning">Pending</span>
+                            {% endif %}
+                        </dd>
+                    </dl>
+                </div>
+            </div>
+
+            <!-- Reason -->
+            {% if review.get('reason') %}
+            <div class="card mb-4">
+                <div class="card-header">
+                    <h5>Reason</h5>
+                </div>
+                <div class="card-body">
+                    <p>{{ review['reason'] }}</p>
+                </div>
+            </div>
+            {% endif %}
+
+            <!-- Source Email -->
+            {% if email %}
+            <div class="card mb-4">
+                <div class="card-header">
+                    <h5>Source Email</h5>
+                </div>
+                <div class="card-body">
+                    <dl class="row">
+                        <dt class="col-sm-3">Subject</dt>
+                        <dd class="col-sm-9">{{ email.get('subject') }}</dd>
+
+                        <dt class="col-sm-3">From</dt>
+                        <dd class="col-sm-9">{{ email.get('from_addr') }}</dd>
+
+                        <dt class="col-sm-3">Received</dt>
+                        <dd class="col-sm-9">{{ email.get('received_at') }}</dd>
+                    </dl>
+                    <div class="alert alert-light">
+                        <strong>Body (first 500 chars):</strong>
+                        <pre style="max-height: 200px; overflow-y: auto;">{{ email.get('raw_body', '')[:500] }}</pre>
+                    </div>
+                </div>
+            </div>
+            {% endif %}
+
+            <!-- Linked Case -->
+            {% if case %}
+            <div class="card mb-4">
+                <div class="card-header">
+                    <h5>Linked Case</h5>
+                </div>
+                <div class="card-body">
+                    <dl class="row">
+                        <dt class="col-sm-3">Case ID</dt>
+                        <dd class="col-sm-9"><a href="/cases/{{ case['case_id'] }}">{{ case['case_id'] }}</a></dd>
+
+                        <dt class="col-sm-3">Type</dt>
+                        <dd class="col-sm-9">{{ case.get('case_type') | replace('_', ' ') | title }}</dd>
+
+                        <dt class="col-sm-3">Building</dt>
+                        <dd class="col-sm-9">{{ case.get('building') }}</dd>
+
+                        <dt class="col-sm-3">Contractor</dt>
+                        <dd class="col-sm-9">{{ case.get('contractor') }}</dd>
+
+                        <dt class="col-sm-3">Status</dt>
+                        <dd class="col-sm-9">
+                            <span class="badge" style="background-color: {% if case['status'] == 'open' %}#007bff{% elif case['status'] == 'closed' %}#28a745{% else %}#ffc107{% endif %}">
+                                {{ case['status'] | title }}
+                            </span>
+                        </dd>
+
+                        <dt class="col-sm-3">Due Date</dt>
+                        <dd class="col-sm-9">{{ case.get('due_date') or '—' }}</dd>
+                    </dl>
+                </div>
+            </div>
+
+            <!-- Missing Requirements -->
+            {% if case_requirements %}
+            <div class="card mb-4">
+                <div class="card-header">
+                    <h5>Data Requirements</h5>
+                </div>
+                <div class="card-body">
+                    <table class="table table-sm">
+                        <thead>
+                            <tr>
+                                <th>Requirement</th>
+                                <th>Status</th>
+                                <th>Source</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for req in case_requirements %}
+                            <tr>
+                                <td>
+                                    <strong>{{ req['label'] }}</strong>
+                                    <br/>
+                                    <small class="text-muted">{{ req['requirement_key'] }}</small>
+                                </td>
+                                <td>
+                                    <span class="badge" style="background-color: {% if req['status'] == 'provided' %}#28a745{% elif req['status'] == 'partial' %}#ffc107{% else %}#dc3545{% endif %}">
+                                        {{ req['status'] | title }}
+                                    </span>
+                                </td>
+                                <td>{{ req.get('source', '—') }}</td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+            {% endif %}
+
+            {% endif %}
+
+            <!-- Linked Building Group -->
+            {% if group %}
+            <div class="card mb-4">
+                <div class="card-header">
+                    <h5>Linked Building Group</h5>
+                </div>
+                <div class="card-body">
+                    <dl class="row">
+                        <dt class="col-sm-3">Group ID</dt>
+                        <dd class="col-sm-9"><a href="/building-groups/{{ group['group_id'] }}">{{ group['group_id'] }}</a></dd>
+
+                        <dt class="col-sm-3">Building</dt>
+                        <dd class="col-sm-9">{{ group['building'] }}</dd>
+
+                        <dt class="col-sm-3">Contractor</dt>
+                        <dd class="col-sm-9">{{ group['contractor'] }}</dd>
+
+                        <dt class="col-sm-3">Status</dt>
+                        <dd class="col-sm-9">{{ group['status'] | title }}</dd>
+                    </dl>
+                </div>
+            </div>
+            {% endif %}
+        </div>
+
+        <div class="col-md-4">
+            <!-- Actions Sidebar -->
+            <div class="card sticky-top" style="top: 20px;">
+                <div class="card-header">
+                    <h5>Actions</h5>
+                </div>
+                <div class="card-body">
+                    <form method="POST" action="/cases/{{ case['case_id'] }}/resolve-review">
+                        <input type="hidden" name="review_id" value="{{ review['review_id'] }}">
+                        <button type="submit" class="btn btn-primary btn-block mb-2">Mark Resolved</button>
+                    </form>
+                    {% if case %}
+                    <a href="/cases/{{ case['case_id'] }}" class="btn btn-secondary btn-block mb-2">View Case</a>
+                    {% endif %}
+                    {% if group %}
+                    <a href="/building-groups/{{ group['group_id'] }}" class="btn btn-secondary btn-block mb-2">View Group</a>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
