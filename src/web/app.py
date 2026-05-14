@@ -31,6 +31,7 @@ import memory
 from constants import GROUP_STATUSES
 from observability import build_metrics_snapshot
 from runtime_options import runtime_options
+from time_utils import utc_now_iso
 
 app = Flask(__name__, template_folder="templates")
 app.secret_key = "solucore-demo-secret-not-for-production"
@@ -837,7 +838,7 @@ def draft_detail(group_email_id: str):
 @app.route("/drafts/<group_email_id>/approve", methods=["POST"])
 def approve_draft(group_email_id: str):
     """Approve a draft email for sending."""
-    db.update_draft_status(group_email_id, "approved", approved_at=db.utc_now_iso())
+    db.update_draft_status(group_email_id, "approved", approved_at=utc_now_iso())
     flash("Draft approved.", "success")
     return redirect(url_for("drafts"))
 
@@ -849,7 +850,7 @@ def reject_draft(group_email_id: str):
     db.update_draft_status(
         group_email_id,
         "rejected",
-        rejected_at=db.utc_now_iso(),
+        rejected_at=utc_now_iso(),
         review_notes=review_notes,
     )
     flash("Draft rejected.", "success")

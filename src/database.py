@@ -1096,34 +1096,6 @@ def get_followup_actions_for_case(case_id: str) -> List[sqlite3.Row]:
 # manual_reviews table
 # ---------------------------------------------------------------------------
 
-def insert_manual_review(
-    review_id: str,
-    case_id: str,
-    email_id: Optional[str],
-    reason: str,
-) -> None:
-    """Flag a case for manual human review.
-
-    Used in four situations: low classification confidence, injection detected,
-    reply suggests possible resolution, escalation threshold reached.
-
-    Args:
-        review_id: Application UUID.
-        case_id: UUID of the case to flag.
-        email_id: UUID of the triggering email, or None for system-triggered reviews.
-        reason: Human-readable explanation of why review is required.
-    """
-    now = utc_now_iso()
-    _execute_write(
-        """
-        INSERT INTO manual_reviews
-            (review_id, case_id, email_id, reason, flagged_at, resolved)
-        VALUES (?, ?, ?, ?, ?, 0)
-        """,
-        (review_id, case_id, email_id, reason, now),
-    )
-
-
 def get_open_manual_reviews() -> List[sqlite3.Row]:
     """Return all unresolved manual review records with case context.
 
@@ -2306,7 +2278,7 @@ def upsert_case_data_requirement(
             (requirement_id, case_id, requirement_key, label, status, required, source, evidence_json, created_at, updated_at)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(case_id, requirement_key) DO UPDATE SET
-            status = excluded.status,
+            status = CASE WHEN status IN ('provided', 'partial') THEN status ELSE excluded.status END,
             source = excluded.source,
             evidence_json = excluded.evidence_json,
             updated_at = excluded.updated_at
