@@ -156,7 +156,7 @@ class AiGateway:
         """Record that deterministic logic skipped a model call."""
         self._records.append(
             _AiCallRecord(
-                timestamp=_now_iso(),
+                timestamp=utc_now_iso(),
                 purpose=self._normalize_purpose(purpose),
                 prompt_type=prompt_type,
                 caller=caller,
@@ -348,7 +348,7 @@ class AiGateway:
                 cached_payload = cache[cache_key]
                 self._records.append(
                     _AiCallRecord(
-                        timestamp=_now_iso(),
+                        timestamp=utc_now_iso(),
                         purpose=normalized_purpose,
                         prompt_type=prompt_type,
                         caller=caller,
@@ -389,7 +389,7 @@ class AiGateway:
         output_payload = payload if not expect_json else dict(payload)
         self._records.append(
             _AiCallRecord(
-                timestamp=_now_iso(),
+                timestamp=utc_now_iso(),
                 purpose=normalized_purpose,
                 prompt_type=prompt_type,
                 caller=caller,
@@ -429,7 +429,7 @@ class AiGateway:
     ) -> AiCallOutcome:
         self._records.append(
             _AiCallRecord(
-                timestamp=_now_iso(),
+                timestamp=utc_now_iso(),
                 purpose=purpose,
                 prompt_type=prompt_type,
                 caller=caller,
@@ -601,10 +601,6 @@ class AiGateway:
             return
         atexit.register(self.write_report)
         self._atexit_registered = True
-
-
-def _now_iso() -> str:
-    return utc_now_iso()
 
 
 _AI_GATEWAY = AiGateway()

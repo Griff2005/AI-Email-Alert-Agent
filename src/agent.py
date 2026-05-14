@@ -703,7 +703,6 @@ def _demo_case_specs() -> list[dict[str, Any]]:
 
 def cmd_build_demo_scenario(args):
     """Create deterministic curated demo seed data in the configured database."""
-    del args
     if not config.DEMO_MODE:
         print("[DEMO] ERROR: build-demo-scenario only runs when DEMO_MODE=true.")
         sys.exit(1)
@@ -1418,7 +1417,6 @@ def _print_safety_result(label: str, passed: bool, detail: str) -> bool:
 
 def cmd_safety_check(args):
     """Run deterministic local safety checks for demo/import tooling."""
-    del args
     checks: list[bool] = []
 
     demo_recipient_ok = (not config.DEMO_MODE) or bool(str(config.DEMO_RECIPIENT_EMAIL).strip())

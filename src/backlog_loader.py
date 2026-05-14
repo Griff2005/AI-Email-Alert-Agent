@@ -781,31 +781,15 @@ def _process_record(record: Dict[str, Any], dry_run: bool) -> Dict[str, Any]:
     before_observations = _count_rows("observations")
     before_pattern_flags = _count_rows("pattern_flags")
 
-    record_issue_observation = getattr(memory, "record_issue_observation", None)
-    if callable(record_issue_observation):
-        record_issue_observation(
-            case_id=case_id,
-            case_type=case_type,
-            building=fields.get("building"),
-            device=fields.get("device"),
-            contractor=fields.get("contractor"),
-            email_id=email_id,
-            observed_at=normalized["received_at"],
-        )
-    elif hasattr(memory, "record_case_observations"):
-        memory.record_case_observations(
-            case_id=case_id,
-            email_id=email_id,
-            case_type=case_type,
-            fields=fields,
-            source="backlog_import",
-        )
+    memory.record_case_observations(
+        case_id=case_id,
+        email_id=email_id,
+        case_type=case_type,
+        fields=fields,
+        source="backlog_import",
+    )
 
-    pattern_runner = getattr(memory, "run_pattern_detection", None)
-    if callable(pattern_runner):
-        pattern_runner(case_id)
-    else:
-        memory.detect_patterns_for_case(case_id)
+    memory.detect_patterns_for_case(case_id)
 
     memory_observations_created = _count_rows("observations") - before_observations
     pattern_flags_created = _count_rows("pattern_flags") - before_pattern_flags
