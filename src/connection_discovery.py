@@ -603,7 +603,7 @@ def _run_packetized_discovery(
             },
         )
         _write_packetized_observability_event(run_id, scope, summary, status="error")
-        raise exc
+        raise
 
 
 def _build_packets_for_scope(
