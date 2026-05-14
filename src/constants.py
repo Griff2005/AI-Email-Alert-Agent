@@ -74,3 +74,22 @@ VALID_HYPOTHESIS_RISK_LEVELS = (
     HYPOTHESIS_RISK_REVIEW,
     HYPOTHESIS_RISK_MANAGEMENT_REVIEW,
 )
+
+GROUP_STATUSES = (
+    "open",
+    "updated_since_last_email",
+    "closed",
+    "blocked",
+)
+
+CASE_GROUP_SOURCE = (
+    "live_pipeline",
+    "backlog_import",
+    "manual",
+)
+
+GROUP_CASE_STATUS = (
+    "active",
+    "closed",
+    "removed",
+)
