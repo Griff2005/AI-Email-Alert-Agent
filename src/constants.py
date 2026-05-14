@@ -121,3 +121,49 @@ QUEUE_TYPES = (
     "followup",
     "clarification",
 )
+
+# Phase 3: Data requirements and reply mapping statuses
+REQUIREMENT_STATUSES = (
+    "missing",
+    "provided",
+    "partial",
+    "not_applicable",
+)
+
+REPLY_MAPPING_SOURCES = (
+    "manual",
+    "deterministic",
+    "ai_assisted",
+)
+
+REPLY_MAPPING_STATUSES = (
+    "proposed",
+    "confirmed",
+    "rejected",
+)
+
+REPLY_COMPLETENESS_RESULTS = (
+    "complete",
+    "partial",
+    "vague",
+    "completion_claimed_no_evidence",
+    "future_action",
+    "clarification_needed",
+    "unrelated",
+)
+
+REVIEW_CATEGORIES = (
+    "missing_required_field",
+    "ambiguous_building",
+    "ambiguous_contractor",
+    "duplicate_uncertainty",
+    "prompt_injection",
+    "reply_claims_completion",
+    "evidence_missing",
+    "unsupported_format",
+    "ai_hypothesis_review",
+    "communication_blocked",
+    "draft_quality_failure",
+    "reply_mapping_needed",
+    "data_requirement_incomplete",
+)

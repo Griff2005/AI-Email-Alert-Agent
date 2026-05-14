@@ -130,9 +130,10 @@ def _add_column_if_missing(table_name: str, column_name: str, ddl_fragment: str)
 
 def _init_compatibility_columns() -> None:
     """Apply future additive-only compatibility columns for existing databases."""
-    # Reserved for future ALTER TABLE additions. Keeping this hook under the
-    # schema lock gives additive compatibility changes a single startup path.
-    return None
+    with _write_lock:
+        _add_column_if_missing("manual_reviews", "review_category", "TEXT")
+        _add_column_if_missing("manual_reviews", "blocking", "INTEGER DEFAULT 1")
+        _add_column_if_missing("manual_reviews", "context_json", "TEXT")
 
 
 def init_schema() -> None:
@@ -405,6 +406,37 @@ def init_schema() -> None:
                 FOREIGN KEY (case_id) REFERENCES cases(case_id)
             );
 
+            CREATE TABLE IF NOT EXISTS case_data_requirements (
+                requirement_id TEXT PRIMARY KEY,
+                case_id TEXT NOT NULL,
+                requirement_key TEXT NOT NULL,
+                label TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'missing',
+                required INTEGER NOT NULL DEFAULT 1,
+                source TEXT,
+                evidence_json TEXT,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                UNIQUE(case_id, requirement_key),
+                FOREIGN KEY (case_id) REFERENCES cases(case_id)
+            );
+
+            CREATE TABLE IF NOT EXISTS reply_case_mappings (
+                mapping_id TEXT PRIMARY KEY,
+                reply_email_id TEXT NOT NULL,
+                case_id TEXT,
+                group_id TEXT,
+                mapping_source TEXT NOT NULL,
+                confidence TEXT,
+                status TEXT NOT NULL DEFAULT 'proposed',
+                completeness_json TEXT,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                FOREIGN KEY (reply_email_id) REFERENCES emails(email_id),
+                FOREIGN KEY (case_id) REFERENCES cases(case_id),
+                FOREIGN KEY (group_id) REFERENCES building_issue_groups(group_id)
+            );
+
             CREATE INDEX IF NOT EXISTS idx_connection_hypotheses_status ON connection_hypotheses(status);
             CREATE INDEX IF NOT EXISTS idx_connection_hypothesis_cases_case_id ON connection_hypothesis_cases(case_id);
 
@@ -419,6 +451,13 @@ def init_schema() -> None:
             CREATE INDEX IF NOT EXISTS idx_building_issue_group_cases_source ON building_issue_group_cases(source);
             CREATE INDEX IF NOT EXISTS idx_group_emails_group_status ON building_group_emails(group_id, status);
             CREATE INDEX IF NOT EXISTS idx_comm_queue_status ON communication_queue(status);
+
+            CREATE INDEX IF NOT EXISTS idx_case_requirements_case_status ON case_data_requirements(case_id, status);
+            CREATE INDEX IF NOT EXISTS idx_case_requirements_created_at ON case_data_requirements(created_at);
+            CREATE INDEX IF NOT EXISTS idx_reply_mappings_reply ON reply_case_mappings(reply_email_id);
+            CREATE INDEX IF NOT EXISTS idx_reply_mappings_case ON reply_case_mappings(case_id);
+            CREATE INDEX IF NOT EXISTS idx_reply_mappings_group ON reply_case_mappings(group_id);
+            CREATE INDEX IF NOT EXISTS idx_reply_mappings_status ON reply_case_mappings(status);
 
             CREATE INDEX IF NOT EXISTS idx_cases_grouping_key ON cases(grouping_key);
             CREATE INDEX IF NOT EXISTS idx_cases_status ON cases(status);
@@ -2232,3 +2271,345 @@ def resolve_missing_pattern_flags(case_id: str, active_pattern_types: List[str])
             )
         conn.commit()
         return int(cursor.rowcount)
+
+
+# ---------------------------------------------------------------------------
+# case_data_requirements table
+# ---------------------------------------------------------------------------
+
+def upsert_case_data_requirement(
+    requirement_id: str,
+    case_id: str,
+    requirement_key: str,
+    label: str,
+    status: str = "missing",
+    required: int = 1,
+    source: Optional[str] = None,
+    evidence_json: Optional[str] = None,
+) -> None:
+    """Upsert a case data requirement row.
+
+    Args:
+        requirement_id: UUID for this requirement.
+        case_id: Case this requirement belongs to.
+        requirement_key: Unique key within case (e.g. 'upload_confirmation').
+        label: Human-readable label for the requirement.
+        status: One of REQUIREMENT_STATUSES.
+        required: 1 if required, 0 if optional.
+        source: Where the value came from (e.g. 'email_body', 'manual_entry').
+        evidence_json: JSON object with supporting evidence.
+    """
+    now = utc_now_iso()
+    _execute_write(
+        """
+        INSERT INTO case_data_requirements
+            (requirement_id, case_id, requirement_key, label, status, required, source, evidence_json, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(case_id, requirement_key) DO UPDATE SET
+            status = excluded.status,
+            source = excluded.source,
+            evidence_json = excluded.evidence_json,
+            updated_at = excluded.updated_at
+        """,
+        (requirement_id, case_id, requirement_key, label, status, required, source, evidence_json, now, now),
+    )
+
+
+def get_case_data_requirements(case_id: str) -> List[Dict[str, Any]]:
+    """Fetch all data requirements for a case.
+
+    Args:
+        case_id: Case to fetch requirements for.
+
+    Returns:
+        List of requirement dicts with keys: requirement_id, case_id, requirement_key, label,
+        status, required, source, evidence_json, created_at, updated_at.
+    """
+    conn = get_connection()
+    rows = conn.execute(
+        "SELECT * FROM case_data_requirements WHERE case_id = ? ORDER BY created_at ASC",
+        (case_id,),
+    ).fetchall()
+    return [dict(row) for row in rows]
+
+
+def update_case_requirement_status(
+    case_id: str,
+    requirement_key: str,
+    status: str,
+    source: Optional[str] = None,
+    evidence_json: Optional[str] = None,
+) -> None:
+    """Update the status of a specific requirement within a case.
+
+    Args:
+        case_id: Case owning the requirement.
+        requirement_key: Requirement key within that case.
+        status: New status (one of REQUIREMENT_STATUSES).
+        source: Optional source/reason for the update.
+        evidence_json: Optional evidence for the update.
+    """
+    now = utc_now_iso()
+    _execute_write(
+        """
+        UPDATE case_data_requirements
+        SET status = ?, source = ?, evidence_json = ?, updated_at = ?
+        WHERE case_id = ? AND requirement_key = ?
+        """,
+        (status, source, evidence_json, now, case_id, requirement_key),
+    )
+
+
+# ---------------------------------------------------------------------------
+# reply_case_mappings table
+# ---------------------------------------------------------------------------
+
+def insert_reply_case_mapping(
+    mapping_id: str,
+    reply_email_id: str,
+    case_id: Optional[str] = None,
+    group_id: Optional[str] = None,
+    mapping_source: str = "manual",
+    confidence: Optional[str] = None,
+    status: str = "proposed",
+) -> None:
+    """Insert a mapping from a reply email to a case or group.
+
+    At least one of case_id or group_id must be provided.
+
+    Args:
+        mapping_id: UUID for this mapping.
+        reply_email_id: The inbound reply email being mapped.
+        case_id: Target case ID (optional if group_id provided).
+        group_id: Target building group ID (optional if case_id provided).
+        mapping_source: One of REPLY_MAPPING_SOURCES.
+        confidence: Confidence level (e.g. 'low', 'medium', 'high').
+        status: One of REPLY_MAPPING_STATUSES (default 'proposed').
+    """
+    now = utc_now_iso()
+    _execute_write(
+        """
+        INSERT INTO reply_case_mappings
+            (mapping_id, reply_email_id, case_id, group_id, mapping_source, confidence, status, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (mapping_id, reply_email_id, case_id, group_id, mapping_source, confidence, status, now, now),
+    )
+
+
+def get_reply_mappings_for_email(reply_email_id: str) -> List[Dict[str, Any]]:
+    """Fetch all mappings for a reply email.
+
+    Args:
+        reply_email_id: Email to fetch mappings for.
+
+    Returns:
+        List of mapping dicts.
+    """
+    conn = get_connection()
+    rows = conn.execute(
+        "SELECT * FROM reply_case_mappings WHERE reply_email_id = ? ORDER BY created_at ASC",
+        (reply_email_id,),
+    ).fetchall()
+    return [dict(row) for row in rows]
+
+
+def get_reply_mappings_for_case(case_id: str) -> List[Dict[str, Any]]:
+    """Fetch all mappings for a case.
+
+    Args:
+        case_id: Case to fetch mappings for.
+
+    Returns:
+        List of mapping dicts.
+    """
+    conn = get_connection()
+    rows = conn.execute(
+        "SELECT * FROM reply_case_mappings WHERE case_id = ? ORDER BY created_at ASC",
+        (case_id,),
+    ).fetchall()
+    return [dict(row) for row in rows]
+
+
+def get_reply_mappings_for_group(group_id: str) -> List[Dict[str, Any]]:
+    """Fetch all mappings for a building group.
+
+    Args:
+        group_id: Group to fetch mappings for.
+
+    Returns:
+        List of mapping dicts.
+    """
+    conn = get_connection()
+    rows = conn.execute(
+        "SELECT * FROM reply_case_mappings WHERE group_id = ? ORDER BY created_at ASC",
+        (group_id,),
+    ).fetchall()
+    return [dict(row) for row in rows]
+
+
+def update_reply_mapping_completeness(
+    mapping_id: str,
+    completeness_json: Optional[str],
+) -> None:
+    """Update the completeness analysis for a reply mapping.
+
+    Args:
+        mapping_id: Mapping to update.
+        completeness_json: JSON object with completeness analysis results.
+    """
+    now = utc_now_iso()
+    _execute_write(
+        """
+        UPDATE reply_case_mappings
+        SET completeness_json = ?, updated_at = ?
+        WHERE mapping_id = ?
+        """,
+        (completeness_json, now, mapping_id),
+    )
+
+
+# Additional helpers for manual reviews and building groups
+
+def insert_manual_review(
+    review_id: str,
+    case_id: str,
+    email_id: Optional[str] = None,
+    reason: Optional[str] = None,
+    review_category: Optional[str] = None,
+    blocking: int = 1,
+) -> None:
+    """Insert a manual review record.
+
+    Args:
+        review_id: UUID for this review.
+        case_id: Case to review.
+        email_id: Source email ID (optional).
+        reason: Human-readable reason for review.
+        review_category: Category of review (one of REVIEW_CATEGORIES).
+        blocking: 1 if this blocks action, 0 if informational.
+    """
+    now = utc_now_iso()
+    _execute_write(
+        """
+        INSERT INTO manual_reviews
+            (review_id, case_id, email_id, reason, review_category, blocking, flagged_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+        """,
+        (review_id, case_id, email_id, reason, review_category, blocking, now),
+    )
+
+
+def get_manual_reviews_for_case(case_id: str) -> List[Dict[str, Any]]:
+    """Fetch all manual reviews for a case.
+
+    Args:
+        case_id: Case to fetch reviews for.
+
+    Returns:
+        List of review dicts.
+    """
+    conn = get_connection()
+    rows = conn.execute(
+        "SELECT * FROM manual_reviews WHERE case_id = ? ORDER BY flagged_at ASC",
+        (case_id,),
+    ).fetchall()
+    return [dict(row) for row in rows]
+
+
+def list_building_issue_group_cases(filters: Optional[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
+    """Fetch building_issue_group_cases rows with optional filters.
+
+    Args:
+        filters: Dict with optional filters: {case_id, group_id, status}
+
+    Returns:
+        List of dicts.
+    """
+    conn = get_connection()
+    sql = "SELECT * FROM building_issue_group_cases WHERE 1=1"
+    params = []
+
+    if filters:
+        if "case_id" in filters:
+            sql += " AND case_id = ?"
+            params.append(filters["case_id"])
+        if "group_id" in filters:
+            sql += " AND group_id = ?"
+            params.append(filters["group_id"])
+        if "status" in filters:
+            sql += " AND status = ?"
+            params.append(filters["status"])
+
+    rows = conn.execute(sql, params).fetchall()
+    return [dict(row) for row in rows]
+
+
+def get_building_group(group_id: str) -> Optional[Dict[str, Any]]:
+    """Fetch a building group by ID.
+
+    Args:
+        group_id: Group to fetch.
+
+    Returns:
+        Dict or None if not found.
+    """
+    conn = get_connection()
+    row = conn.execute(
+        "SELECT * FROM building_issue_groups WHERE group_id = ?",
+        (group_id,),
+    ).fetchone()
+    return dict(row) if row else None
+
+
+def list_building_groups(filters: Optional[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
+    """Fetch building_issue_groups rows with optional filters.
+
+    Args:
+        filters: Dict with optional filters: {status, building}
+
+    Returns:
+        List of dicts.
+    """
+    conn = get_connection()
+    sql = "SELECT * FROM building_issue_groups WHERE 1=1"
+    params = []
+
+    if filters:
+        if "status" in filters:
+            sql += " AND status = ?"
+            params.append(filters["status"])
+        if "building" in filters:
+            sql += " AND normalized_building LIKE ?"
+            params.append(f"%{filters['building']}%")
+
+    sql += " ORDER BY updated_at DESC"
+    rows = conn.execute(sql, params).fetchall()
+    return [dict(row) for row in rows]
+
+
+def update_draft_status(
+    draft_id: str,
+    status: str,
+    approved_at: Optional[str] = None,
+    rejected_at: Optional[str] = None,
+    review_notes: Optional[str] = None,
+) -> None:
+    """Update the status of a building_group_emails draft.
+
+    Args:
+        draft_id: Draft to update.
+        status: New status (one of DRAFT_STATUSES).
+        approved_at: Approval timestamp (if approving).
+        rejected_at: Rejection timestamp (if rejecting).
+        review_notes: Notes for rejection.
+    """
+    now = utc_now_iso()
+    _execute_write(
+        """
+        UPDATE building_group_emails
+        SET status = ?, approved_at = ?, rejected_at = ?, review_notes = ?, updated_at = ?
+        WHERE group_email_id = ?
+        """,
+        (status, approved_at, rejected_at, review_notes, now, draft_id),
+    )
