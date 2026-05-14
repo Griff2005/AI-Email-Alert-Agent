@@ -23,7 +23,7 @@ from time_utils import utc_now_iso
 
 # Thread-local storage for connections — each thread gets its own connection
 _local = threading.local()
-_write_lock = threading.Lock()
+_write_lock = threading.RLock()
 
 _ALLOWED_CASE_UPDATE_FIELDS = frozenset(
     {
@@ -340,6 +340,39 @@ def init_schema() -> None:
                 FOREIGN KEY (case_id) REFERENCES cases(case_id)
             );
 
+            CREATE TABLE IF NOT EXISTS connection_discovery_runs (
+                run_id TEXT PRIMARY KEY,
+                scope TEXT NOT NULL,
+                status TEXT NOT NULL,
+                started_at TEXT NOT NULL,
+                completed_at TEXT,
+                max_ai_calls INTEGER NOT NULL,
+                ai_calls_used INTEGER DEFAULT 0,
+                packets_created INTEGER DEFAULT 0,
+                packets_analyzed INTEGER DEFAULT 0,
+                hypotheses_created INTEGER DEFAULT 0,
+                hypotheses_rejected INTEGER DEFAULT 0,
+                unsupported_records_included INTEGER DEFAULT 0,
+                error_count INTEGER DEFAULT 0,
+                config_json TEXT
+            );
+
+            CREATE TABLE IF NOT EXISTS connection_discovery_packets (
+                packet_id TEXT PRIMARY KEY,
+                run_id TEXT NOT NULL,
+                packet_type TEXT NOT NULL,
+                entity_type TEXT,
+                entity_value TEXT,
+                case_count INTEGER DEFAULT 0,
+                pattern_count INTEGER DEFAULT 0,
+                status TEXT NOT NULL DEFAULT 'pending',
+                ai_call_used INTEGER DEFAULT 0,
+                hypotheses_created INTEGER DEFAULT 0,
+                created_at TEXT NOT NULL,
+                completed_at TEXT,
+                error TEXT
+            );
+
             CREATE TABLE IF NOT EXISTS building_issue_groups (
                 group_id TEXT PRIMARY KEY,
                 grouping_key TEXT UNIQUE NOT NULL,
@@ -439,6 +472,10 @@ def init_schema() -> None:
 
             CREATE INDEX IF NOT EXISTS idx_connection_hypotheses_status ON connection_hypotheses(status);
             CREATE INDEX IF NOT EXISTS idx_connection_hypothesis_cases_case_id ON connection_hypothesis_cases(case_id);
+            CREATE INDEX IF NOT EXISTS idx_connection_discovery_runs_started
+                ON connection_discovery_runs(started_at);
+            CREATE INDEX IF NOT EXISTS idx_connection_discovery_packets_run
+                ON connection_discovery_packets(run_id, status);
 
             CREATE INDEX IF NOT EXISTS idx_building_issue_groups_key ON building_issue_groups(grouping_key);
             CREATE INDEX IF NOT EXISTS idx_building_issue_groups_status ON building_issue_groups(status);
@@ -2170,6 +2207,32 @@ def get_cases_for_hypothesis(hypothesis_id: str) -> List[str]:
     return [row["case_id"] for row in rows]
 
 
+def update_connection_hypothesis(hypothesis_id: str, updates: Dict[str, Any]) -> None:
+    """Update additive review fields on a connection hypothesis."""
+    allowed_fields = {
+        "summary",
+        "confidence",
+        "risk_level",
+        "evidence_json",
+        "reasoning",
+        "recommended_human_review",
+        "status",
+    }
+    unsupported_fields = sorted(set(updates) - allowed_fields)
+    if unsupported_fields:
+        raise ValueError(
+            "Unsupported connection hypothesis update field(s): "
+            + ", ".join(unsupported_fields)
+        )
+    if not updates:
+        return
+    set_clause = ", ".join(f"{key} = ?" for key in updates)
+    _execute_write(
+        f"UPDATE connection_hypotheses SET {set_clause} WHERE hypothesis_id = ?",
+        tuple(updates.values()) + (hypothesis_id,),
+    )
+
+
 def get_supported_cases_for_discovery(
     building: Optional[str] = None,
     case_type: Optional[str] = None,
@@ -2207,6 +2270,199 @@ def get_supported_cases_for_discovery(
         params.append(limit)
 
     conn = get_connection()
+    return conn.execute(sql, params).fetchall()
+
+
+# ---------------------------------------------------------------------------
+# connection_discovery_runs / connection_discovery_packets tables
+# ---------------------------------------------------------------------------
+
+_DISCOVERY_RUN_UPDATE_FIELDS = frozenset(
+    {
+        "scope",
+        "status",
+        "started_at",
+        "completed_at",
+        "max_ai_calls",
+        "ai_calls_used",
+        "packets_created",
+        "packets_analyzed",
+        "hypotheses_created",
+        "hypotheses_rejected",
+        "unsupported_records_included",
+        "error_count",
+        "config_json",
+    }
+)
+
+_DISCOVERY_PACKET_UPDATE_FIELDS = frozenset(
+    {
+        "packet_type",
+        "entity_type",
+        "entity_value",
+        "case_count",
+        "pattern_count",
+        "status",
+        "ai_call_used",
+        "hypotheses_created",
+        "created_at",
+        "completed_at",
+        "error",
+    }
+)
+
+
+def insert_discovery_run(
+    run_id: str,
+    scope: str,
+    status: str,
+    max_ai_calls: int,
+    started_at: Optional[str] = None,
+    config_json: Optional[str] = None,
+    ai_calls_used: int = 0,
+    packets_created: int = 0,
+    packets_analyzed: int = 0,
+    hypotheses_created: int = 0,
+    hypotheses_rejected: int = 0,
+    unsupported_records_included: int = 0,
+    error_count: int = 0,
+    completed_at: Optional[str] = None,
+) -> None:
+    """Insert a connection discovery run tracking row."""
+    _execute_write(
+        """
+        INSERT INTO connection_discovery_runs
+            (run_id, scope, status, started_at, completed_at, max_ai_calls,
+             ai_calls_used, packets_created, packets_analyzed,
+             hypotheses_created, hypotheses_rejected,
+             unsupported_records_included, error_count, config_json)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            run_id,
+            scope,
+            status,
+            started_at or utc_now_iso(),
+            completed_at,
+            int(max_ai_calls),
+            int(ai_calls_used),
+            int(packets_created),
+            int(packets_analyzed),
+            int(hypotheses_created),
+            int(hypotheses_rejected),
+            int(unsupported_records_included),
+            int(error_count),
+            config_json,
+        ),
+    )
+
+
+def update_discovery_run(run_id: str, updates: Dict[str, Any]) -> None:
+    """Update fields on a connection discovery run row."""
+    unsupported_fields = sorted(set(updates) - _DISCOVERY_RUN_UPDATE_FIELDS)
+    if unsupported_fields:
+        raise ValueError(
+            "Unsupported discovery run update field(s): "
+            + ", ".join(unsupported_fields)
+        )
+    if not updates:
+        return
+    set_clause = ", ".join(f"{key} = ?" for key in updates)
+    _execute_write(
+        f"UPDATE connection_discovery_runs SET {set_clause} WHERE run_id = ?",
+        tuple(updates.values()) + (run_id,),
+    )
+
+
+def insert_discovery_packet(
+    packet_id: str,
+    run_id: str,
+    packet_type: str,
+    status: str = "pending",
+    entity_type: Optional[str] = None,
+    entity_value: Optional[str] = None,
+    case_count: int = 0,
+    pattern_count: int = 0,
+    ai_call_used: int = 0,
+    hypotheses_created: int = 0,
+    created_at: Optional[str] = None,
+    completed_at: Optional[str] = None,
+    error: Optional[str] = None,
+) -> None:
+    """Insert a connection discovery packet tracking row."""
+    _execute_write(
+        """
+        INSERT INTO connection_discovery_packets
+            (packet_id, run_id, packet_type, entity_type, entity_value,
+             case_count, pattern_count, status, ai_call_used,
+             hypotheses_created, created_at, completed_at, error)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            packet_id,
+            run_id,
+            packet_type,
+            entity_type,
+            entity_value,
+            int(case_count),
+            int(pattern_count),
+            status,
+            int(ai_call_used),
+            int(hypotheses_created),
+            created_at or utc_now_iso(),
+            completed_at,
+            error,
+        ),
+    )
+
+
+def update_discovery_packet(packet_id: str, updates: Dict[str, Any]) -> None:
+    """Update fields on a connection discovery packet row."""
+    unsupported_fields = sorted(set(updates) - _DISCOVERY_PACKET_UPDATE_FIELDS)
+    if unsupported_fields:
+        raise ValueError(
+            "Unsupported discovery packet update field(s): "
+            + ", ".join(unsupported_fields)
+        )
+    if not updates:
+        return
+    set_clause = ", ".join(f"{key} = ?" for key in updates)
+    _execute_write(
+        f"UPDATE connection_discovery_packets SET {set_clause} WHERE packet_id = ?",
+        tuple(updates.values()) + (packet_id,),
+    )
+
+
+def get_discovery_runs(
+    status_filter: Optional[str] = None,
+    limit: Optional[int] = None,
+) -> List[sqlite3.Row]:
+    """Return discovery runs ordered newest first."""
+    conn = get_connection()
+    sql = "SELECT * FROM connection_discovery_runs"
+    params: list[Any] = []
+    if status_filter:
+        sql += " WHERE status = ?"
+        params.append(status_filter)
+    sql += " ORDER BY started_at DESC"
+    if limit is not None:
+        sql += " LIMIT ?"
+        params.append(limit)
+    return conn.execute(sql, params).fetchall()
+
+
+def get_discovery_packets_for_run(
+    run_id: str,
+    status_filter: Optional[str] = None,
+) -> List[sqlite3.Row]:
+    """Return packet tracking rows for a discovery run."""
+    conn = get_connection()
+    sql = "SELECT * FROM connection_discovery_packets WHERE run_id = ?"
+    params: list[Any] = [run_id]
+    if status_filter:
+        sql += " AND status = ?"
+        params.append(status_filter)
+    sql += " ORDER BY created_at ASC, packet_id ASC"
     return conn.execute(sql, params).fetchall()
 
 
