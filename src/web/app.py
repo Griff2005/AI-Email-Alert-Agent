@@ -370,13 +370,33 @@ def building_group_detail(group_id):
     if not summary:
         flash(f"Building group {group_id} not found.", "error")
         return redirect(url_for("building_groups"))
+    latest_rows = db.list_building_group_emails(group_id=group_id, limit=1)
+    latest_draft = dict(latest_rows[0]) if latest_rows else None
+    if latest_draft:
+        latest_draft["quality_check"] = _parse_evidence(latest_draft.get("quality_check_json"))
     return render_template(
         "building_group_detail.html",
         group=summary["group"],
         cases=summary["cases"],
         counts=summary["counts"],
         timeline=summary["timeline"],
+        latest_draft=latest_draft,
     )
+
+
+@app.route("/building-groups/<group_id>/generate-draft", methods=["POST"])
+def generate_building_group_draft(group_id):
+    """Generate a review-only consolidated draft for a building issue group."""
+    import group_email_builder
+
+    email_type = request.form.get("email_type", "initial")
+    try:
+        draft_id = group_email_builder.create_group_email_draft(group_id, email_type=email_type)
+    except ValueError as exc:
+        flash(str(exc), "error")
+    else:
+        flash(f"Group draft generated for review: {draft_id}", "success")
+    return redirect(url_for("building_group_detail", group_id=group_id))
 
 
 @app.route("/cases/<case_id>")
