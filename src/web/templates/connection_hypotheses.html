@@ -1,0 +1,69 @@
+{% extends "base.html" %}
+{% block title %}Connection Hypotheses - Solucore Alert Triage{% endblock %}
+
+{% block content %}
+<h1>Connection Hypotheses</h1>
+<p class="section-note">
+  AI-generated hypotheses are proposals only. They are not confirmed facts and do not change cases automatically.
+</p>
+
+<form class="filter-form" method="get" action="/connection-hypotheses">
+  <label>
+    Status
+    <select name="status">
+      <option value="">All statuses</option>
+      {% for option in status_options %}
+      <option value="{{ option }}" {% if status_filter == option %}selected{% endif %}>
+        {{ option.replace('_', ' ').title() }}
+      </option>
+      {% endfor %}
+    </select>
+  </label>
+  <button class="btn btn-primary btn-sm" type="submit">Apply</button>
+  <a class="btn btn-sm" href="/connection-hypotheses">Clear</a>
+</form>
+
+<div class="card" style="padding:0">
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Hypothesis Type</th>
+          <th>Building</th>
+          <th>Contractor</th>
+          <th>Confidence</th>
+          <th>Risk</th>
+          <th>Status</th>
+          <th>Created</th>
+          <th>Detail</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for hypothesis in hypotheses %}
+        <tr>
+          <td>
+            <div style="font-weight:600">{{ hypothesis.hypothesis_type.replace('_', ' ').title() }}</div>
+            <div class="muted" style="font-size:0.76rem;max-width:320px">{{ hypothesis.summary }}</div>
+          </td>
+          <td>{{ hypothesis.building or '-' }}</td>
+          <td>{{ hypothesis.contractor or '-' }}</td>
+          <td><span class="badge {{ hypothesis.confidence_badge_class }}">{{ hypothesis.confidence }}</span></td>
+          <td><span class="badge {{ hypothesis.risk_badge_class }}">{{ hypothesis.risk_level.replace('_', ' ') }}</span></td>
+          <td><span class="badge {{ hypothesis.status_badge_class }}">{{ hypothesis.status }}</span></td>
+          <td class="nowrap muted">{{ hypothesis.created_at[:16].replace('T', ' ') if hypothesis.created_at else '-' }}</td>
+          <td>
+            <a class="btn btn-primary btn-sm" href="/connection-hypotheses/{{ hypothesis.hypothesis_id }}">View</a>
+          </td>
+        </tr>
+        {% else %}
+        <tr>
+          <td colspan="8">
+            <div class="empty-state">No connection hypotheses found.</div>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}
