@@ -13,6 +13,7 @@ All paths are resolved relative to the project root (parent of src/).
 """
 
 import argparse
+import inspect
 import json
 import sys
 import time
@@ -24,7 +25,7 @@ from typing import Any
 _SRC_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(_SRC_DIR))
 
-from ai_gateway import AiUsageConfig, get_ai_gateway
+from ai_gateway import AiBudgetExceeded, AiGateway, AiUsageConfig, get_ai_gateway
 from case_manager import process_email, process_reply
 from config import PROJECT_ROOT, config
 from constants import (
@@ -1407,6 +1408,97 @@ def cmd_observability_report(args: argparse.Namespace) -> None:
     print(json.dumps(snapshot, indent=2, sort_keys=True))
 
 
+def _print_safety_result(label: str, passed: bool, detail: str) -> bool:
+    status = "PASS" if passed else "FAIL"
+    print(f"[SAFETY] {status}: {label} - {detail}")
+    return passed
+
+
+def cmd_safety_check(args):
+    """Run deterministic local safety checks for demo/import tooling."""
+    del args
+    checks: list[bool] = []
+
+    demo_recipient_ok = (not config.DEMO_MODE) or bool(str(config.DEMO_RECIPIENT_EMAIL).strip())
+    checks.append(
+        _print_safety_result(
+            "DEMO_MODE recipient",
+            demo_recipient_ok,
+            "demo recipient configured" if demo_recipient_ok else "DEMO_MODE=true but recipient is empty",
+        )
+    )
+
+    ai_blocked = False
+    gateway = AiGateway()
+    try:
+        gateway.configure(
+            AiUsageConfig(
+                enabled=True,
+                max_calls=0,
+                budget_mode="fail",
+                model_name=config.CLAUDE_MODEL,
+                config_version="safety-check",
+            )
+        )
+        gateway.call_json(
+            prompt="{}",
+            purpose="classification",
+            prompt_type="safety_check",
+            caller="agent.safety_check",
+            use_cache=False,
+        )
+    except (ValueError, AiBudgetExceeded):
+        ai_blocked = True
+    checks.append(
+        _print_safety_result(
+            "AI max_calls=0",
+            ai_blocked,
+            "AI call was blocked" if ai_blocked else "AI call was not blocked",
+        )
+    )
+
+    import backlog_loader
+
+    backlog_options = backlog_loader.BacklogRunOptions()
+    checks.append(
+        _print_safety_result(
+            "Backlog no outbound",
+            backlog_options.outbound_enabled is False,
+            f"outbound_enabled={backlog_options.outbound_enabled}",
+        )
+    )
+
+    unsupported_ok = bool(SUPPORTED_CASE_TYPES_SET) and "UNKNOWN" not in SUPPORTED_CASE_TYPES_SET
+    checks.append(
+        _print_safety_result(
+            "Unsupported exclusion",
+            unsupported_ok,
+            "UNKNOWN excluded from supported set" if unsupported_ok else "supported set is empty or includes UNKNOWN",
+        )
+    )
+
+    import connection_discovery
+
+    backlog_source = inspect.getsource(backlog_loader)
+    discovery_source = inspect.getsource(connection_discovery)
+    no_auto_close_ok = bool(EVENT_CASE_CLOSED) and EVENT_CASE_CLOSED not in backlog_source and EVENT_CASE_CLOSED not in discovery_source
+    checks.append(
+        _print_safety_result(
+            "No auto-closure",
+            no_auto_close_ok,
+            "backlog/discovery do not reference case_closed"
+            if no_auto_close_ok
+            else "backlog or discovery references case_closed",
+        )
+    )
+
+    passed = sum(1 for item in checks if item)
+    print(f"[SAFETY] {passed}/5 checks passed")
+    if passed != 5:
+        sys.exit(1)
+    return 0
+
+
 def _add_common_ai_args(parser, *, include_outbound: bool, include_followups: bool) -> None:
     parser.add_argument("--enable-ai", action="store_true", help="Allow AI usage for ambiguous work only")
     parser.add_argument("--no-ai", action="store_false", dest="enable_ai", help="Disable AI usage explicitly")
@@ -1462,6 +1554,10 @@ Commands:
   demo         Run demo mode: ingest all samples and display results
   run          Start full agent (IMAP polling + scheduler + Flask)
   load-backlog Import staged historical KPI emails from JSON
+  build-demo-scenario  Create deterministic demo seed data
+  reset-demo-db  Safely reset a demo/test/tmp database
+  replay       Replay a JSON email sequence through the local pipeline
+  safety-check Run deterministic safety checks
   rebuild-building-groups  Rebuild building group links from cases
   show-building-groups  Print building issue groups
   reply        Interactive reply handler
@@ -1477,6 +1573,10 @@ Examples:
   python src/agent.py demo
   python src/agent.py run
   python src/agent.py load-backlog --source json --path data/backlog_sample.json --dry-run
+  python src/agent.py build-demo-scenario
+  python src/agent.py reset-demo-db --database data/demo_agent.db --yes
+  python src/agent.py replay --path data/demo_replay.json
+  python src/agent.py safety-check
   python src/agent.py rebuild-building-groups --dry-run
   python src/agent.py show-building-groups
   python src/agent.py reply --case-id <CASE_ID>
@@ -1627,6 +1727,8 @@ Examples:
         help="Optional JSON file path for the metrics snapshot",
     )
 
+    subparsers.add_parser("safety-check", help="Run deterministic safety checks")
+
     discover_parser = subparsers.add_parser(
         "discover-connections",
         help="Discover possible connections across supported cases (AI required)",
@@ -1748,6 +1850,8 @@ Examples:
         cmd_generate_building_draft(args)
     elif args.command == "observability-report":
         cmd_observability_report(args)
+    elif args.command == "safety-check":
+        cmd_safety_check(args)
     elif args.command == "discover-connections":
         cmd_discover_connections(args)
     elif args.command == "merge-connection-hypotheses":
