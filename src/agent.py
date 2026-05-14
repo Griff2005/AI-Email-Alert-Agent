@@ -594,6 +594,8 @@ def cmd_load_backlog(args):
     if bool(args.dry_run) == bool(args.commit):
         print("[AGENT] ERROR: Set exactly one of --dry-run or --commit.")
         sys.exit(1)
+    if getattr(args, "resume", False):
+        print("[BACKLOG] Resume mode: skipping already-imported message IDs.")
 
     import backlog_loader
 
@@ -604,6 +606,8 @@ def cmd_load_backlog(args):
         dry_run=bool(args.dry_run),
         limit=args.limit,
         report_dir=args.report_dir,
+        progress_interval=getattr(args, "progress_interval", 50),
+        report_detail=getattr(args, "report_detail", "summary"),
     )
     _append_command_event(
         "backlog_dry_run_completed" if args.dry_run else "backlog_commit_completed",
@@ -1077,7 +1081,15 @@ Examples:
     backlog_parser.add_argument("--path", required=True, type=Path, help="Path to backlog JSON file")
     backlog_parser.add_argument("--dry-run", action="store_true", default=False, help="Parse and classify without writing to database")
     backlog_parser.add_argument("--commit", action="store_true", default=False, help="Import accepted emails into database")
+    backlog_parser.add_argument("--resume", action="store_true", default=False, help="Make duplicate-message-id resume behavior explicit")
     backlog_parser.add_argument("--limit", type=int, default=None, help="Maximum number of records to process")
+    backlog_parser.add_argument("--progress-interval", type=int, default=50, help="Print backlog progress every N records")
+    backlog_parser.add_argument(
+        "--report-detail",
+        choices=("summary", "full"),
+        default="summary",
+        help="Written report detail level: summary or full",
+    )
     backlog_parser.add_argument(
         "--report-dir",
         type=Path,
