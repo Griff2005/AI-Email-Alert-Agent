@@ -620,6 +620,66 @@ def cmd_load_backlog(args):
     return result
 
 
+def cmd_rebuild_building_groups(args: argparse.Namespace) -> dict:
+    """Rebuild building issue group links from existing cases."""
+    import building_groups
+
+    db.init_schema()
+    summary = building_groups.rebuild_all_groups(
+        include_closed=bool(args.include_closed),
+        dry_run=bool(args.dry_run),
+    )
+    mode = "DRY RUN" if args.dry_run else "COMMIT"
+    print(f"[AGENT] Building group rebuild ({mode})")
+    print(f"  Cases scanned:              {summary['cases_scanned']}")
+    print(f"  Eligible cases:             {summary['eligible']}")
+    print(f"  Groups created:             {summary['groups_created']}")
+    print(f"  Case links attached:        {summary['attached']}")
+    print(f"  Skipped unsupported:        {summary['skipped_unsupported']}")
+    print(f"  Skipped closed:             {summary['skipped_closed']}")
+    print(f"  Skipped missing building:   {summary['skipped_missing_building']}")
+    print(f"  Skipped missing contractor: {summary['skipped_missing_contractor']}")
+    return summary
+
+
+def cmd_show_building_groups(args: argparse.Namespace) -> list[dict]:
+    """Print building issue groups with aggregate case counts."""
+    import building_groups
+
+    db.init_schema()
+    filters = {
+        "status": args.status,
+        "building": args.building,
+        "contractor": args.contractor,
+    }
+    groups = building_groups.list_building_groups(filters)
+    if args.as_json:
+        print(json.dumps(groups, indent=2, sort_keys=True))
+        return groups
+
+    if not groups:
+        print("[AGENT] No building issue groups found.")
+        return groups
+
+    header = (
+        f"{'Status':<24} {'Open':>4} {'New':>4} {'Reviews':>7} "
+        f"{'Building':<32} {'Contractor':<28} Group ID"
+    )
+    print(header)
+    print("-" * len(header))
+    for group in groups:
+        print(
+            f"{group['status']:<24} "
+            f"{int(group['open_case_count'] or 0):>4} "
+            f"{int(group['new_case_count'] or 0):>4} "
+            f"{int(group['review_count'] or 0):>7} "
+            f"{(group['building'] or '')[:32]:<32} "
+            f"{(group['contractor'] or '')[:28]:<28} "
+            f"{group['group_id']}"
+        )
+    return groups
+
+
 def cmd_discover_connections(args) -> None:
     """Discover possible hidden connections across supported KPI cases using AI.
 
@@ -762,6 +822,8 @@ Commands:
   demo         Run demo mode: ingest all samples and display results
   run          Start full agent (IMAP polling + scheduler + Flask)
   load-backlog Import staged historical KPI emails from JSON
+  rebuild-building-groups  Rebuild building group links from cases
+  show-building-groups  Print building issue groups
   reply        Interactive reply handler
   memory-rebuild  Backfill deterministic memory tables from existing records
   patterns     Print active pattern flags
@@ -775,6 +837,8 @@ Examples:
   python src/agent.py demo
   python src/agent.py run
   python src/agent.py load-backlog --source json --path data/backlog_sample.json --dry-run
+  python src/agent.py rebuild-building-groups --dry-run
+  python src/agent.py show-building-groups
   python src/agent.py reply --case-id <CASE_ID>
   python src/agent.py memory-rebuild
   python src/agent.py patterns
@@ -840,6 +904,32 @@ Examples:
         default=None,
         help="Directory for report output (default: data/backlog_runs/<timestamp>/)",
     )
+
+    rebuild_groups_parser = subparsers.add_parser(
+        "rebuild-building-groups",
+        help="Rebuild building group links from existing cases",
+    )
+    rebuild_groups_parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        default=False,
+        help="Preview group/link changes without writing them",
+    )
+    rebuild_groups_parser.add_argument(
+        "--include-closed",
+        action="store_true",
+        default=False,
+        help="Include closed cases when rebuilding group links",
+    )
+
+    show_groups_parser = subparsers.add_parser(
+        "show-building-groups",
+        help="Print building issue groups",
+    )
+    show_groups_parser.add_argument("--status", type=str, default=None, help="Filter by group status")
+    show_groups_parser.add_argument("--building", type=str, default=None, help="Filter by building text")
+    show_groups_parser.add_argument("--contractor", type=str, default=None, help="Filter by contractor text")
+    show_groups_parser.add_argument("--json", action="store_true", dest="as_json", help="Print JSON instead of a table")
 
     observability_parser = subparsers.add_parser(
         "observability-report",
@@ -911,6 +1001,10 @@ Examples:
         cmd_test_demo_scale(args)
     elif args.command == "load-backlog":
         cmd_load_backlog(args)
+    elif args.command == "rebuild-building-groups":
+        cmd_rebuild_building_groups(args)
+    elif args.command == "show-building-groups":
+        cmd_show_building_groups(args)
     elif args.command == "observability-report":
         cmd_observability_report(args)
     elif args.command == "discover-connections":

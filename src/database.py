@@ -106,6 +106,32 @@ def _execute_write(sql: str, params: tuple = ()) -> sqlite3.Cursor:
         return cursor
 
 
+def _column_exists(table_name: str, column_name: str) -> bool:
+    """Return whether ``table_name`` currently contains ``column_name``."""
+    conn = get_connection()
+    rows = conn.execute(f"PRAGMA table_info({table_name})").fetchall()
+    return any(row["name"] == column_name for row in rows)
+
+
+def _add_column_if_missing(table_name: str, column_name: str, ddl_fragment: str) -> None:
+    """Add a column with ``ddl_fragment`` only when it is absent.
+
+    This helper is intentionally additive-only. Callers should use it while
+    holding ``_write_lock`` when applying startup compatibility changes.
+    """
+    if _column_exists(table_name, column_name):
+        return
+    conn = get_connection()
+    conn.execute(f"ALTER TABLE {table_name} ADD COLUMN {column_name} {ddl_fragment}")
+
+
+def _init_compatibility_columns() -> None:
+    """Apply future additive-only compatibility columns for existing databases."""
+    # Reserved for future ALTER TABLE additions. Keeping this hook under the
+    # schema lock gives additive compatibility changes a single startup path.
+    return None
+
+
 def init_schema() -> None:
     """Create all tables and indexes if they do not yet exist.
 
@@ -310,8 +336,47 @@ def init_schema() -> None:
                 FOREIGN KEY (case_id) REFERENCES cases(case_id)
             );
 
+            CREATE TABLE IF NOT EXISTS building_issue_groups (
+                group_id TEXT PRIMARY KEY,
+                grouping_key TEXT UNIQUE NOT NULL,
+                building TEXT NOT NULL,
+                normalized_building TEXT NOT NULL,
+                contractor TEXT NOT NULL,
+                normalized_contractor TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'open',
+                health_status TEXT,
+                last_email_sent_at TEXT,
+                next_email_allowed_at TEXT,
+                last_response_at TEXT,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS building_issue_group_cases (
+                group_id TEXT NOT NULL,
+                case_id TEXT NOT NULL,
+                added_at TEXT NOT NULL,
+                included_in_email_at TEXT,
+                new_since_last_email INTEGER NOT NULL DEFAULT 1,
+                status TEXT NOT NULL DEFAULT 'active',
+                source TEXT NOT NULL DEFAULT 'live_pipeline',
+                PRIMARY KEY (group_id, case_id),
+                FOREIGN KEY (group_id) REFERENCES building_issue_groups(group_id),
+                FOREIGN KEY (case_id) REFERENCES cases(case_id)
+            );
+
             CREATE INDEX IF NOT EXISTS idx_connection_hypotheses_status ON connection_hypotheses(status);
             CREATE INDEX IF NOT EXISTS idx_connection_hypothesis_cases_case_id ON connection_hypothesis_cases(case_id);
+
+            CREATE INDEX IF NOT EXISTS idx_building_issue_groups_key ON building_issue_groups(grouping_key);
+            CREATE INDEX IF NOT EXISTS idx_building_issue_groups_status ON building_issue_groups(status);
+            CREATE INDEX IF NOT EXISTS idx_building_issue_groups_normalized
+                ON building_issue_groups(normalized_building, normalized_contractor);
+            CREATE INDEX IF NOT EXISTS idx_building_issue_groups_updated_at ON building_issue_groups(updated_at);
+            CREATE INDEX IF NOT EXISTS idx_building_issue_group_cases_case_id ON building_issue_group_cases(case_id);
+            CREATE INDEX IF NOT EXISTS idx_building_issue_group_cases_status ON building_issue_group_cases(status);
+            CREATE INDEX IF NOT EXISTS idx_building_issue_group_cases_new ON building_issue_group_cases(new_since_last_email);
+            CREATE INDEX IF NOT EXISTS idx_building_issue_group_cases_source ON building_issue_group_cases(source);
 
             CREATE INDEX IF NOT EXISTS idx_cases_grouping_key ON cases(grouping_key);
             CREATE INDEX IF NOT EXISTS idx_cases_status ON cases(status);
@@ -329,6 +394,7 @@ def init_schema() -> None:
             CREATE INDEX IF NOT EXISTS idx_case_links_source_case_id ON case_links(source_case_id);
             CREATE INDEX IF NOT EXISTS idx_case_links_target_case_id ON case_links(target_case_id);
         """)
+        _init_compatibility_columns()
         conn.commit()
     print("[DB] Schema initialized.")
 
