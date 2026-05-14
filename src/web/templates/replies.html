@@ -1,0 +1,82 @@
+{% extends "base.html" %}
+{% block title %}Replies - Solucore Alert Triage{% endblock %}
+
+{% block content %}
+<h1>Replies</h1>
+<p class="section-note">
+  Reply emails are identified by thread linkage or reply mapping records. Mapping status shows whether the reply is linked to a case or building group.
+</p>
+
+<div class="stat-row">
+  <div class="stat">
+    <div class="label">Reply Emails</div>
+    <div class="value">{{ replies | length }}</div>
+  </div>
+  <div class="stat">
+    <div class="label">Need Mapping</div>
+    <div class="value" style="color:#b45309">{{ needs_mapping_count }}</div>
+  </div>
+</div>
+
+<div class="card" style="padding:0">
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Received</th>
+          <th>Subject</th>
+          <th>From</th>
+          <th>Mapping Status</th>
+          <th>Linked Cases</th>
+          <th>Linked Groups</th>
+          <th>Detail</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for reply in replies %}
+        <tr>
+          <td class="nowrap muted">
+            {{ reply.received_at[:16].replace('T', ' ') if reply.received_at else '-' }}
+          </td>
+          <td style="max-width:280px">
+            <div style="font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:260px">
+              {{ reply.subject or '(no subject)' }}
+            </div>
+            {% if reply.thread_id %}
+            <div class="muted" style="font-size:0.74rem">Thread {{ reply.thread_id }}</div>
+            {% endif %}
+          </td>
+          <td style="max-width:220px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ reply.from_addr or '-' }}</td>
+          <td><span class="badge {{ reply.mapping_badge_class }}">{{ reply.mapping_label }}</span></td>
+          <td>
+            {% if reply.mapped_case_ids %}
+              {% for case_id in reply.mapped_case_ids %}
+              <a href="/cases/{{ case_id }}">{{ case_id[:8] }}...</a>{% if not loop.last %}, {% endif %}
+              {% endfor %}
+            {% else %}
+              <span class="muted">-</span>
+            {% endif %}
+          </td>
+          <td>
+            {% if reply.mapped_group_ids %}
+              {% for group_id in reply.mapped_group_ids %}
+              <a href="/building-groups/{{ group_id }}">{{ group_id[:8] }}...</a>{% if not loop.last %}, {% endif %}
+              {% endfor %}
+            {% else %}
+              <span class="muted">-</span>
+            {% endif %}
+          </td>
+          <td><a class="btn btn-primary btn-sm" href="/replies/{{ reply.email_id }}">View</a></td>
+        </tr>
+        {% else %}
+        <tr>
+          <td colspan="7">
+            <div class="empty-state">No reply emails found.</div>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

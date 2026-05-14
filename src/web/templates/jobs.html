@@ -1,0 +1,48 @@
+{% extends "base.html" %}
+{% block title %}Jobs - Solucore Alert Triage{% endblock %}
+
+{% block content %}
+<h1>Jobs</h1>
+<p class="section-note">
+  Recent connection discovery runs. This page is read-only.
+</p>
+
+<div class="card" style="padding:0">
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Run ID</th>
+          <th>Scope</th>
+          <th>Status</th>
+          <th>Started</th>
+          <th>Packets Created</th>
+          <th>Packets Analyzed</th>
+          <th>AI Calls Used</th>
+          <th>Hypotheses Created</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for run in runs %}
+        <tr>
+          <td style="font-family:monospace;font-size:0.78rem">{{ run.run_id }}</td>
+          <td>{{ run.scope }}</td>
+          <td><span class="badge badge-{{ run.status }}">{{ run.status.replace('_', ' ') }}</span></td>
+          <td class="nowrap muted">{{ run.started_at[:16].replace('T', ' ') if run.started_at else '-' }}</td>
+          <td>{{ run.packets_created }}</td>
+          <td>{{ run.packets_analyzed }}</td>
+          <td>{{ run.ai_calls_used }}</td>
+          <td>{{ run.hypotheses_created }}</td>
+        </tr>
+        {% else %}
+        <tr>
+          <td colspan="8">
+            <div class="empty-state">No connection discovery runs found.</div>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

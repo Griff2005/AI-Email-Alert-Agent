@@ -1,0 +1,53 @@
+{% extends "base.html" %}
+{% block title %}Needs Attention - Solucore Alert Triage{% endblock %}
+
+{% block content %}
+<h1>Needs Attention</h1>
+<p class="section-note">
+  Human action queue across reviews, approval drafts, reply mapping, and proposed AI hypotheses.
+</p>
+
+<div class="stat-row">
+  <div class="stat">
+    <div class="label">Total items</div>
+    <div class="value">{{ total_attention_count }}</div>
+  </div>
+  {% for item in attention_items %}
+  <div class="stat">
+    <div class="label">{{ item.item_type }}</div>
+    <div class="value">{{ item.count }}</div>
+  </div>
+  {% endfor %}
+</div>
+
+<div class="card" style="padding:0">
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Type</th>
+          <th>Count</th>
+          <th>Most Recent Item</th>
+          <th>Updated</th>
+          <th>Queue</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for item in attention_items %}
+        <tr>
+          <td><span class="badge {{ item.badge_class }}">{{ item.item_type }}</span></td>
+          <td><strong>{{ item.count }}</strong></td>
+          <td>
+            <a href="{{ item.latest_href }}">{{ item.latest_text }}</a>
+          </td>
+          <td class="nowrap muted">
+            {{ item.latest_at[:16].replace('T', ' ') if item.latest_at else '-' }}
+          </td>
+          <td><a class="btn btn-primary btn-sm" href="{{ item.queue_href }}">Open</a></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}
