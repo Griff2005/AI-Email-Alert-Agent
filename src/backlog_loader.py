@@ -32,6 +32,7 @@ from constants import (
     SUPPORTED_CASE_TYPES,
 )
 from config import PROJECT_ROOT
+import building_groups
 import database as db
 import extractor
 import memory
@@ -685,6 +686,12 @@ def _process_record(record: Dict[str, Any], dry_run: bool) -> Dict[str, Any]:
             confidence_score=1.0,
         )
 
+    building_group_id = building_groups.attach_case_to_group(
+        case_id=case_id,
+        source="backlog_import",
+        enqueue=False,
+    )
+
     db.insert_case_event(
         event_id=str(uuid.uuid4()),
         case_id=case_id,
@@ -753,6 +760,7 @@ def _process_record(record: Dict[str, Any], dry_run: bool) -> Dict[str, Any]:
             "committed": True,
             "case_type": case_type,
             "case_id": case_id,
+            "building_group_id": building_group_id,
             "email_id": email_id,
             "grouping_key": grouping_key,
             "fields": fields,
