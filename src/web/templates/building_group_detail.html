@@ -55,6 +55,56 @@
 </div>
 
 <div class="card">
+  <h2>Consolidated Draft</h2>
+  <form class="filter-form" method="post" action="{{ url_for('generate_building_group_draft', group_id=group.group_id) }}">
+    <label>
+      Email Type
+      <select name="email_type">
+        <option value="initial">Initial</option>
+        <option value="followup">Follow-up</option>
+      </select>
+    </label>
+    <button class="btn btn-primary" type="submit">Generate Draft</button>
+  </form>
+
+  {% if latest_draft %}
+    <div class="detail-grid">
+      <div class="detail-field">
+        <div class="df-label">Subject</div>
+        <div class="df-value">{{ latest_draft.subject }}</div>
+      </div>
+      <div class="detail-field">
+        <div class="df-label">Status</div>
+        <div class="df-value"><span class="badge badge-{{ latest_draft.status }}">{{ latest_draft.status|replace('_', ' ')|title }}</span></div>
+      </div>
+      <div class="detail-field">
+        <div class="df-label">Intended To</div>
+        <div class="df-value">{{ latest_draft.intended_to }}</div>
+      </div>
+      <div class="detail-field">
+        <div class="df-label">Actual To</div>
+        <div class="df-value">{{ latest_draft.actual_to }}</div>
+      </div>
+      <div class="detail-field">
+        <div class="df-label">Quality Check</div>
+        <div class="df-value">
+          {{ "Passed" if latest_draft.quality_check.passed else "Failed" }}
+          {% if latest_draft.quality_check.failures %}
+            - {{ latest_draft.quality_check.failures|join("; ") }}
+          {% endif %}
+        </div>
+      </div>
+      <div class="detail-field">
+        <div class="df-label">Created</div>
+        <div class="df-value">{{ latest_draft.created_at }}</div>
+      </div>
+    </div>
+  {% else %}
+    <div class="empty-state">No consolidated draft has been generated for this group.</div>
+  {% endif %}
+</div>
+
+<div class="card">
   <h2>Child Cases</h2>
   <div class="table-wrap">
     <table>
