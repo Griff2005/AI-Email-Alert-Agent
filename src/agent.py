@@ -959,7 +959,9 @@ def _reset_refusal(reason: str) -> None:
 
 
 def _is_safe_reset_path(path: Path) -> bool:
-    lowered = str(path).lower()
+    # Check filename only (not full path) to avoid false-positives from parent
+    # directories like /tmp/workspace or CI paths containing "test".
+    lowered = path.name.lower()
     return any(token in lowered for token in ("demo", "test", "tmp"))
 
 

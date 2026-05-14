@@ -229,6 +229,12 @@ class Phase6OpsTests(unittest.TestCase):
         self.assertEqual(1, result["review_flagged"])
         self.assertIn("review_flagged", stdout.getvalue())
 
+    def test_build_demo_scenario_refuses_when_demo_mode_false(self):
+        config.DEMO_MODE = False
+        with self.assertRaises(SystemExit) as raised:
+            agent.cmd_build_demo_scenario(SimpleNamespace())
+        self.assertEqual(1, raised.exception.code)
+
 
 if __name__ == "__main__":
     unittest.main()
