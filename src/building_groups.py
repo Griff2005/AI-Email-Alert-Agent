@@ -45,7 +45,7 @@ def build_grouping_key(building: str, contractor: str) -> str:
     return f"building_group::{normalized_building}::{normalized_contractor}"
 
 
-def get_or_create_group(building: str, contractor: str) -> str:
+def get_or_create_group(building: str, contractor: str, group_id: str | None = None) -> str:
     """Return the group ID for ``building`` and ``contractor``, creating it if needed."""
     normalized_building = normalize_group_value(building)
     normalized_contractor = normalize_group_value(contractor)
@@ -63,7 +63,7 @@ def get_or_create_group(building: str, contractor: str) -> str:
         if row:
             return row["group_id"]
 
-        group_id = str(uuid.uuid4())
+        group_id = group_id or str(uuid.uuid4())
         conn.execute(
             """
             INSERT INTO building_issue_groups
