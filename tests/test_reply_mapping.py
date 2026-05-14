@@ -11,6 +11,7 @@ from pathlib import Path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
 
 import database as db
+import building_groups as bg
 import reply_mapping
 from config import config
 from constants import CASE_TYPE_DATA_ABSENCE
@@ -49,15 +50,7 @@ class TestAttachReplyToGroup(unittest.TestCase):
         )
 
         # Create a building group
-        group_id = "group-001"
-        db.insert_building_group(
-            group_id=group_id,
-            grouping_key="building_group::building a::contractor x",
-            building="Building A",
-            normalized_building="building a",
-            contractor="Contractor X",
-            normalized_contractor="contractor x",
-        )
+        group_id = bg.get_or_create_group("Building A", "Contractor X")
 
         # Attach reply to group
         mapping_id = reply_mapping.attach_reply_to_group(reply_id, group_id, source="manual")
@@ -100,14 +93,7 @@ class TestAttachReplyToGroup(unittest.TestCase):
         )
 
         # Create group
-        db.insert_building_group(
-            group_id=group_id,
-            grouping_key="building_group::building b::contractor y",
-            building="Building B",
-            normalized_building="building b",
-            contractor="Contractor Y",
-            normalized_contractor="contractor y",
-        )
+        group_id = bg.get_or_create_group("Building B", "Contractor Y")
 
         # Check case status before
         case_before = db.get_case_by_id(case_id)
