@@ -25,8 +25,10 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from flask import Flask, jsonify, redirect, render_template, request, url_for, flash
 from config import config, PROJECT_ROOT
+import building_groups as group_service
 import database as db
 import memory
+from constants import GROUP_STATUSES
 from observability import build_metrics_snapshot
 from runtime_options import runtime_options
 
@@ -341,6 +343,39 @@ def cases():
         patterned_only=patterned_only,
         review_required_only=review_required_only,
         case_type_options=_case_type_options(),
+    )
+
+
+@app.route("/building-groups")
+def building_groups():
+    """Render the building issue group list page."""
+    filters = {
+        "status": request.args.get("status", "").strip(),
+        "building": request.args.get("building", "").strip(),
+        "contractor": request.args.get("contractor", "").strip(),
+    }
+    groups = group_service.list_building_groups(filters)
+    return render_template(
+        "building_groups.html",
+        groups=groups,
+        filters=filters,
+        group_statuses=GROUP_STATUSES,
+    )
+
+
+@app.route("/building-groups/<group_id>")
+def building_group_detail(group_id):
+    """Render a read-only detail page for one building issue group."""
+    summary = group_service.get_group_summary(group_id)
+    if not summary:
+        flash(f"Building group {group_id} not found.", "error")
+        return redirect(url_for("building_groups"))
+    return render_template(
+        "building_group_detail.html",
+        group=summary["group"],
+        cases=summary["cases"],
+        counts=summary["counts"],
+        timeline=summary["timeline"],
     )
 
 

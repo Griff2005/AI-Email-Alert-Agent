@@ -1,0 +1,110 @@
+{% extends "base.html" %}
+
+{% block title %}Building Group Detail - Solucore Alert Triage{% endblock %}
+
+{% block content %}
+<h1>{{ group.building }}</h1>
+
+<div class="stat-row">
+  <div class="stat">
+    <div class="label">Open Cases</div>
+    <div class="value">{{ counts.open_case_count }}</div>
+  </div>
+  <div class="stat">
+    <div class="label">New Cases</div>
+    <div class="value">{{ counts.new_case_count }}</div>
+  </div>
+  <div class="stat">
+    <div class="label">Reviews</div>
+    <div class="value">{{ counts.review_count }}</div>
+  </div>
+  <div class="stat">
+    <div class="label">Total Cases</div>
+    <div class="value">{{ counts.total_case_count }}</div>
+  </div>
+</div>
+
+<div class="card">
+  <h2>Group Info</h2>
+  <div class="detail-grid">
+    <div class="detail-field">
+      <div class="df-label">Building</div>
+      <div class="df-value">{{ group.building }}</div>
+    </div>
+    <div class="detail-field">
+      <div class="df-label">Contractor</div>
+      <div class="df-value">{{ group.contractor }}</div>
+    </div>
+    <div class="detail-field">
+      <div class="df-label">Status</div>
+      <div class="df-value"><span class="badge badge-{{ group.status }}">{{ group.status|replace('_', ' ')|title }}</span></div>
+    </div>
+    <div class="detail-field">
+      <div class="df-label">Group ID</div>
+      <div class="df-value">{{ group.group_id }}</div>
+    </div>
+    <div class="detail-field">
+      <div class="df-label">Created</div>
+      <div class="df-value">{{ group.created_at }}</div>
+    </div>
+    <div class="detail-field">
+      <div class="df-label">Updated</div>
+      <div class="df-value">{{ group.updated_at }}</div>
+    </div>
+  </div>
+</div>
+
+<div class="card">
+  <h2>Child Cases</h2>
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Case</th>
+          <th>Type</th>
+          <th>Status</th>
+          <th>Priority</th>
+          <th>New</th>
+          <th>Source</th>
+          <th>Reviews</th>
+          <th>Updated</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for case in cases %}
+          <tr class="pri-{{ case.priority }}">
+            <td><a href="{{ url_for('case_detail', case_id=case.case_id) }}">{{ case.case_id }}</a></td>
+            <td>{{ case.case_type }}</td>
+            <td><span class="badge badge-{{ case.status }}">{{ case.status|replace('_', ' ')|title }}</span></td>
+            <td>{{ case.priority|title }}</td>
+            <td>{{ "Yes" if case.new_since_last_email else "No" }}</td>
+            <td>{{ case.group_source|replace('_', ' ')|title }}</td>
+            <td>{{ case.open_review_count }}</td>
+            <td class="nowrap">{{ case.updated_at }}</td>
+          </tr>
+        {% else %}
+          <tr>
+            <td colspan="8" class="empty-state">No child cases linked to this group.</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<div class="card">
+  <h2>Timeline</h2>
+  <ul class="timeline">
+    {% for event in timeline %}
+      <li>
+        <div class="ev-type">{{ event.event_type|replace('_', ' ')|title }}</div>
+        <div class="ev-desc">{{ event.description }}</div>
+        {% if event.case_id %}<div class="ev-time">Case: {{ event.case_id }}</div>{% endif %}
+        <div class="ev-time">{{ event.created_at }}</div>
+      </li>
+    {% else %}
+      <li class="empty-state">No timeline events found.</li>
+    {% endfor %}
+  </ul>
+</div>
+{% endblock %}

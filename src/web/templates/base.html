@@ -500,6 +500,7 @@
     <a href="/" {% if request.path == '/' %}class="active"{% endif %}>Dashboard</a>
     <a href="/emails" {% if request.path.startswith('/emails') %}class="active"{% endif %}>Emails</a>
     <a href="/cases" {% if request.path.startswith('/cases') %}class="active"{% endif %}>Cases</a>
+    <a href="/building-groups" {% if request.path.startswith('/building-groups') %}class="active"{% endif %}>Building Groups</a>
     <a href="/reviews" {% if request.path == '/reviews' %}class="active"{% endif %}>Reviews</a>
     <a href="/patterns" {% if request.path == '/patterns' %}class="active"{% endif %}>Patterns</a>
     <a href="/events" {% if request.path == '/events' %}class="active"{% endif %}>Events</a>
