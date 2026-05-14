@@ -14,9 +14,8 @@ from collections import defaultdict
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 
 import database as db
-from constants import SUPPORTED_CASE_TYPES, SUPPORTED_CASE_TYPES_SET
+from constants import SUPPORTED_CASE_TYPES_SET
 
-_SUPPORTED_CASE_TYPES = frozenset(SUPPORTED_CASE_TYPES)
 _SCOPE = {
     "supported_case_types_only": True,
     "unsupported_emails_excluded": True,
@@ -359,7 +358,7 @@ def _summaries_for_case_ids(case_ids: Iterable[str]) -> List[Dict[str, Any]]:
         if not case_row:
             continue
         case = dict(case_row)
-        if case.get("case_type") not in _SUPPORTED_CASE_TYPES:
+        if case.get("case_type") not in SUPPORTED_CASE_TYPES_SET:
             continue
         summaries.append(_case_summary(case))
     return summaries
@@ -419,7 +418,7 @@ def _safe_pattern_flag(row: Dict[str, Any]) -> Tuple[Optional[Dict[str, Any]], s
     row_case_id = row.get("case_id")
     if row_case_id:
         case = db.get_case_by_id(str(row_case_id))
-        if not case or case["case_type"] not in _SUPPORTED_CASE_TYPES:
+        if not case or case["case_type"] not in SUPPORTED_CASE_TYPES_SET:
             return None, set()
 
     evidence = _safe_pattern_evidence(row.get("evidence_json"))
@@ -484,7 +483,7 @@ def _filter_supported_case_ids(case_ids: Iterable[Any]) -> set[str]:
     for raw_case_id in case_ids:
         case_id = str(raw_case_id)
         case = db.get_case_by_id(case_id)
-        if case and case["case_type"] in _SUPPORTED_CASE_TYPES:
+        if case and case["case_type"] in SUPPORTED_CASE_TYPES_SET:
             supported.add(case_id)
     return supported
 
@@ -524,7 +523,7 @@ def _packet_known_links(cases: Sequence[Dict[str, Any]]) -> List[Dict[str, Any]]
             linked = dict(row)
             linked_case_id = linked.get("case_id")
             linked_case = db.get_case_by_id(linked_case_id) if linked_case_id else None
-            if not linked_case or linked_case["case_type"] not in _SUPPORTED_CASE_TYPES:
+            if not linked_case or linked_case["case_type"] not in SUPPORTED_CASE_TYPES_SET:
                 continue
             if linked_case_id not in packet_case_ids:
                 continue
@@ -597,7 +596,7 @@ def _estimate_prompt_chars(packet: Dict[str, Any]) -> int:
 def _count_unsupported_records(packet: Dict[str, Any]) -> int:
     unsupported = 0
     for case in packet.get("cases") or []:
-        if case.get("case_type") not in _SUPPORTED_CASE_TYPES:
+        if case.get("case_type") not in SUPPORTED_CASE_TYPES_SET:
             unsupported += 1
     # Scan only JSON keys (not values) to avoid false positives from field data
     # that legitimately contains the marker strings as substrings.

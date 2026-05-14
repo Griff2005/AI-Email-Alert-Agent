@@ -31,7 +31,7 @@ from constants import (
     EVENT_BACKLOG_CASE_UPDATED,
     EVENT_BACKLOG_EMAIL_IMPORTED,
     EVENT_BACKLOG_MEMORY_UPDATED,
-    SUPPORTED_CASE_TYPES,
+    SUPPORTED_CASE_TYPES_SET,
 )
 from config import PROJECT_ROOT
 import building_groups
@@ -40,7 +40,6 @@ import extractor
 import memory
 from time_utils import utc_compact_timestamp, utc_display_timestamp
 
-_SUPPORTED_CASE_TYPES: frozenset[str] = frozenset(SUPPORTED_CASE_TYPES)
 _CAT1_SUBJECT_RE = re.compile(r"\bcat\s*1\b", re.IGNORECASE)
 _CAT5_SUBJECT_RE = re.compile(r"\bcat\s*5\b", re.IGNORECASE)
 _SubjectPattern = Union[str, Pattern[str]]
@@ -469,7 +468,7 @@ def _classify_for_backlog(record: Dict[str, Any]) -> Dict[str, Any]:
         }
 
     result = classify_email_deterministic_only(record["subject"], record["body"])
-    if result["source"] == "deterministic" and result["case_type"] in _SUPPORTED_CASE_TYPES:
+    if result["source"] == "deterministic" and result["case_type"] in SUPPORTED_CASE_TYPES_SET:
         return result
     if result["source"] == "noise":
         return result
@@ -870,7 +869,7 @@ def _collect_recipient_summary(records: List[Dict[str, Any]]) -> Dict[str, Any]:
             missing_recipient_count += 1
 
         case_type = record.get("case_type")
-        if case_type in _SUPPORTED_CASE_TYPES:
+        if case_type in SUPPORTED_CASE_TYPES_SET:
             case_type_counter[case_type] += 1
 
         for address in all_recipients:
@@ -902,7 +901,7 @@ def _collect_recipient_summary(records: List[Dict[str, Any]]) -> Dict[str, Any]:
         ],
         "by_kpi_family": {
             case_type: case_type_counter.get(case_type, 0)
-            for case_type in sorted(_SUPPORTED_CASE_TYPES)
+            for case_type in sorted(SUPPORTED_CASE_TYPES_SET)
         },
     }
 
@@ -927,7 +926,7 @@ def _estimate_observation_count(case_type: str, fields: Dict[str, Any]) -> int:
         count += 1
     if fields.get("scheduled_date"):
         count += 1
-    if case_type in _SUPPORTED_CASE_TYPES:
+    if case_type in SUPPORTED_CASE_TYPES_SET:
         count += 1
     return count
 

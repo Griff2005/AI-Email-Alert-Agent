@@ -17,13 +17,12 @@ from constants import (
     GROUP_CASE_STATUS,
     GROUP_STATUSES,
     STATUS_CLOSED,
-    SUPPORTED_CASE_TYPES,
+    SUPPORTED_CASE_TYPES_SET,
 )
 from time_utils import utc_now_iso
 
 _NON_WORD_RE = re.compile(r"[^a-z0-9]+")
 _WHITESPACE_RE = re.compile(r"\s+")
-_SUPPORTED_CASE_TYPES = frozenset(SUPPORTED_CASE_TYPES)
 _CASE_GROUP_SOURCES = frozenset(CASE_GROUP_SOURCE)
 _GROUP_CASE_STATUSES = frozenset(GROUP_CASE_STATUS)
 _GROUP_STATUSES = frozenset(GROUP_STATUSES)
@@ -150,7 +149,7 @@ def rebuild_all_groups(include_closed: bool = False, dry_run: bool = False) -> d
     planned_group_keys: set[str] = set()
 
     for case in cases:
-        if case["case_type"] not in _SUPPORTED_CASE_TYPES:
+        if case["case_type"] not in SUPPORTED_CASE_TYPES_SET:
             summary["skipped_unsupported"] += 1
             continue
         if not include_closed and case["status"] == STATUS_CLOSED:
@@ -344,7 +343,7 @@ def _eligible_case_group_data(
     case = db.get_case_by_id(case_id)
     if not case:
         return None
-    if case["case_type"] not in _SUPPORTED_CASE_TYPES:
+    if case["case_type"] not in SUPPORTED_CASE_TYPES_SET:
         return None
     if not include_closed and case["status"] == STATUS_CLOSED:
         return None
