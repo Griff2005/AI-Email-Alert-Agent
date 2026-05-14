@@ -798,6 +798,20 @@ def get_events_for_case(case_id: str) -> List[sqlite3.Row]:
     ).fetchall()
 
 
+def get_recent_events(limit: int = 100) -> List[sqlite3.Row]:
+    """Return the most recent case events joined with case metadata."""
+    return get_connection().execute(
+        """
+        SELECT ce.*, c.case_type, c.building
+        FROM case_events ce
+        LEFT JOIN cases c ON ce.case_id = c.case_id
+        ORDER BY ce.created_at DESC
+        LIMIT ?
+        """,
+        (limit,),
+    ).fetchall()
+
+
 # ---------------------------------------------------------------------------
 # extracted_fields table
 # ---------------------------------------------------------------------------
