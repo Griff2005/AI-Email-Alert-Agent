@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+import uuid
 from typing import Any
 
 import database as db
@@ -14,6 +15,7 @@ from constants import (
     CASE_TYPE_MAINTENANCE_HOURS_SHORTFALL,
     CASE_TYPE_MAJOR_WORK_OVERDUE,
 )
+from time_utils import utc_now_iso
 
 _SPACE_RE = re.compile(r"\s+")
 
@@ -188,23 +190,84 @@ def get_required_response_items(case_type: str) -> list[dict[str, str]]:
     return [dict(item) for item in _REQUIREMENTS.get(case_type, [])]
 
 
-def build_case_requirements(case_id: str) -> list[dict[str, str]]:
-    """Return the Phase 2 requirement checklist for a case without persisting rows."""
+def build_case_requirements(case_id: str) -> list[dict]:
+    """Upsert case_data_requirements rows for the case based on case type.
+
+    Reads the case's case_type, calls get_required_response_items(), and
+    upserts one row per required item using upsert_case_data_requirement().
+    Does not overwrite rows that are already 'provided' or 'partial'.
+    Returns the current list of requirement rows.
+
+    Args:
+        case_id: Case to build requirements for.
+
+    Returns:
+        List of current requirement dicts from the database.
+    """
     case = db.get_case_by_id(case_id)
     if not case:
         return []
-    return get_required_response_items(case["case_type"])
+
+    case_type = case["case_type"]
+    items = get_required_response_items(case_type)
+
+    # Check existing requirements to avoid overwriting 'provided' or 'partial'
+    existing_reqs = {
+        req["requirement_key"]: req
+        for req in db.get_case_data_requirements(case_id)
+    }
+
+    for item in items:
+        key = item["key"]
+        existing = existing_reqs.get(key)
+
+        # Skip if already provided or partial
+        if existing and existing["status"] in ("provided", "partial"):
+            continue
+
+        requirement_id = str(uuid.uuid4())
+        db.upsert_case_data_requirement(
+            requirement_id=requirement_id,
+            case_id=case_id,
+            requirement_key=key,
+            label=item["label"],
+            status="missing" if not existing else existing["status"],
+            required=1,
+            source=None,
+            evidence_json=None,
+        )
+
+    # Return current state
+    return [dict(row) for row in db.get_case_data_requirements(case_id)]
 
 
-def calculate_case_completeness(case_id: str) -> dict[str, Any]:
-    """Return a Phase 2 completeness stub based only on the case type."""
-    checklist = build_case_requirements(case_id)
-    missing_keys = [item["key"] for item in checklist]
-    total = len(checklist)
+def calculate_case_completeness(case_id: str) -> dict:
+    """Return completeness metrics from case_data_requirements rows.
+
+    Counts rows with status='provided' as completed, all rows as total.
+    Returns percentage and lists of provided/missing keys.
+
+    Args:
+        case_id: Case to calculate completeness for.
+
+    Returns:
+        Dict with keys: completed (int), total (int), percentage (float),
+        provided_keys (list[str]), missing_keys (list[str])
+    """
+    requirements = db.get_case_data_requirements(case_id)
+
+    total = len(requirements)
+    completed = sum(1 for r in requirements if r["status"] == "provided")
+    percentage = (completed / total * 100) if total > 0 else 100
+
+    provided_keys = [r["requirement_key"] for r in requirements if r["status"] == "provided"]
+    missing_keys = [r["requirement_key"] for r in requirements if r["status"] in ("missing", "partial")]
+
     return {
-        "completed": 0,
+        "completed": completed,
         "total": total,
-        "percentage": 0 if total else 100,
+        "percentage": percentage,
+        "provided_keys": provided_keys,
         "missing_keys": missing_keys,
     }
 

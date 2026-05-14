@@ -1,0 +1,116 @@
+{% extends "base.html" %}
+
+{% block title %}Draft Review — {{ group['building'] }}{% endblock %}
+
+{% block content %}
+<div class="container mt-4">
+    <h1>Draft Email Review</h1>
+
+    <div class="row">
+        <div class="col-md-8">
+            <!-- Draft Content -->
+            <div class="card mb-4">
+                <div class="card-header">
+                    <h5>Email Content</h5>
+                </div>
+                <div class="card-body">
+                    <dl class="row">
+                        <dt class="col-sm-3">To (intended)</dt>
+                        <dd class="col-sm-9">{{ draft.get('intended_to') }}</dd>
+
+                        <dt class="col-sm-3">To (actual)</dt>
+                        <dd class="col-sm-9"><code>{{ draft.get('actual_to') }}</code></dd>
+
+                        <dt class="col-sm-3">Subject</dt>
+                        <dd class="col-sm-9">{{ draft.get('subject') }}</dd>
+                    </dl>
+
+                    <hr>
+
+                    <div class="alert alert-light">
+                        <pre style="white-space: pre-wrap; word-wrap: break-word;">{{ draft.get('body', '') }}</pre>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Building Group Info -->
+            <div class="card mb-4">
+                <div class="card-header">
+                    <h5>Building Group</h5>
+                </div>
+                <div class="card-body">
+                    <dl class="row">
+                        <dt class="col-sm-3">Building</dt>
+                        <dd class="col-sm-9">{{ group['building'] }}</dd>
+
+                        <dt class="col-sm-3">Contractor</dt>
+                        <dd class="col-sm-9">{{ group['contractor'] }}</dd>
+
+                        <dt class="col-sm-3">Status</dt>
+                        <dd class="col-sm-9">{{ group['status'] | title }}</dd>
+                    </dl>
+                </div>
+            </div>
+
+            <!-- Cases Included -->
+            {% if cases %}
+            <div class="card mb-4">
+                <div class="card-header">
+                    <h5>Included Cases ({{ cases | length }})</h5>
+                </div>
+                <div class="card-body">
+                    <table class="table table-sm">
+                        <thead>
+                            <tr>
+                                <th>Case ID</th>
+                                <th>Type</th>
+                                <th>Status</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for case in cases %}
+                            <tr>
+                                <td><a href="/cases/{{ case['case_id'] }}">{{ case['case_id'] }}</a></td>
+                                <td>{{ case.get('case_type') | replace('_', ' ') | title }}</td>
+                                <td>{{ case['status'] | title }}</td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+            {% endif %}
+        </div>
+
+        <div class="col-md-4">
+            <!-- Approval Sidebar -->
+            <div class="card sticky-top" style="top: 20px;">
+                <div class="card-header">
+                    <h5>Approval</h5>
+                </div>
+                <div class="card-body">
+                    <p class="text-muted">Status: <strong>{{ draft['status'] | replace('_', ' ') | title }}</strong></p>
+
+                    <form method="POST" action="/drafts/{{ draft['group_email_id'] }}/approve" class="mb-2">
+                        <button type="submit" class="btn btn-success btn-block">Approve for Send</button>
+                    </form>
+
+                    <button type="button" class="btn btn-warning btn-block" data-toggle="collapse" data-target="#reject-form">
+                        Reject
+                    </button>
+
+                    <div id="reject-form" class="collapse mt-3">
+                        <form method="POST" action="/drafts/{{ draft['group_email_id'] }}/reject">
+                            <div class="form-group">
+                                <label for="review_notes" class="form-label">Rejection Notes</label>
+                                <textarea class="form-control form-control-sm" id="review_notes" name="review_notes" rows="4" placeholder="Reason for rejection..."></textarea>
+                            </div>
+                            <button type="submit" class="btn btn-danger btn-block btn-sm">Confirm Rejection</button>
+                        </form>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

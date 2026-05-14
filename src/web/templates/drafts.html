@@ -1,0 +1,47 @@
+{% extends "base.html" %}
+
+{% block title %}Draft Email Review Queue{% endblock %}
+
+{% block content %}
+<div class="container mt-4">
+    <h1>Draft Email Review Queue</h1>
+    <p class="text-muted">Drafts awaiting manual approval before sending</p>
+
+    {% if drafts %}
+    <table class="table table-striped">
+        <thead>
+            <tr>
+                <th>Building</th>
+                <th>Contractor</th>
+                <th>Email Type</th>
+                <th>Status</th>
+                <th>Created</th>
+                <th>Action</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for draft in drafts %}
+            <tr>
+                <td>{{ draft.get('building') }}</td>
+                <td>{{ draft.get('contractor') }}</td>
+                <td><span class="badge badge-primary">{{ draft.get('email_type') | title }}</span></td>
+                <td>
+                    <span class="badge" style="background-color: {% if draft['status'] == 'draft_generated' %}#ffc107{% elif draft['status'] == 'needs_review' %}#ff9800{% elif draft['status'] == 'approved' %}#28a745{% else %}#dc3545{% endif %}">
+                        {{ draft['status'].replace('_', ' ') | title }}
+                    </span>
+                </td>
+                <td><small>{{ draft.get('created_at', '')[:10] }}</small></td>
+                <td>
+                    <a href="/drafts/{{ draft['group_email_id'] }}" class="btn btn-sm btn-info">Review</a>
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+    <div class="alert alert-info">
+        No drafts awaiting review.
+    </div>
+    {% endif %}
+</div>
+{% endblock %}

@@ -31,6 +31,7 @@ import memory
 from constants import GROUP_STATUSES
 from observability import build_metrics_snapshot
 from runtime_options import runtime_options
+from time_utils import utc_now_iso
 
 app = Flask(__name__, template_folder="templates")
 app.secret_key = "solucore-demo-secret-not-for-production"
@@ -665,6 +666,195 @@ def email_detail(email_id):
         email=email_dict,
         events=events,
     )
+
+
+# ---------------------------------------------------------------------------
+# Phase 3: Manual review context, reply mapping, and draft approval
+# ---------------------------------------------------------------------------
+
+
+@app.route("/reviews/<review_id>")
+def review_detail(review_id: str):
+    """Show full detail for a single manual review."""
+    conn = db.get_connection()
+    review_row = conn.execute(
+        "SELECT * FROM manual_reviews WHERE review_id = ?",
+        (review_id,),
+    ).fetchone()
+
+    if not review_row:
+        return jsonify({"error": "Review not found"}), 404
+
+    review = dict(review_row)
+
+    # Get linked case
+    case = None
+    case_requirements = []
+    if review.get("case_id"):
+        case = db.get_case_by_id(review["case_id"])
+        case_requirements = [dict(r) for r in db.get_case_data_requirements(review["case_id"])]
+
+    # Get linked email
+    email = None
+    if review.get("email_id"):
+        email = db.get_email_by_id(review["email_id"])
+        if email:
+            email = dict(email)
+
+    # Get linked group if case is in a group
+    group = None
+    if case:
+        group_rows = db.list_building_issue_group_cases(
+            filters={"case_id": case["case_id"]}
+        )
+        if group_rows:
+            group_id = group_rows[0].get("group_id")
+            group = db.get_building_group(group_id)
+
+    return render_template(
+        "review_detail.html",
+        review=review,
+        case=case,
+        email=email,
+        group=group,
+        case_requirements=case_requirements,
+    )
+
+
+@app.route("/replies/<email_id>")
+def reply_detail(email_id: str):
+    """Show reply detail with mapping suggestions and existing mappings."""
+    email = db.get_email_by_id(email_id)
+    if not email:
+        return jsonify({"error": "Email not found"}), 404
+
+    email = dict(email)
+
+    # Get existing mappings for this reply
+    existing_mappings = [
+        dict(row) for row in db.get_reply_mappings_for_email(email_id)
+    ]
+
+    # Get mapping suggestions (deterministic proposals)
+    import reply_mapping
+    suggestions = reply_mapping.propose_reply_case_mappings(email_id)
+
+    # Get building groups for manual mapping selection
+    all_groups = [dict(row) for row in db.list_building_groups()]
+
+    return render_template(
+        "reply_detail.html",
+        email=email,
+        existing_mappings=existing_mappings,
+        suggestions=suggestions,
+        all_groups=all_groups,
+    )
+
+
+@app.route("/replies/<email_id>/map-to-group", methods=["POST"])
+def reply_map_to_group(email_id: str):
+    """Attach a reply email to a building group."""
+    group_id = request.form.get("group_id")
+    if not group_id:
+        flash("Group ID is required", "error")
+        return redirect(url_for("reply_detail", email_id=email_id))
+
+    import reply_mapping
+    mapping_id = reply_mapping.attach_reply_to_group(email_id, group_id, source="manual")
+    flash(f"Reply attached to group. Mapping ID: {mapping_id[:8]}...", "success")
+    return redirect(url_for("reply_detail", email_id=email_id))
+
+
+@app.route("/replies/<email_id>/map-to-case", methods=["POST"])
+def reply_map_to_case(email_id: str):
+    """Map a reply email to a specific case."""
+    case_id = request.form.get("case_id")
+    if not case_id:
+        flash("Case ID is required", "error")
+        return redirect(url_for("reply_detail", email_id=email_id))
+
+    import reply_mapping
+    mapping_id = reply_mapping.save_reply_case_mapping(
+        reply_email_id=email_id,
+        case_id=case_id,
+        source="manual",
+    )
+    flash(f"Reply mapped to case. Mapping ID: {mapping_id[:8]}...", "success")
+    return redirect(url_for("reply_detail", email_id=email_id))
+
+
+@app.route("/drafts")
+def drafts():
+    """List building group email drafts awaiting review or approval."""
+    conn = db.get_connection()
+    drafts_list = conn.execute("""
+        SELECT be.*, big.building, big.contractor
+        FROM building_group_emails be
+        JOIN building_issue_groups big ON be.group_id = big.group_id
+        WHERE be.status IN ('draft_generated', 'needs_review')
+        ORDER BY be.created_at DESC
+    """).fetchall()
+    drafts_list = [dict(row) for row in drafts_list]
+
+    return render_template(
+        "drafts.html",
+        drafts=drafts_list,
+    )
+
+
+@app.route("/drafts/<group_email_id>")
+def draft_detail(group_email_id: str):
+    """Show detailed view of a draft email."""
+    conn = db.get_connection()
+    draft_row = conn.execute(
+        "SELECT * FROM building_group_emails WHERE group_email_id = ?",
+        (group_email_id,),
+    ).fetchone()
+
+    if not draft_row:
+        return jsonify({"error": "Draft not found"}), 404
+
+    draft = dict(draft_row)
+    group = db.get_building_group(draft["group_id"])
+
+    # Get cases in group
+    case_rows = db.list_building_issue_group_cases(
+        filters={"group_id": draft["group_id"], "status": "active"}
+    )
+    cases = []
+    for case_row in case_rows:
+        case = db.get_case_by_id(case_row["case_id"])
+        if case:
+            cases.append(case)
+
+    return render_template(
+        "draft_detail.html",
+        draft=draft,
+        group=group,
+        cases=cases,
+    )
+
+
+@app.route("/drafts/<group_email_id>/approve", methods=["POST"])
+def approve_draft(group_email_id: str):
+    """Approve a draft email for sending."""
+    db.update_draft_status(group_email_id, "approved", approved_at=utc_now_iso())
+    flash("Draft approved.", "success")
+    return redirect(url_for("drafts"))
+
+
+@app.route("/drafts/<group_email_id>/reject", methods=["POST"])
+def reject_draft(group_email_id: str):
+    """Reject a draft email."""
+    review_notes = request.form.get("review_notes", "")
+    db.update_draft_status(
+        group_email_id,
+        "rejected",
+        rejected_at=utc_now_iso(),
+        review_notes=review_notes,
+    )
+    flash("Draft rejected.", "success")
+    return redirect(url_for("drafts"))
 
 
 def create_app():
