@@ -5,15 +5,18 @@ Uses a module-level write lock for thread safety with Flask + APScheduler.
 
 import sqlite3
 import threading
+import uuid
 from typing import Any, Dict, List, Optional
 
 from config import config
 from constants import (
+    DRAFT_STATUSES,
     EVENT_BACKLOG_CASE_CREATED,
     EVENT_BACKLOG_CASE_UPDATED,
     EVENT_BACKLOG_EMAIL_IMPORTED,
     EVENT_CASE_CREATED,
     EVENT_EMAIL_RECEIVED,
+    QUEUE_STATUSES,
     SUPPORTED_CASE_TYPES,
 )
 from time_utils import utc_now_iso
@@ -365,6 +368,43 @@ def init_schema() -> None:
                 FOREIGN KEY (case_id) REFERENCES cases(case_id)
             );
 
+            CREATE TABLE IF NOT EXISTS building_group_emails (
+                group_email_id TEXT PRIMARY KEY,
+                group_id TEXT NOT NULL,
+                outbound_msg_id TEXT,
+                email_type TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'draft_generated',
+                subject TEXT NOT NULL,
+                body TEXT NOT NULL,
+                intended_to TEXT,
+                intended_cc TEXT DEFAULT '',
+                actual_to TEXT,
+                summary_json TEXT,
+                quality_check_json TEXT,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                approved_at TEXT,
+                rejected_at TEXT,
+                sent_at TEXT,
+                review_notes TEXT,
+                FOREIGN KEY (group_id) REFERENCES building_issue_groups(group_id),
+                FOREIGN KEY (outbound_msg_id) REFERENCES outbound_messages(msg_id)
+            );
+
+            CREATE TABLE IF NOT EXISTS communication_queue (
+                queue_id TEXT PRIMARY KEY,
+                group_id TEXT NOT NULL,
+                case_id TEXT,
+                queue_type TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'pending',
+                reason TEXT,
+                suppression_reason TEXT,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                FOREIGN KEY (group_id) REFERENCES building_issue_groups(group_id),
+                FOREIGN KEY (case_id) REFERENCES cases(case_id)
+            );
+
             CREATE INDEX IF NOT EXISTS idx_connection_hypotheses_status ON connection_hypotheses(status);
             CREATE INDEX IF NOT EXISTS idx_connection_hypothesis_cases_case_id ON connection_hypothesis_cases(case_id);
 
@@ -377,6 +417,8 @@ def init_schema() -> None:
             CREATE INDEX IF NOT EXISTS idx_building_issue_group_cases_status ON building_issue_group_cases(status);
             CREATE INDEX IF NOT EXISTS idx_building_issue_group_cases_new ON building_issue_group_cases(new_since_last_email);
             CREATE INDEX IF NOT EXISTS idx_building_issue_group_cases_source ON building_issue_group_cases(source);
+            CREATE INDEX IF NOT EXISTS idx_group_emails_group_status ON building_group_emails(group_id, status);
+            CREATE INDEX IF NOT EXISTS idx_comm_queue_status ON communication_queue(status);
 
             CREATE INDEX IF NOT EXISTS idx_cases_grouping_key ON cases(grouping_key);
             CREATE INDEX IF NOT EXISTS idx_cases_status ON cases(status);
@@ -1091,6 +1133,264 @@ def resolve_manual_review(review_id: str) -> None:
         "UPDATE manual_reviews SET resolved = 1 WHERE review_id = ?",
         (review_id,),
     )
+
+
+# ---------------------------------------------------------------------------
+# building_group_emails table
+# ---------------------------------------------------------------------------
+
+def insert_building_group_email(
+    group_email_id: str,
+    group_id: str,
+    email_type: str,
+    subject: str,
+    body: str,
+    intended_to: str,
+    intended_cc: str,
+    actual_to: str,
+    summary_json: Optional[str] = None,
+    quality_check_json: Optional[str] = None,
+    outbound_msg_id: Optional[str] = None,
+    status: str = "draft_generated",
+) -> None:
+    """Insert a review-only consolidated building-group draft row."""
+    if status not in DRAFT_STATUSES:
+        raise ValueError(f"Unsupported group email status: {status}")
+    now = utc_now_iso()
+    _execute_write(
+        """
+        INSERT INTO building_group_emails
+            (group_email_id, group_id, outbound_msg_id, email_type, status,
+             subject, body, intended_to, intended_cc, actual_to, summary_json,
+             quality_check_json, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            group_email_id,
+            group_id,
+            outbound_msg_id,
+            email_type,
+            status,
+            subject,
+            body,
+            intended_to,
+            intended_cc,
+            actual_to,
+            summary_json,
+            quality_check_json,
+            now,
+            now,
+        ),
+    )
+
+
+def get_building_group_email(group_email_id: str) -> Optional[sqlite3.Row]:
+    """Return a consolidated building-group email row by ID."""
+    conn = get_connection()
+    return conn.execute(
+        "SELECT * FROM building_group_emails WHERE group_email_id = ?",
+        (group_email_id,),
+    ).fetchone()
+
+
+def list_building_group_emails(
+    group_id: Optional[str] = None,
+    status: Optional[str] = None,
+    limit: int = 50,
+) -> List[sqlite3.Row]:
+    """Return consolidated building-group email rows, newest first."""
+    clauses = []
+    params: list[Any] = []
+    if group_id:
+        clauses.append("group_id = ?")
+        params.append(group_id)
+    if status:
+        clauses.append("status = ?")
+        params.append(status)
+    where_sql = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+    safe_limit = max(1, int(limit))
+    conn = get_connection()
+    return conn.execute(
+        f"""
+        SELECT *
+        FROM building_group_emails
+        {where_sql}
+        ORDER BY created_at DESC, rowid DESC
+        LIMIT ?
+        """,
+        tuple(params + [safe_limit]),
+    ).fetchall()
+
+
+def update_building_group_email_status(
+    group_email_id: str,
+    status: str,
+    notes: Optional[str] = None,
+    outbound_msg_id: Optional[str] = None,
+) -> Optional[sqlite3.Row]:
+    """Update a consolidated draft status and return the updated row."""
+    if status not in DRAFT_STATUSES:
+        raise ValueError(f"Unsupported group email status: {status}")
+    now = utc_now_iso()
+    approved_at = now if status == "approved" else None
+    rejected_at = now if status == "rejected" else None
+    sent_at = now if status == "sent" else None
+    _execute_write(
+        """
+        UPDATE building_group_emails
+        SET status = ?,
+            outbound_msg_id = COALESCE(?, outbound_msg_id),
+            updated_at = ?,
+            approved_at = COALESCE(?, approved_at),
+            rejected_at = COALESCE(?, rejected_at),
+            sent_at = COALESCE(?, sent_at),
+            review_notes = COALESCE(?, review_notes)
+        WHERE group_email_id = ?
+        """,
+        (
+            status,
+            outbound_msg_id,
+            now,
+            approved_at,
+            rejected_at,
+            sent_at,
+            notes,
+            group_email_id,
+        ),
+    )
+    return get_building_group_email(group_email_id)
+
+
+# ---------------------------------------------------------------------------
+# communication_queue table
+# ---------------------------------------------------------------------------
+
+def get_communication_queue_item(queue_id: str) -> Optional[sqlite3.Row]:
+    """Return one communication queue row by ID."""
+    conn = get_connection()
+    return conn.execute(
+        "SELECT * FROM communication_queue WHERE queue_id = ?",
+        (queue_id,),
+    ).fetchone()
+
+
+def list_communication_queue(
+    status: Optional[str] = None,
+    group_id: Optional[str] = None,
+    limit: int = 100,
+) -> List[sqlite3.Row]:
+    """Return communication queue rows, optionally filtered by status or group."""
+    clauses = []
+    params: list[Any] = []
+    if status:
+        clauses.append("status = ?")
+        params.append(status)
+    if group_id:
+        clauses.append("group_id = ?")
+        params.append(group_id)
+    where_sql = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+    safe_limit = max(1, int(limit))
+    conn = get_connection()
+    return conn.execute(
+        f"""
+        SELECT *
+        FROM communication_queue
+        {where_sql}
+        ORDER BY created_at DESC, rowid DESC
+        LIMIT ?
+        """,
+        tuple(params + [safe_limit]),
+    ).fetchall()
+
+
+def upsert_communication_queue_item(
+    group_id: str,
+    queue_type: str,
+    case_id: Optional[str] = None,
+    reason: Optional[str] = None,
+    status: str = "pending",
+    suppression_reason: Optional[str] = None,
+    queue_id: Optional[str] = None,
+) -> str:
+    """Insert or update a non-completed communication queue row."""
+    if status not in QUEUE_STATUSES:
+        raise ValueError(f"Unsupported communication queue status: {status}")
+    now = utc_now_iso()
+    with _write_lock:
+        conn = get_connection()
+        existing = conn.execute(
+            """
+            SELECT queue_id
+            FROM communication_queue
+            WHERE group_id = ?
+              AND queue_type = ?
+              AND COALESCE(case_id, '') = COALESCE(?, '')
+              AND status != 'completed'
+            ORDER BY created_at DESC, rowid DESC
+            LIMIT 1
+            """,
+            (group_id, queue_type, case_id),
+        ).fetchone()
+        if existing:
+            existing_queue_id = existing["queue_id"]
+            conn.execute(
+                """
+                UPDATE communication_queue
+                SET status = ?,
+                    reason = COALESCE(?, reason),
+                    suppression_reason = COALESCE(?, suppression_reason),
+                    updated_at = ?
+                WHERE queue_id = ?
+                """,
+                (status, reason, suppression_reason, now, existing_queue_id),
+            )
+            conn.commit()
+            return existing_queue_id
+
+        new_queue_id = queue_id or str(uuid.uuid4())
+        conn.execute(
+            """
+            INSERT INTO communication_queue
+                (queue_id, group_id, case_id, queue_type, status, reason,
+                 suppression_reason, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                new_queue_id,
+                group_id,
+                case_id,
+                queue_type,
+                status,
+                reason,
+                suppression_reason,
+                now,
+                now,
+            ),
+        )
+        conn.commit()
+        return new_queue_id
+
+
+def update_communication_queue_status(
+    queue_id: str,
+    status: str,
+    suppression_reason: Optional[str] = None,
+) -> Optional[sqlite3.Row]:
+    """Update a communication queue row status and return the updated row."""
+    if status not in QUEUE_STATUSES:
+        raise ValueError(f"Unsupported communication queue status: {status}")
+    now = utc_now_iso()
+    _execute_write(
+        """
+        UPDATE communication_queue
+        SET status = ?,
+            suppression_reason = COALESCE(?, suppression_reason),
+            updated_at = ?
+        WHERE queue_id = ?
+        """,
+        (status, suppression_reason, now, queue_id),
+    )
+    return get_communication_queue_item(queue_id)
 
 
 # ---------------------------------------------------------------------------

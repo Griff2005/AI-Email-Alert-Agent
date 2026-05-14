@@ -93,3 +93,31 @@ GROUP_CASE_STATUS = (
     "closed",
     "removed",
 )
+
+DRAFT_STATUSES = (
+    "draft_generated",
+    "needs_review",
+    "approved",
+    "sent",
+    "rejected",
+    "revised",
+)
+
+EMAIL_TYPES = (
+    "initial",
+    "followup",
+    "clarification",
+)
+
+QUEUE_STATUSES = (
+    "pending",
+    "ready",
+    "suppressed",
+    "completed",
+)
+
+QUEUE_TYPES = (
+    "initial_outreach",
+    "followup",
+    "clarification",
+)
