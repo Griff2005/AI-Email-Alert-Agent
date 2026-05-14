@@ -680,6 +680,110 @@ def cmd_show_building_groups(args: argparse.Namespace) -> list[dict]:
     return groups
 
 
+def cmd_generate_building_draft(args: argparse.Namespace) -> None:
+    """Generate or preview review-only consolidated building group drafts."""
+    import building_groups
+    import communication_planner
+    import group_email_builder
+
+    db.init_schema()
+    if args.all_ready:
+        ready_groups = communication_planner.list_groups_ready_for_draft()
+        ready_ids = {group["group_id"] for group in ready_groups}
+        created: list[tuple[str, str]] = []
+        failed: list[tuple[str, str]] = []
+        for group in ready_groups:
+            group_id = group["group_id"]
+            try:
+                if args.dry_run:
+                    draft = _build_group_draft_preview(group_id, args.email_type)
+                    quality = group_email_builder.validate_draft_quality(draft)
+                    created.append((group_id, f"dry-run preview ({quality['passed']})"))
+                else:
+                    draft_id = group_email_builder.create_group_email_draft(
+                        group_id,
+                        email_type=args.email_type,
+                    )
+                    created.append((group_id, draft_id))
+            except ValueError as exc:
+                failed.append((group_id, str(exc)))
+
+        skipped = []
+        for group in building_groups.list_building_groups():
+            if group["group_id"] in ready_ids:
+                continue
+            evaluation = communication_planner.evaluate_group_communication_status(group["group_id"])
+            reasons = evaluation["blockers"] + evaluation["suppression_reasons"]
+            skipped.append((group["group_id"], reasons or ["not ready"]))
+
+        print("[AGENT] Building draft generation summary")
+        print(f"  Ready groups processed: {len(ready_groups)}")
+        print(f"  Drafts created:         {0 if args.dry_run else len(created)}")
+        print(f"  Dry-run previews:       {len(created) if args.dry_run else 0}")
+        print(f"  Failed:                 {len(failed)}")
+        print(f"  Skipped:                {len(skipped)}")
+        for group_id, draft_ref in created:
+            print(f"  CREATED {group_id}: {draft_ref}")
+        for group_id, reason in failed:
+            print(f"  FAILED  {group_id}: {reason}")
+        for group_id, reasons in skipped:
+            print(f"  SKIPPED {group_id}: {'; '.join(reasons)}")
+        return
+
+    if not args.group_id:
+        print("[AGENT] ERROR: Set --group-id GROUP_ID or --all-ready.")
+        sys.exit(1)
+
+    evaluation = communication_planner.evaluate_group_communication_status(args.group_id)
+    if not evaluation["ready"]:
+        reasons = evaluation["blockers"] + evaluation["suppression_reasons"]
+        print("[AGENT] Group is not ready for draft generation:")
+        for reason in reasons:
+            print(f"  - {reason}")
+        sys.exit(1)
+
+    if args.dry_run:
+        draft = _build_group_draft_preview(args.group_id, args.email_type)
+        quality = group_email_builder.validate_draft_quality(draft)
+        print("[AGENT] Building draft dry run")
+        _print_group_draft_summary(draft, quality)
+        print()
+        print(draft["body"])
+        return
+
+    group_email_id = group_email_builder.create_group_email_draft(
+        args.group_id,
+        email_type=args.email_type,
+    )
+    row = db.get_building_group_email(group_email_id)
+    quality = json.loads(row["quality_check_json"]) if row and row["quality_check_json"] else {}
+    print(f"[AGENT] Building draft created: {group_email_id}")
+    _print_group_draft_summary(dict(row), quality)
+
+
+def _build_group_draft_preview(group_id: str, email_type: str) -> dict[str, Any]:
+    """Build a group draft without writing it to the database."""
+    import group_email_builder
+
+    draft = group_email_builder.build_consolidated_email(group_id)
+    draft["summary_json"].setdefault("email_type", email_type)
+    if email_type == "followup":
+        draft["subject"] = draft["subject"].replace("Action Required:", "Follow-up:", 1)
+        draft["summary_json"]["email_type"] = "followup"
+    return draft
+
+
+def _print_group_draft_summary(draft: dict[str, Any], quality: dict[str, Any]) -> None:
+    """Print a compact draft summary for the CLI."""
+    print(f"  Subject:       {draft.get('subject', '')}")
+    print(f"  Intended To:   {draft.get('intended_to', '')}")
+    print(f"  Actual To:     {draft.get('actual_to', '')}")
+    print(f"  Quality pass:  {quality.get('passed')}")
+    failures = quality.get("failures") or []
+    if failures:
+        print(f"  Quality notes: {'; '.join(failures)}")
+
+
 def cmd_discover_connections(args) -> None:
     """Discover possible hidden connections across supported KPI cases using AI.
 
@@ -931,6 +1035,31 @@ Examples:
     show_groups_parser.add_argument("--contractor", type=str, default=None, help="Filter by contractor text")
     show_groups_parser.add_argument("--json", action="store_true", dest="as_json", help="Print JSON instead of a table")
 
+    draft_parser = subparsers.add_parser(
+        "generate-building-draft",
+        help="Generate review-only consolidated building group drafts",
+    )
+    draft_target = draft_parser.add_mutually_exclusive_group(required=True)
+    draft_target.add_argument("--group-id", type=str, default=None, help="Building group ID to draft")
+    draft_target.add_argument(
+        "--all-ready",
+        action="store_true",
+        default=False,
+        help="Generate drafts for every group ready for communication",
+    )
+    draft_parser.add_argument(
+        "--email-type",
+        choices=("initial", "followup"),
+        default="initial",
+        help="Draft type to generate",
+    )
+    draft_parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        default=False,
+        help="Preview draft content without writing to the database",
+    )
+
     observability_parser = subparsers.add_parser(
         "observability-report",
         help="Print local metrics and safety snapshot",
@@ -1005,6 +1134,8 @@ Examples:
         cmd_rebuild_building_groups(args)
     elif args.command == "show-building-groups":
         cmd_show_building_groups(args)
+    elif args.command == "generate-building-draft":
+        cmd_generate_building_draft(args)
     elif args.command == "observability-report":
         cmd_observability_report(args)
     elif args.command == "discover-connections":
