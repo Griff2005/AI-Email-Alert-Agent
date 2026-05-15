@@ -1,0 +1,172 @@
+{% extends "base.html" %}
+{% block title %}Observability - Solucore Alert Triage{% endblock %}
+
+{% block content %}
+<h1>Observability</h1>
+<p class="section-note">
+  Read-only operational snapshot. This page does not trigger AI calls, emails, or database mutations.
+</p>
+
+<div class="stat-row">
+  <div class="stat">
+    <div class="label">Last Updated</div>
+    <div class="value" style="font-size:0.95rem">{{ last_updated }}</div>
+  </div>
+  <div class="stat">
+    <div class="label">Open Cases</div>
+    <div class="value">{{ snapshot.dashboard.open_cases }}</div>
+  </div>
+  <div class="stat">
+    <div class="label">Manual Reviews</div>
+    <div class="value">{{ review_counts.open }}</div>
+  </div>
+  <div class="stat">
+    <div class="label">Active Patterns</div>
+    <div class="value">{{ snapshot.dashboard.active_patterns }}</div>
+  </div>
+  <div class="stat">
+    <div class="label">AI Calls</div>
+    <div class="value">{{ ai_usage.total_ai_calls }}</div>
+  </div>
+</div>
+
+<div class="dashboard-grid">
+  <div class="card" style="margin-bottom:0">
+    <h2>Cases by Status</h2>
+    <div class="table-wrap">
+      <table class="mini-table">
+        <thead><tr><th>Status</th><th>Count</th></tr></thead>
+        <tbody>
+          {% for status, count in case_counts.by_status.items() %}
+          <tr><td>{{ status }}</td><td><strong>{{ count }}</strong></td></tr>
+          {% else %}
+          <tr><td colspan="2" class="empty-state">No case status counts.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="card" style="margin-bottom:0">
+    <h2>Cases by Type</h2>
+    <div class="table-wrap">
+      <table class="mini-table">
+        <thead><tr><th>Type</th><th>Count</th></tr></thead>
+        <tbody>
+          {% for case_type, count in case_counts.by_type.items() %}
+          <tr><td>{{ case_type.replace('_', ' ').title() }}</td><td><strong>{{ count }}</strong></td></tr>
+          {% else %}
+          <tr><td colspan="2" class="empty-state">No case type counts.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="card" style="margin-bottom:0">
+    <h2>Drafts by Status</h2>
+    <div class="table-wrap">
+      <table class="mini-table">
+        <thead><tr><th>Status</th><th>Count</th></tr></thead>
+        <tbody>
+          {% for row in draft_counts %}
+          <tr><td>{{ row.label.replace('_', ' ').title() }}</td><td><strong>{{ row.count }}</strong></td></tr>
+          {% else %}
+          <tr><td colspan="2" class="empty-state">No draft counts.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="card" style="margin-bottom:0">
+    <h2>Review Counts</h2>
+    <div class="detail-grid">
+      <div class="detail-field">
+        <div class="df-label">Open</div>
+        <div class="df-value">{{ review_counts.open }}</div>
+      </div>
+      <div class="detail-field">
+        <div class="df-label">Total</div>
+        <div class="df-value">{{ review_counts.total }}</div>
+      </div>
+    </div>
+    {% if review_counts.by_reason %}
+    <div class="table-wrap" style="margin-top:12px">
+      <table class="mini-table">
+        <thead><tr><th>Reason</th><th>Count</th></tr></thead>
+        <tbody>
+          {% for reason, count in review_counts.by_reason.items() %}
+          <tr><td>{{ reason }}</td><td><strong>{{ count }}</strong></td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% endif %}
+  </div>
+</div>
+
+<div class="dashboard-grid">
+  <div class="card" style="margin-bottom:0">
+    <h2>Patterns by Status</h2>
+    <div class="table-wrap">
+      <table class="mini-table">
+        <thead><tr><th>Status</th><th>Count</th></tr></thead>
+        <tbody>
+          {% for row in pattern_counts.by_status %}
+          <tr><td>{{ row.label }}</td><td><strong>{{ row.count }}</strong></td></tr>
+          {% else %}
+          <tr><td colspan="2" class="empty-state">No pattern status counts.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="card" style="margin-bottom:0">
+    <h2>Patterns by Severity</h2>
+    <div class="table-wrap">
+      <table class="mini-table">
+        <thead><tr><th>Severity</th><th>Count</th></tr></thead>
+        <tbody>
+          {% for row in pattern_counts.by_severity %}
+          <tr><td>{{ row.label }}</td><td><strong>{{ row.count }}</strong></td></tr>
+          {% else %}
+          <tr><td colspan="2" class="empty-state">No pattern severity counts.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="card" style="margin-bottom:0">
+    <h2>AI Usage Summary</h2>
+    <div class="detail-grid">
+      <div class="detail-field">
+        <div class="df-label">Enabled</div>
+        <div class="df-value">{{ ai_usage.ai_enabled }}</div>
+      </div>
+      <div class="detail-field">
+        <div class="df-label">Model</div>
+        <div class="df-value">{{ ai_usage.model_name }}</div>
+      </div>
+      <div class="detail-field">
+        <div class="df-label">Live Calls</div>
+        <div class="df-value">{{ ai_usage.live_ai_calls }}</div>
+      </div>
+      <div class="detail-field">
+        <div class="df-label">Mocked Calls</div>
+        <div class="df-value">{{ ai_usage.mocked_ai_calls }}</div>
+      </div>
+      <div class="detail-field">
+        <div class="df-label">Blocked</div>
+        <div class="df-value">{{ ai_usage.total_ai_calls_blocked }}</div>
+      </div>
+      <div class="detail-field">
+        <div class="df-label">Skipped</div>
+        <div class="df-value">{{ ai_usage.total_ai_calls_skipped }}</div>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

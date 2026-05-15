@@ -22,6 +22,7 @@ SUPPORTED_CASE_TYPES = (
     CASE_TYPE_MAJOR_WORK_OVERDUE,
     CASE_TYPE_GOVERNMENT_DIRECTIVE,
 )
+SUPPORTED_CASE_TYPES_SET = frozenset(SUPPORTED_CASE_TYPES)
 CLASSIFIABLE_CASE_TYPES = (*SUPPORTED_CASE_TYPES, CASE_TYPE_UNKNOWN)
 
 STATUS_OPEN = "open"
@@ -73,4 +74,97 @@ VALID_HYPOTHESIS_RISK_LEVELS = (
     HYPOTHESIS_RISK_INFO,
     HYPOTHESIS_RISK_REVIEW,
     HYPOTHESIS_RISK_MANAGEMENT_REVIEW,
+)
+
+GROUP_STATUSES = (
+    "open",
+    "updated_since_last_email",
+    "closed",
+    "blocked",
+)
+
+CASE_GROUP_SOURCE = (
+    "live_pipeline",
+    "backlog_import",
+    "manual",
+)
+
+GROUP_CASE_STATUS = (
+    "active",
+    "closed",
+    "removed",
+)
+
+DRAFT_STATUSES = (
+    "draft_generated",
+    "needs_review",
+    "approved",
+    "sent",
+    "rejected",
+    "revised",
+)
+
+EMAIL_TYPES = (
+    "initial",
+    "followup",
+    "clarification",
+)
+
+QUEUE_STATUSES = (
+    "pending",
+    "ready",
+    "suppressed",
+    "completed",
+)
+
+QUEUE_TYPES = (
+    "initial_outreach",
+    "followup",
+    "clarification",
+)
+
+# Phase 3: Data requirements and reply mapping statuses
+REQUIREMENT_STATUSES = (
+    "missing",
+    "provided",
+    "partial",
+    "not_applicable",
+)
+
+REPLY_MAPPING_SOURCES = (
+    "manual",
+    "deterministic",
+    "ai_assisted",
+)
+
+REPLY_MAPPING_STATUSES = (
+    "proposed",
+    "confirmed",
+    "rejected",
+)
+
+REPLY_COMPLETENESS_RESULTS = (
+    "complete",
+    "partial",
+    "vague",
+    "completion_claimed_no_evidence",
+    "future_action",
+    "clarification_needed",
+    "unrelated",
+)
+
+REVIEW_CATEGORIES = (
+    "missing_required_field",
+    "ambiguous_building",
+    "ambiguous_contractor",
+    "duplicate_uncertainty",
+    "prompt_injection",
+    "reply_claims_completion",
+    "evidence_missing",
+    "unsupported_format",
+    "ai_hypothesis_review",
+    "communication_blocked",
+    "draft_quality_failure",
+    "reply_mapping_needed",
+    "data_requirement_incomplete",
 )

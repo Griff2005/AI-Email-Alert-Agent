@@ -56,11 +56,6 @@ def normalize_text(value: str) -> str:
     return normalized.strip()
 
 
-def _now_iso() -> str:
-    """Return the current UTC timestamp in the existing database format."""
-    return utc_now_iso()
-
-
 def _parse_iso(value: Optional[str]) -> Optional[datetime]:
     if not value:
         return None
@@ -104,7 +99,7 @@ def _get_observed_at(case_id: Optional[str], email_id: Optional[str], observed_a
         case_row = db.get_case_by_id(case_id)
         if case_row and case_row["updated_at"]:
             return str(case_row["updated_at"])
-    return _now_iso()
+    return utc_now_iso()
 
 
 def _case_anchor(case_id: str) -> datetime:
@@ -330,7 +325,7 @@ def upsert_entity(
     if not normalized_name:
         return None
 
-    now = _now_iso()
+    now = utc_now_iso()
     existing = db.get_entity_by_normalized_name(entity_type, normalized_name)
     existing_name = str(existing["canonical_name"]) if existing else None
     entity_id = db.upsert_entity_record(
@@ -516,7 +511,7 @@ def record_reply_observations(case_id: str, reply_text: str, analysis: Optional[
     if not case:
         return
 
-    observed_at = _now_iso()
+    observed_at = utc_now_iso()
     contractor = case["contractor"]
     add_observation(
         case_id=case_id,
@@ -613,13 +608,44 @@ def record_no_response(case_id: str) -> None:
             "follow_count": int(followup["follow_count"]) if followup else 0,
             "deadline": followup["deadline"] if followup else None,
         },
-        observed_at=_now_iso(),
+        observed_at=utc_now_iso(),
         source="followup",
     )
 
 
 def detect_patterns_for_case(case_id: str) -> List[Dict[str, Any]]:
-    """Run deterministic recurrence rules for a case and persist active flags."""
+    """Run deterministic recurrence rules for a case and persist active flags.
+
+    Evaluates up to nine pattern types against recent cases and observations,
+    then upserts each detected flag via ``db.upsert_pattern_flag_record()``.
+
+    Pattern types (all deterministic — no AI):
+
+    1. ``repeated_building_issue`` — building has ≥ 3 cases in the last 60 days.
+    2. ``repeated_device_issue`` — device has ≥ 2 cases in the last 90 days.
+    3. ``repeated_contractor_issue`` — contractor has ≥ 3 cases, or ≥ 2
+       high-priority cases, in the last 60 days.
+    4. ``repeated_no_response`` — follow_count ≥ 2 or ≥ 3 no-response
+       observations in the last 90 days.
+    5. ``repeated_data_absence`` — ≥ 2 data-absence cases for the same
+       building/device in the last 30 days.
+    6. ``repeated_major_work_overdue`` — ≥ 2 major-work-overdue cases for the
+       same building/contractor in the last 90 days.
+    7. ``repeated_maintenance_shortfall`` — ≥ 2 maintenance-shortfall cases for
+       the same building in 120 days, or ≥ 3 contractor buildings in 90 days.
+    8. ``mechanic_recurrence`` — the same mechanic appears across ≥ 2 cases
+       for the same device in the last 90 days.
+    9. ``mechanic_rotation`` — ≥ 2 distinct mechanics appear across related
+       records for the same device in the last 90 days.
+
+    Args:
+        case_id: UUID of the case to evaluate.
+
+    Returns:
+        List of pattern record dicts returned by
+        ``db.upsert_pattern_flag_record()``, one per active pattern.
+        Returns ``[]`` if the case is not found or no patterns are triggered.
+    """
     case = db.get_case_by_id(case_id)
     if not case:
         return []

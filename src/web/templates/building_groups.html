@@ -1,0 +1,68 @@
+{% extends "base.html" %}
+
+{% block title %}Building Issue Groups - Solucore Alert Triage{% endblock %}
+
+{% block content %}
+<h1>Building Issue Groups</h1>
+
+<form class="filter-form" method="get" action="{{ url_for('building_groups') }}">
+  <label>
+    Status
+    <select name="status">
+      <option value="">All statuses</option>
+      {% for status in group_statuses %}
+        <option value="{{ status }}" {% if filters.status == status %}selected{% endif %}>
+          {{ status|replace('_', ' ')|title }}
+        </option>
+      {% endfor %}
+    </select>
+  </label>
+  <label>
+    Building
+    <input type="text" name="building" value="{{ filters.building }}" placeholder="Filter building">
+  </label>
+  <label>
+    Contractor
+    <input type="text" name="contractor" value="{{ filters.contractor }}" placeholder="Filter contractor">
+  </label>
+  <button class="btn btn-primary" type="submit">Apply</button>
+  <a class="btn" href="{{ url_for('building_groups') }}">Clear</a>
+</form>
+
+<div class="card">
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Building</th>
+          <th>Contractor</th>
+          <th>Status</th>
+          <th>Open Cases</th>
+          <th>New Cases</th>
+          <th>Reviews</th>
+          <th>Updated</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for group in groups %}
+          <tr>
+            <td>
+              <a href="{{ url_for('building_group_detail', group_id=group.group_id) }}">{{ group.building }}</a>
+            </td>
+            <td>{{ group.contractor }}</td>
+            <td><span class="badge badge-{{ group.status }}">{{ group.status|replace('_', ' ')|title }}</span></td>
+            <td>{{ group.open_case_count }}</td>
+            <td>{{ group.new_case_count }}</td>
+            <td>{{ group.review_count }}</td>
+            <td class="nowrap">{{ group.updated_at }}</td>
+          </tr>
+        {% else %}
+          <tr>
+            <td colspan="7" class="empty-state">No building issue groups found.</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

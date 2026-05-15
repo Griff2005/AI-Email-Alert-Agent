@@ -1031,8 +1031,8 @@ class TestDeduplication(BacklogLoaderTestCase):
 
 class TestClassificationHelpers(unittest.TestCase):
     def test_supported_case_types_are_hardcoded(self):
-        self.assertIsInstance(backlog_loader._SUPPORTED_CASE_TYPES, frozenset)
-        self.assertEqual(frozenset(SUPPORTED_CASE_TYPES), backlog_loader._SUPPORTED_CASE_TYPES)
+        self.assertIsInstance(backlog_loader.SUPPORTED_CASE_TYPES_SET, frozenset)
+        self.assertEqual(frozenset(SUPPORTED_CASE_TYPES), backlog_loader.SUPPORTED_CASE_TYPES_SET)
 
     def test_match_subject_to_case_type(self):
         self.assertEqual(

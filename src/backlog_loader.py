@@ -9,8 +9,10 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+import time
 import uuid
 from collections import Counter
+from dataclasses import dataclass
 from email.utils import getaddresses
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Pattern, Tuple, Union
@@ -29,15 +31,15 @@ from constants import (
     EVENT_BACKLOG_CASE_UPDATED,
     EVENT_BACKLOG_EMAIL_IMPORTED,
     EVENT_BACKLOG_MEMORY_UPDATED,
-    SUPPORTED_CASE_TYPES,
+    SUPPORTED_CASE_TYPES_SET,
 )
 from config import PROJECT_ROOT
+import building_groups
 import database as db
 import extractor
 import memory
 from time_utils import utc_compact_timestamp, utc_display_timestamp
 
-_SUPPORTED_CASE_TYPES: frozenset[str] = frozenset(SUPPORTED_CASE_TYPES)
 _CAT1_SUBJECT_RE = re.compile(r"\bcat\s*1\b", re.IGNORECASE)
 _CAT5_SUBJECT_RE = re.compile(r"\bcat\s*5\b", re.IGNORECASE)
 _SubjectPattern = Union[str, Pattern[str]]
@@ -161,12 +163,23 @@ _DEVICE_PATTERN = re.compile(r"\b[A-Z]-\d+\s*#\d+\b", re.IGNORECASE)
 _WHITESPACE_RE = re.compile(r"\s+")
 
 
+@dataclass(frozen=True)
+class BacklogRunOptions:
+    """Safety and reporting switches for one backlog import run."""
+
+    outbound_enabled: bool = False
+    progress_interval: int = 50
+    report_detail: str = "summary"
+
+
 def load_backlog(
     source: str,
     path: Path,
     dry_run: bool,
     limit: Optional[int] = None,
     report_dir: Optional[Path] = None,
+    progress_interval: int = 50,
+    report_detail: str = "summary",
 ) -> Dict[str, Any]:
     """Load staged historical KPI emails into reports or SQLite.
 
@@ -178,6 +191,16 @@ def load_backlog(
         raise ValueError(f"Unsupported backlog source: {source!r}. Only 'json' is supported.")
     if limit is not None and limit < 0:
         raise ValueError("limit must be >= 0")
+    if progress_interval <= 0:
+        raise ValueError("progress_interval must be > 0")
+    if report_detail not in {"summary", "full"}:
+        raise ValueError("report_detail must be 'summary' or 'full'")
+
+    options = BacklogRunOptions(
+        outbound_enabled=False,
+        progress_interval=progress_interval,
+        report_detail=report_detail,
+    )
 
     raw_records = _load_json_source(path)
     if limit is not None:
@@ -199,14 +222,28 @@ def load_backlog(
     expected_new_cases = 0
     expected_case_updates = 0
     expected_memory_observations = 0
+    start_time = time.monotonic()
+    total_records = len(raw_records)
+    last_progress_processed = -1
 
-    for raw in raw_records:
+    for processed, raw in enumerate(raw_records, start=1):
         try:
             normalized = _normalize_record(raw)
         except ValueError as exc:
             item = _result_stub(raw, action="rejected", reason=str(exc))
             results.append(item)
             rejected_items.append(item)
+            if processed % options.progress_interval == 0:
+                _print_progress(
+                    processed,
+                    total_records,
+                    start_time,
+                    len(accepted_results),
+                    len(rejected_items),
+                    len(review_items),
+                    len(unsupported_kpi_items),
+                )
+                last_progress_processed = processed
             continue
 
         if normalized["message_id"] in seen_message_ids:
@@ -220,6 +257,17 @@ def load_backlog(
             )
             results.append(item)
             duplicate_items.append(item)
+            if processed % options.progress_interval == 0:
+                _print_progress(
+                    processed,
+                    total_records,
+                    start_time,
+                    len(accepted_results),
+                    len(rejected_items),
+                    len(review_items),
+                    len(unsupported_kpi_items),
+                )
+                last_progress_processed = processed
             continue
         seen_message_ids.add(normalized["message_id"])
 
@@ -246,6 +294,29 @@ def load_backlog(
         elif result["action"] == "duplicate":
             duplicate_items.append(result)
             duplicates += 1
+
+        if processed % options.progress_interval == 0:
+            _print_progress(
+                processed,
+                total_records,
+                start_time,
+                len(accepted_results),
+                len(rejected_items),
+                len(review_items),
+                len(unsupported_kpi_items),
+            )
+            last_progress_processed = processed
+
+    if total_records == 0 or last_progress_processed != total_records:
+        _print_progress(
+            total_records,
+            total_records,
+            start_time,
+            len(accepted_results),
+            len(rejected_items),
+            len(review_items),
+            len(unsupported_kpi_items),
+        )
 
     recipient_summary = _collect_recipient_summary(results)
     ai_report = {"total_ai_calls": 0}
@@ -312,7 +383,7 @@ def load_backlog(
     if dry_run:
         summary["dry_run_note"] = "No database changes were committed. This is a preview only."
 
-    _write_reports(summary, run_dir, dry_run)
+    _write_reports(summary, run_dir, dry_run, report_detail=options.report_detail)
     _print_summary(summary)
     return summary
 
@@ -397,7 +468,7 @@ def _classify_for_backlog(record: Dict[str, Any]) -> Dict[str, Any]:
         }
 
     result = classify_email_deterministic_only(record["subject"], record["body"])
-    if result["source"] == "deterministic" and result["case_type"] in _SUPPORTED_CASE_TYPES:
+    if result["source"] == "deterministic" and result["case_type"] in SUPPORTED_CASE_TYPES_SET:
         return result
     if result["source"] == "noise":
         return result
@@ -685,6 +756,12 @@ def _process_record(record: Dict[str, Any], dry_run: bool) -> Dict[str, Any]:
             confidence_score=1.0,
         )
 
+    building_group_id = building_groups.attach_case_to_group(
+        case_id=case_id,
+        source="backlog_import",
+        enqueue=False,
+    )
+
     db.insert_case_event(
         event_id=str(uuid.uuid4()),
         case_id=case_id,
@@ -704,31 +781,15 @@ def _process_record(record: Dict[str, Any], dry_run: bool) -> Dict[str, Any]:
     before_observations = _count_rows("observations")
     before_pattern_flags = _count_rows("pattern_flags")
 
-    record_issue_observation = getattr(memory, "record_issue_observation", None)
-    if callable(record_issue_observation):
-        record_issue_observation(
-            case_id=case_id,
-            case_type=case_type,
-            building=fields.get("building"),
-            device=fields.get("device"),
-            contractor=fields.get("contractor"),
-            email_id=email_id,
-            observed_at=normalized["received_at"],
-        )
-    elif hasattr(memory, "record_case_observations"):
-        memory.record_case_observations(
-            case_id=case_id,
-            email_id=email_id,
-            case_type=case_type,
-            fields=fields,
-            source="backlog_import",
-        )
+    memory.record_case_observations(
+        case_id=case_id,
+        email_id=email_id,
+        case_type=case_type,
+        fields=fields,
+        source="backlog_import",
+    )
 
-    pattern_runner = getattr(memory, "run_pattern_detection", None)
-    if callable(pattern_runner):
-        pattern_runner(case_id)
-    else:
-        memory.detect_patterns_for_case(case_id)
+    memory.detect_patterns_for_case(case_id)
 
     memory_observations_created = _count_rows("observations") - before_observations
     pattern_flags_created = _count_rows("pattern_flags") - before_pattern_flags
@@ -753,6 +814,7 @@ def _process_record(record: Dict[str, Any], dry_run: bool) -> Dict[str, Any]:
             "committed": True,
             "case_type": case_type,
             "case_id": case_id,
+            "building_group_id": building_group_id,
             "email_id": email_id,
             "grouping_key": grouping_key,
             "fields": fields,
@@ -791,7 +853,7 @@ def _collect_recipient_summary(records: List[Dict[str, Any]]) -> Dict[str, Any]:
             missing_recipient_count += 1
 
         case_type = record.get("case_type")
-        if case_type in _SUPPORTED_CASE_TYPES:
+        if case_type in SUPPORTED_CASE_TYPES_SET:
             case_type_counter[case_type] += 1
 
         for address in all_recipients:
@@ -823,7 +885,7 @@ def _collect_recipient_summary(records: List[Dict[str, Any]]) -> Dict[str, Any]:
         ],
         "by_kpi_family": {
             case_type: case_type_counter.get(case_type, 0)
-            for case_type in sorted(_SUPPORTED_CASE_TYPES)
+            for case_type in sorted(SUPPORTED_CASE_TYPES_SET)
         },
     }
 
@@ -848,22 +910,27 @@ def _estimate_observation_count(case_type: str, fields: Dict[str, Any]) -> int:
         count += 1
     if fields.get("scheduled_date"):
         count += 1
-    if case_type in _SUPPORTED_CASE_TYPES:
+    if case_type in SUPPORTED_CASE_TYPES_SET:
         count += 1
     return count
 
 
-def _write_reports(results: Dict[str, Any], report_dir: Path, dry_run: bool) -> None:
+def _write_reports(
+    results: Dict[str, Any],
+    report_dir: Path,
+    dry_run: bool,
+    report_detail: str = "summary",
+) -> None:
     """Write JSON, Markdown, rejection, review, unsupported, and recipient reports."""
     del dry_run
     report_paths = _report_paths(report_dir)
 
     Path(report_paths["report_json"]).write_text(
-        json.dumps(_report_json_payload(results), indent=2, sort_keys=True),
+        json.dumps(_report_json_payload(results, report_detail), indent=2, sort_keys=True),
         encoding="utf-8",
     )
     Path(report_paths["report_md"]).write_text(
-        _build_markdown_report(results),
+        _build_markdown_report(results, report_detail),
         encoding="utf-8",
     )
     Path(report_paths["rejected_json"]).write_text(
@@ -884,7 +951,7 @@ def _write_reports(results: Dict[str, Any], report_dir: Path, dry_run: bool) -> 
     )
 
 
-def _build_markdown_report(summary: Dict[str, Any]) -> str:
+def _build_markdown_report(summary: Dict[str, Any], report_detail: str = "summary") -> str:
     """Render the human-readable backlog import report."""
     mode_label = "DRY RUN" if summary["dry_run"] else "COMMIT"
     case_label = "Expected / Created" if summary["dry_run"] else "Created / Updated"
@@ -989,6 +1056,26 @@ def _build_markdown_report(summary: Dict[str, Any]) -> str:
             "- [recipient_summary.json](recipient_summary.json)",
         ]
     )
+    detail_items = _detail_report_items(summary, report_detail)
+    detail_label = "All Processed Records" if report_detail == "full" else "Rejected and Review Records"
+    lines.extend(
+        [
+            "",
+            f"## {detail_label}",
+            "",
+        ]
+    )
+    if detail_items:
+        for item in detail_items:
+            subject = str(item.get("subject") or "(no subject)")
+            action = str(item.get("action") or "unknown")
+            reason = str(item.get("reason") or "")
+            case_type = str(item.get("case_type") or "")
+            suffix = f" — {reason}" if reason else ""
+            type_text = f" `{case_type}`" if case_type else ""
+            lines.append(f"- `{action}`{type_text}: {subject}{suffix}")
+    else:
+        lines.append("- None.")
     return "\n".join(lines) + "\n"
 
 
@@ -1125,11 +1212,12 @@ def _count_rows(table_name: str) -> int:
     return int(row["count"]) if row else 0
 
 
-def _report_json_payload(summary: Dict[str, Any]) -> Dict[str, Any]:
+def _report_json_payload(summary: Dict[str, Any], report_detail: str = "summary") -> Dict[str, Any]:
     payload = {
         "mode": summary["mode"],
         "generated_at": summary["generated_at"],
         "source_path": summary["source_path"],
+        "report_detail": report_detail,
         "emails_scanned": summary["emails_scanned"],
         "accepted_kpi": summary["accepted_kpi"],
         "recognized_unsupported_kpi": summary["recognized_unsupported_kpi"],
@@ -1150,10 +1238,51 @@ def _report_json_payload(summary: Dict[str, Any]) -> Dict[str, Any]:
         "top_unknown_subject_patterns": summary.get("top_unknown_subject_patterns", []),
         "top_supported_extraction_failures": summary.get("top_supported_extraction_failures", []),
         "unique_recipients": summary["unique_recipients"],
+        "detail_items": _detail_report_items(summary, report_detail),
     }
     if summary["dry_run"]:
         payload["dry_run_note"] = summary["dry_run_note"]
     return payload
+
+
+def _detail_report_items(summary: Dict[str, Any], report_detail: str) -> List[Dict[str, Any]]:
+    if report_detail == "full":
+        return [_compact_detail_item(item) for item in summary.get("results", [])]
+    return [
+        _compact_detail_item(item)
+        for item in (
+            list(summary.get("rejected_items", []))
+            + list(summary.get("review_items", []))
+        )
+    ]
+
+
+def _compact_detail_item(item: Dict[str, Any]) -> Dict[str, Any]:
+    """Return a compact per-record report item suitable for summary/full modes."""
+    compact: Dict[str, Any] = {
+        "action": item.get("action"),
+        "message_id": item.get("message_id"),
+        "subject": item.get("subject"),
+        "from_addr": item.get("from_addr"),
+        "received_at": item.get("received_at"),
+        "case_type": item.get("case_type"),
+        "reason": item.get("reason"),
+        "body_preview": item.get("body_preview", ""),
+    }
+    for key in (
+        "case_id",
+        "email_id",
+        "grouping_key",
+        "existing_case_id",
+        "expected_action",
+        "action_taken",
+        "unsupported_family",
+    ):
+        if item.get(key) is not None:
+            compact[key] = item.get(key)
+    if item.get("fields"):
+        compact["fields"] = item["fields"]
+    return compact
 
 
 def _rejected_report_items(items: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
@@ -1261,6 +1390,23 @@ def _report_dir_for_display(path: str) -> str:
     except ValueError:
         display_path = report_dir
     return f"{display_path.as_posix().rstrip('/')}/"
+
+
+def _print_progress(
+    processed: int,
+    total: int,
+    start_time: float,
+    accepted: int,
+    rejected: int,
+    review: int,
+    unsupported: int,
+) -> None:
+    elapsed = int(time.monotonic() - start_time)
+    print(
+        f"[BACKLOG] Progress: {processed}/{total} processed | "
+        f"accepted: {accepted} rejected: {rejected} review: {review} "
+        f"unsupported: {unsupported} | elapsed: {elapsed}s"
+    )
 
 
 def _print_summary(summary: Dict[str, Any]) -> None:

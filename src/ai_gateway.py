@@ -30,6 +30,7 @@ AI_PURPOSES = {
     "reply_analysis",
     "pattern_analysis",
     "manual_review_reasoning",
+    "connection_discovery",
     "other",
 }
 
@@ -91,11 +92,32 @@ class AiBudgetExceeded(RuntimeError):
 
 
 class AiGateway:
-    """Centralized controller for all model requests."""
+    """Centralized controller for all model requests.
+
+    Enforces per-run ``AiUsageConfig`` budgets (global, per-email, per-case,
+    and per-purpose call caps). Maintains a JSON prompt cache keyed by
+    content hash so identical prompts are never charged against the live
+    budget twice. Records per-call telemetry (purpose, status, token
+    estimates, cache hit) and exposes ``build_report()`` for usage summaries.
+
+    In tests, install deterministic replacements for the live Claude transport
+    via ``set_test_transports(json_transport=..., text_transport=...)``.
+    Use ``gateway.reset()`` in ``setUp``/``tearDown`` to prevent state leakage
+    between test cases.
+
+    All product modules must access this singleton through
+    ``ai_gateway.get_ai_gateway()`` — never import ``claude_client`` directly.
+    """
 
     def __init__(self) -> None:
         self._config = AiUsageConfig()
         self._records: List[_AiCallRecord] = []
+        # Running counter for total_ai_calls — avoids O(N) scan of _records on
+        # every _allow_call() check (which would make budget enforcement O(N²)
+        # for long discovery runs).  Mirrors build_report()["total_ai_calls"]
+        # exactly: incremented after every "allowed" or "mocked" record is
+        # appended, never for "blocked" or "cached" records.
+        self._ai_call_count: int = 0
         self._cache: Optional[Dict[str, Any]] = None
         self._json_transport: Optional[Callable[[str, str], Dict[str, Any]]] = None
         self._text_transport: Optional[Callable[[str, str], str]] = None
@@ -116,6 +138,7 @@ class AiGateway:
         """Reset usage records, transports, cache, and runtime policy."""
         self._config = AiUsageConfig()
         self._records = []
+        self._ai_call_count = 0
         self._cache = None
         self._json_transport = None
         self._text_transport = None
@@ -156,7 +179,7 @@ class AiGateway:
         """Record that deterministic logic skipped a model call."""
         self._records.append(
             _AiCallRecord(
-                timestamp=_now_iso(),
+                timestamp=utc_now_iso(),
                 purpose=self._normalize_purpose(purpose),
                 prompt_type=prompt_type,
                 caller=caller,
@@ -348,7 +371,7 @@ class AiGateway:
                 cached_payload = cache[cache_key]
                 self._records.append(
                     _AiCallRecord(
-                        timestamp=_now_iso(),
+                        timestamp=utc_now_iso(),
                         purpose=normalized_purpose,
                         prompt_type=prompt_type,
                         caller=caller,
@@ -389,7 +412,7 @@ class AiGateway:
         output_payload = payload if not expect_json else dict(payload)
         self._records.append(
             _AiCallRecord(
-                timestamp=_now_iso(),
+                timestamp=utc_now_iso(),
                 purpose=normalized_purpose,
                 prompt_type=prompt_type,
                 caller=caller,
@@ -408,6 +431,9 @@ class AiGateway:
                 mocked_call=mocked_call,
             )
         )
+        # Keep the running counter in sync with build_report()["total_ai_calls"].
+        # Status is always "allowed" or "mocked" at this point — both count.
+        self._ai_call_count += 1
         return AiCallOutcome(
             status=status,
             payload=output_payload,
@@ -429,7 +455,7 @@ class AiGateway:
     ) -> AiCallOutcome:
         self._records.append(
             _AiCallRecord(
-                timestamp=_now_iso(),
+                timestamp=utc_now_iso(),
                 purpose=purpose,
                 prompt_type=prompt_type,
                 caller=caller,
@@ -458,11 +484,22 @@ class AiGateway:
         )
 
     def _allow_call(self, purpose: str, email_id: Optional[str], case_id: Optional[str]) -> Optional[str]:
+        """Check whether a new AI call is permitted under the active budget policy.
+
+        Returns ``None`` if the call should proceed, or a non-empty string
+        describing the block reason when the call must be suppressed.
+
+        Checks are applied in order: AI enabled, global max_calls,
+        per-email cap, per-case cap, and per-purpose cap. The first failing
+        check short-circuits and returns its reason string.
+        """
         if not self._config.enabled:
             return "AI is disabled for this run."
 
-        current_report = self.build_report()
-        if self._config.max_calls is not None and current_report["total_ai_calls"] >= self._config.max_calls:
+        # Use the O(1) running counter instead of build_report() (which is O(N)).
+        # _ai_call_count mirrors total_ai_calls exactly — both track "allowed"
+        # and "mocked" records only.
+        if self._config.max_calls is not None and self._ai_call_count >= self._config.max_calls:
             return f"AI budget exceeded: max_calls={self._config.max_calls}"
 
         if email_id and self._config.max_calls_per_email > 0:
@@ -601,10 +638,6 @@ class AiGateway:
             return
         atexit.register(self.write_report)
         self._atexit_registered = True
-
-
-def _now_iso() -> str:
-    return utc_now_iso()
 
 
 _AI_GATEWAY = AiGateway()

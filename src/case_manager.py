@@ -34,6 +34,7 @@ from constants import (
 )
 import database as db
 import email_sender
+import building_groups
 import memory
 from classifier import classify_email, quick_filter
 from extractor import extract_fields_with_meta, generate_grouping_key, generate_email_body
@@ -311,6 +312,12 @@ def process_email(
         _create_new_case(case_id, case_type, grouping_key, email_id, fields, received_at, extraction_meta["source"])
         action = "created"
 
+    group_id = building_groups.attach_case_to_group(
+        case_id=case_id,
+        source="live_pipeline",
+        enqueue=True,
+    )
+
     # Step 7: Flag for injection review if needed
     if injection_detected:
         _ensure_manual_review(
@@ -326,6 +333,7 @@ def process_email(
         "case_id": case_id,
         "case_type": case_type,
         "grouping_key": grouping_key,
+        "building_group_id": group_id,
         "injection_detected": injection_detected,
     }
 
@@ -574,7 +582,7 @@ def _create_review_case(
     extracted_fields: Optional[Dict[str, Any]] = None,
 ) -> str:
     """Create a placeholder case for ambiguous classification or extraction."""
-    review_case_type = case_type if case_type != CASE_TYPE_UNKNOWN else CASE_TYPE_UNKNOWN
+    review_case_type = case_type
     grouping_key = f"review|{review_case_type.lower()}|{email_id}"
     existing_case = db.get_case_by_grouping_key(grouping_key)
     if existing_case:

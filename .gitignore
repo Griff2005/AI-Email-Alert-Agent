@@ -8,6 +8,7 @@ data/*.db-shm
 data/test_runs/
 data/ai_usage/
 data/claude_cache.json
+data/my_backlog.json
 data/ai_usage_report*.json
 data/ai_usage_report*.csv
 docs/superpowers/

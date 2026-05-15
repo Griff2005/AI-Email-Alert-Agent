@@ -21,8 +21,9 @@
       display: flex;
       align-items: center;
       padding: 0 24px;
-      height: 56px;
+      min-height: 56px;
       gap: 0;
+      flex-wrap: wrap;
     }
     nav .brand {
       font-weight: 700;
@@ -44,6 +45,16 @@
       transition: background 0.15s, color 0.15s;
     }
     nav a:hover, nav a.active { background: rgba(255,255,255,0.1); color: #7ee8fa; }
+    nav a.nav-attention {
+      background: #f59e0b;
+      color: #1a1a2e;
+      font-weight: 700;
+    }
+    nav a.nav-attention:hover,
+    nav a.nav-attention.active {
+      background: #fbbf24;
+      color: #1a1a2e;
+    }
     nav .nav-badges {
       margin-left: auto;
       display: flex;
@@ -118,9 +129,20 @@
     .badge-info     { background: #dbeafe; color: #1d4ed8; }
     .badge-review   { background: #fee2e2; color: #991b1b; }
     .badge-draft    { background: #fef3c7; color: #92400e; }
+    .badge-draft_generated { background: #fef3c7; color: #92400e; }
+    .badge-needs_review { background: #fee2e2; color: #991b1b; }
+    .badge-approved { background: #d1fae5; color: #065f46; }
+    .badge-rejected { background: #f3f4f6; color: #374151; }
+    .badge-revised { background: #e0e7ff; color: #3730a3; }
     .badge-sent     { background: #d1fae5; color: #065f46; }
     .badge-sent_dry_run { background: #e0e7ff; color: #3730a3; }
     .badge-active   { background: #dbeafe; color: #1d4ed8; }
+    .badge-completed { background: #d1fae5; color: #065f46; }
+    .badge-failed { background: #fee2e2; color: #991b1b; }
+    .badge-mapped { background: #d1fae5; color: #065f46; }
+    .badge-needs_mapping { background: #fee2e2; color: #991b1b; }
+    .badge-proposed { background: #fef3c7; color: #92400e; }
+    .badge-running { background: #dbeafe; color: #1d4ed8; }
     .badge-resolved { background: #d1fae5; color: #065f46; }
     .badge-dismissed { background: #f3f4f6; color: #374151; }
     .badge-none { background: #f3f4f6; color: #6b7280; }
@@ -442,6 +464,18 @@
     }
     .safety-bar strong { font-weight: 700; }
 
+    .demo-mode-banner {
+      background: #fffbeb;
+      border: 1px solid #f59e0b;
+      color: #78350f;
+      padding: 10px 24px;
+      font-size: 0.86rem;
+    }
+    .demo-mode-banner strong {
+      font-weight: 800;
+      letter-spacing: 0.04em;
+    }
+
     /* ---- Dashboard grid ---- */
     .dashboard-grid {
       display: grid;
@@ -497,17 +531,29 @@
 <body>
   <nav>
     <span class="brand">Solucore <span>/ Alert Triage</span></span>
+    <a href="/needs-attention" class="nav-attention{% if request.path.startswith('/needs-attention') %} active{% endif %}">Needs Attention</a>
     <a href="/" {% if request.path == '/' %}class="active"{% endif %}>Dashboard</a>
     <a href="/emails" {% if request.path.startswith('/emails') %}class="active"{% endif %}>Emails</a>
     <a href="/cases" {% if request.path.startswith('/cases') %}class="active"{% endif %}>Cases</a>
+    <a href="/building-groups" {% if request.path.startswith('/building-groups') %}class="active"{% endif %}>Building Groups</a>
     <a href="/reviews" {% if request.path == '/reviews' %}class="active"{% endif %}>Reviews</a>
+    <a href="/replies" {% if request.path.startswith('/replies') %}class="active"{% endif %}>Replies</a>
     <a href="/patterns" {% if request.path == '/patterns' %}class="active"{% endif %}>Patterns</a>
+    <a href="/connection-hypotheses" {% if request.path.startswith('/connection-hypotheses') %}class="active"{% endif %}>Connection Hypotheses</a>
+    <a href="/observability" {% if request.path == '/observability' %}class="active"{% endif %}>Observability</a>
+    <a href="/settings" {% if request.path == '/settings' %}class="active"{% endif %}>Settings</a>
+    <a href="/jobs" {% if request.path == '/jobs' %}class="active"{% endif %}>Jobs</a>
     <a href="/events" {% if request.path == '/events' %}class="active"{% endif %}>Events</a>
     <span class="nav-badges">
       {% if demo_mode %}<span class="demo-badge">DEMO MODE</span>{% endif %}
       <span class="ai-badge">AI: {{ ai_runtime_label }}</span>
     </span>
   </nav>
+  {% if demo_mode %}
+  <div class="demo-mode-banner">
+    <strong>DEMO MODE</strong> &mdash; all outbound email redirected to {{ demo_recipient }}
+  </div>
+  {% endif %}
 
   <div class="page-wrap">
     {% with messages = get_flashed_messages(with_categories=true) %}

@@ -25,10 +25,13 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from flask import Flask, jsonify, redirect, render_template, request, url_for, flash
 from config import config, PROJECT_ROOT
+import building_groups as group_service
 import database as db
 import memory
+from constants import GROUP_STATUSES
 from observability import build_metrics_snapshot
 from runtime_options import runtime_options
+from time_utils import utc_now_iso
 
 app = Flask(__name__, template_folder="templates")
 app.secret_key = "solucore-demo-secret-not-for-production"
@@ -277,6 +280,293 @@ def _event_badge_class(event_type: Optional[str]) -> str:
     return "badge-low"
 
 
+def _group_count_rows(sql: str, params: Iterable[Any] = ()) -> List[Dict[str, Any]]:
+    rows = db.get_connection().execute(sql, tuple(params)).fetchall()
+    return [
+        {
+            "label": str(row["label"] if row["label"] is not None else "Unspecified"),
+            "count": int(row["count"] or 0),
+        }
+        for row in rows
+    ]
+
+
+def _badge_class(value: Optional[str]) -> str:
+    normalized = (value or "none").strip()
+    known = {
+        "active",
+        "approved",
+        "closed",
+        "critical",
+        "draft",
+        "draft_generated",
+        "high",
+        "info",
+        "low",
+        "mapped",
+        "medium",
+        "needs_mapping",
+        "needs_review",
+        "proposed",
+        "rejected",
+        "resolved",
+        "review",
+        "sent",
+    }
+    if normalized in known:
+        return f"badge-{normalized}"
+    if normalized in {"management_review", "pending"}:
+        return "badge-review"
+    return "badge-low"
+
+
+def _safe_string_list(value: Any) -> List[str]:
+    if value is None:
+        return []
+    if isinstance(value, list):
+        return [str(item) for item in value if item not in (None, "")]
+    if isinstance(value, tuple):
+        return [str(item) for item in value if item not in (None, "")]
+    if isinstance(value, str):
+        return [part.strip() for part in value.split(",") if part.strip()]
+    return [str(value)]
+
+
+def _first_nonempty(*values: Any) -> Optional[str]:
+    for value in values:
+        if value not in (None, ""):
+            return str(value)
+    return None
+
+
+def _list_drafts_needing_approval(limit: int = 50) -> List[Dict[str, Any]]:
+    rows = db.get_connection().execute(
+        """
+        SELECT be.*, big.building, big.contractor
+        FROM building_group_emails be
+        LEFT JOIN building_issue_groups big ON be.group_id = big.group_id
+        WHERE be.status = 'draft_generated'
+        ORDER BY be.created_at DESC, be.rowid DESC
+        LIMIT ?
+        """,
+        (limit,),
+    ).fetchall()
+    return [dict(row) for row in rows]
+
+
+def _list_reply_emails(limit: int = 200) -> List[Dict[str, Any]]:
+    rows = db.get_connection().execute(
+        """
+        SELECT e.*,
+               COUNT(rcm.mapping_id) AS mapping_count,
+               SUM(CASE WHEN rcm.case_id IS NOT NULL THEN 1 ELSE 0 END) AS case_mapping_count,
+               SUM(CASE WHEN rcm.group_id IS NOT NULL THEN 1 ELSE 0 END) AS group_mapping_count,
+               GROUP_CONCAT(DISTINCT rcm.status) AS mapping_statuses,
+               GROUP_CONCAT(DISTINCT rcm.mapping_source) AS mapping_sources,
+               GROUP_CONCAT(DISTINCT rcm.case_id) AS mapped_case_ids,
+               GROUP_CONCAT(DISTINCT rcm.group_id) AS mapped_group_ids
+        FROM emails e
+        LEFT JOIN reply_case_mappings rcm ON rcm.reply_email_id = e.email_id
+        WHERE COALESCE(e.thread_id, '') != ''
+           OR e.email_id IN (SELECT reply_email_id FROM reply_case_mappings)
+        GROUP BY e.email_id
+        ORDER BY e.received_at DESC, e.email_id DESC
+        LIMIT ?
+        """,
+        (limit,),
+    ).fetchall()
+    replies: List[Dict[str, Any]] = []
+    for row in rows:
+        reply = dict(row)
+        statuses = _safe_string_list(reply.get("mapping_statuses"))
+        sources = _safe_string_list(reply.get("mapping_sources"))
+        case_count = _safe_int(reply.get("case_mapping_count"))
+        group_count = _safe_int(reply.get("group_mapping_count"))
+        linked_count = case_count + group_count
+        if linked_count == 0:
+            mapping_status = "needs_mapping"
+            mapping_label = "Needs Mapping"
+        elif "confirmed" in statuses or "manual" in sources:
+            mapping_status = "mapped"
+            mapping_label = "Mapped"
+        else:
+            mapping_status = "proposed"
+            mapping_label = "Proposed"
+        reply.update(
+            {
+                "mapping_status": mapping_status,
+                "mapping_label": mapping_label,
+                "mapping_badge_class": _badge_class(mapping_status),
+                "mapped_case_ids": _safe_string_list(reply.get("mapped_case_ids")),
+                "mapped_group_ids": _safe_string_list(reply.get("mapped_group_ids")),
+            }
+        )
+        replies.append(reply)
+    return replies
+
+
+def _case_summaries_for_ids(case_ids: List[str]) -> List[Dict[str, Any]]:
+    cases: List[Dict[str, Any]] = []
+    for case_id in case_ids:
+        case = db.get_case_by_id(case_id)
+        if case:
+            cases.append(dict(case))
+    return cases
+
+
+def _hypothesis_evidence_items(evidence: Dict[str, Any]) -> List[Dict[str, str]]:
+    allowed_keys = [
+        ("description", "Description"),
+        ("building", "Building"),
+        ("contractor", "Contractor"),
+        ("device", "Device"),
+        ("packet_type", "Packet Type"),
+        ("packet_id", "Packet ID"),
+        ("run_id", "Discovery Run"),
+        ("pattern_ids", "Pattern IDs"),
+        ("pattern_flag_ids", "Pattern IDs"),
+        ("merged_hypothesis_ids", "Merged Hypotheses"),
+    ]
+    items: List[Dict[str, str]] = []
+    for key, label in allowed_keys:
+        value = evidence.get(key)
+        if value in (None, "", []):
+            continue
+        if isinstance(value, (list, tuple)):
+            display = ", ".join(str(item) for item in value if item not in (None, ""))
+        elif isinstance(value, dict):
+            continue
+        else:
+            display = str(value)
+        if display:
+            items.append({"label": label, "value": display})
+    return items
+
+
+def _enrich_connection_hypothesis(row: Dict[str, Any]) -> Dict[str, Any]:
+    hypothesis = dict(row)
+    evidence = _parse_evidence(hypothesis.get("evidence_json"))
+    linked_case_ids = db.get_cases_for_hypothesis(hypothesis["hypothesis_id"])
+    case_ids = list(linked_case_ids)
+    for case_id in _safe_string_list(evidence.get("case_ids")):
+        if case_id not in case_ids:
+            case_ids.append(case_id)
+    cases = _case_summaries_for_ids(case_ids)
+    hypothesis.update(
+        {
+            "evidence": evidence,
+            "evidence_items": _hypothesis_evidence_items(evidence),
+            "case_ids": case_ids,
+            "cases": cases,
+            "building": _first_nonempty(
+                hypothesis.get("building"),
+                evidence.get("building"),
+                *(case.get("building") for case in cases),
+            ),
+            "contractor": _first_nonempty(
+                hypothesis.get("contractor"),
+                evidence.get("contractor"),
+                *(case.get("contractor") for case in cases),
+            ),
+            "device": _first_nonempty(
+                hypothesis.get("device"),
+                evidence.get("device"),
+                *(case.get("device") for case in cases),
+            ),
+            "status_badge_class": _badge_class(hypothesis.get("status")),
+            "risk_badge_class": _badge_class(hypothesis.get("risk_level")),
+            "confidence_badge_class": _badge_class(hypothesis.get("confidence")),
+        }
+    )
+    return hypothesis
+
+
+def _attention_queue_items() -> List[Dict[str, Any]]:
+    open_reviews = [dict(row) for row in db.get_open_manual_reviews()]
+    drafts_pending = _list_drafts_needing_approval()
+    replies_needing_mapping = [
+        reply for reply in _list_reply_emails() if reply["mapping_status"] == "needs_mapping"
+    ]
+    proposed_hypotheses = [
+        _enrich_connection_hypothesis(dict(row))
+        for row in db.get_connection_hypotheses(status_filter="proposed")
+    ]
+
+    latest_review = open_reviews[0] if open_reviews else None
+    latest_draft = drafts_pending[0] if drafts_pending else None
+    latest_reply = replies_needing_mapping[0] if replies_needing_mapping else None
+    latest_hypothesis = proposed_hypotheses[0] if proposed_hypotheses else None
+
+    return [
+        {
+            "item_type": "Manual Reviews Pending",
+            "count": len(open_reviews),
+            "latest_at": latest_review.get("flagged_at") if latest_review else None,
+            "latest_text": (
+                f"{latest_review.get('reason') or 'Review required'}"
+                if latest_review else "No pending manual reviews"
+            ),
+            "latest_href": (
+                url_for("review_detail", review_id=latest_review["review_id"])
+                if latest_review else url_for("reviews")
+            ),
+            "queue_href": url_for("reviews"),
+            "badge_class": "badge-review",
+        },
+        {
+            "item_type": "Drafts Needing Approval",
+            "count": len(drafts_pending),
+            "latest_at": latest_draft.get("created_at") if latest_draft else None,
+            "latest_text": (
+                (latest_draft.get("subject") or f"Draft {latest_draft['group_email_id']}")
+                if latest_draft
+                else "No drafts awaiting approval"
+            ),
+            "latest_href": (
+                url_for("draft_detail", group_email_id=latest_draft["group_email_id"])
+                if latest_draft else url_for("drafts")
+            ),
+            "queue_href": url_for("drafts"),
+            "badge_class": "badge-draft_generated",
+        },
+        {
+            "item_type": "Replies Needing Mapping",
+            "count": len(replies_needing_mapping),
+            "latest_at": latest_reply.get("received_at") if latest_reply else None,
+            "latest_text": (
+                (latest_reply.get("subject") or f"Reply {latest_reply['email_id']}")
+                if latest_reply
+                else "No replies need mapping"
+            ),
+            "latest_href": (
+                url_for("reply_detail", email_id=latest_reply["email_id"])
+                if latest_reply else url_for("replies")
+            ),
+            "queue_href": url_for("replies"),
+            "badge_class": "badge-needs_mapping",
+        },
+        {
+            "item_type": "Proposed AI Hypotheses",
+            "count": len(proposed_hypotheses),
+            "latest_at": latest_hypothesis.get("created_at") if latest_hypothesis else None,
+            "latest_text": (
+                (latest_hypothesis.get("summary") or f"Hypothesis {latest_hypothesis['hypothesis_id']}")
+                if latest_hypothesis
+                else "No proposed hypotheses"
+            ),
+            "latest_href": (
+                url_for(
+                    "connection_hypothesis_detail",
+                    hypothesis_id=latest_hypothesis["hypothesis_id"],
+                )
+                if latest_hypothesis else url_for("connection_hypotheses")
+            ),
+            "queue_href": url_for("connection_hypotheses"),
+            "badge_class": "badge-proposed",
+        },
+    ]
+
+
 @app.context_processor
 def inject_runtime_badges():
     options = runtime_options.get()
@@ -302,6 +592,17 @@ def index():
         recent_activity=recent_activity,
         case_type_breakdown=case_type_breakdown,
         pipeline_summary=pipeline_summary,
+    )
+
+
+@app.route("/needs-attention")
+def needs_attention():
+    """Render one read-only queue summarizing human action items."""
+    attention_items = _attention_queue_items()
+    return render_template(
+        "needs_attention.html",
+        attention_items=attention_items,
+        total_attention_count=sum(item["count"] for item in attention_items),
     )
 
 
@@ -342,6 +643,59 @@ def cases():
         review_required_only=review_required_only,
         case_type_options=_case_type_options(),
     )
+
+
+@app.route("/building-groups")
+def building_groups():
+    """Render the building issue group list page."""
+    filters = {
+        "status": request.args.get("status", "").strip(),
+        "building": request.args.get("building", "").strip(),
+        "contractor": request.args.get("contractor", "").strip(),
+    }
+    groups = group_service.list_building_groups(filters)
+    return render_template(
+        "building_groups.html",
+        groups=groups,
+        filters=filters,
+        group_statuses=GROUP_STATUSES,
+    )
+
+
+@app.route("/building-groups/<group_id>")
+def building_group_detail(group_id):
+    """Render a read-only detail page for one building issue group."""
+    summary = group_service.get_group_summary(group_id)
+    if not summary:
+        flash(f"Building group {group_id} not found.", "error")
+        return redirect(url_for("building_groups"))
+    latest_rows = db.list_building_group_emails(group_id=group_id, limit=1)
+    latest_draft = dict(latest_rows[0]) if latest_rows else None
+    if latest_draft:
+        latest_draft["quality_check"] = _parse_evidence(latest_draft.get("quality_check_json"))
+    return render_template(
+        "building_group_detail.html",
+        group=summary["group"],
+        cases=summary["cases"],
+        counts=summary["counts"],
+        timeline=summary["timeline"],
+        latest_draft=latest_draft,
+    )
+
+
+@app.route("/building-groups/<group_id>/generate-draft", methods=["POST"])
+def generate_building_group_draft(group_id):
+    """Generate a review-only consolidated draft for a building issue group."""
+    import group_email_builder
+
+    email_type = request.form.get("email_type", "initial")
+    try:
+        draft_id = group_email_builder.create_group_email_draft(group_id, email_type=email_type)
+    except ValueError as exc:
+        flash(str(exc), "error")
+    else:
+        flash(f"Group draft generated for review: {draft_id}", "success")
+    return redirect(url_for("building_group_detail", group_id=group_id))
 
 
 @app.route("/cases/<case_id>")
@@ -442,16 +796,7 @@ def reviews():
 @app.route("/events")
 def events():
     """Render a global feed of the 100 most recent case events."""
-    conn = db.get_connection()
-    recent_events = conn.execute(
-        """
-        SELECT ce.*, c.case_type, c.building
-        FROM case_events ce
-        LEFT JOIN cases c ON ce.case_id = c.case_id
-        ORDER BY ce.created_at DESC
-        LIMIT 100
-        """
-    ).fetchall()
+    recent_events = db.get_recent_events(limit=100)
     events_list = []
     for row in recent_events:
         event = dict(row)
@@ -464,6 +809,56 @@ def events():
 def observability_json():
     """Return a read-only JSON metrics and safety snapshot."""
     return jsonify(build_metrics_snapshot())
+
+
+@app.route("/observability")
+def observability():
+    """Render a read-only human-readable observability snapshot."""
+    snapshot = build_metrics_snapshot()
+    pattern_counts = {
+        "by_status": _group_count_rows(
+            """
+            SELECT status AS label, COUNT(*) AS count
+            FROM pattern_flags
+            GROUP BY status
+            ORDER BY count DESC, label ASC
+            """
+        ),
+        "by_type": _group_count_rows(
+            """
+            SELECT pattern_type AS label, COUNT(*) AS count
+            FROM pattern_flags
+            GROUP BY pattern_type
+            ORDER BY count DESC, label ASC
+            """
+        ),
+        "by_severity": _group_count_rows(
+            """
+            SELECT severity AS label, COUNT(*) AS count
+            FROM pattern_flags
+            GROUP BY severity
+            ORDER BY count DESC, label ASC
+            """
+        ),
+    }
+    draft_counts = _group_count_rows(
+        """
+        SELECT status AS label, COUNT(*) AS count
+        FROM building_group_emails
+        GROUP BY status
+        ORDER BY count DESC, label ASC
+        """
+    )
+    return render_template(
+        "observability.html",
+        snapshot=snapshot,
+        case_counts=snapshot.get("cases", {}),
+        pattern_counts=pattern_counts,
+        draft_counts=draft_counts,
+        review_counts=snapshot.get("manual_reviews", {}),
+        ai_usage=snapshot.get("ai_usage", {}),
+        last_updated=snapshot.get("generated_at"),
+    )
 
 
 @app.route("/connection-hypotheses.json")
@@ -484,6 +879,45 @@ def connection_hypotheses_json():
         "count": len(hypotheses),
         "status_filter": status_filter,
     })
+
+
+@app.route("/connection-hypotheses")
+def connection_hypotheses():
+    """Render all AI-generated connection hypotheses as proposed review items."""
+    status_filter = request.args.get("status", "").strip()
+    rows = db.get_connection_hypotheses(status_filter=status_filter or None)
+    status_options = [
+        row["label"]
+        for row in db.get_connection().execute(
+            """
+            SELECT DISTINCT status AS label
+            FROM connection_hypotheses
+            ORDER BY status ASC
+            """
+        ).fetchall()
+    ]
+    return render_template(
+        "connection_hypotheses.html",
+        hypotheses=[_enrich_connection_hypothesis(dict(row)) for row in rows],
+        status_filter=status_filter,
+        status_options=status_options,
+    )
+
+
+@app.route("/connection-hypotheses/<hypothesis_id>")
+def connection_hypothesis_detail(hypothesis_id: str):
+    """Render one AI-generated hypothesis in read-only review mode."""
+    row = db.get_connection().execute(
+        "SELECT * FROM connection_hypotheses WHERE hypothesis_id = ?",
+        (hypothesis_id,),
+    ).fetchone()
+    if not row:
+        flash(f"Connection hypothesis {hypothesis_id} not found.", "error")
+        return redirect(url_for("connection_hypotheses"))
+    return render_template(
+        "hypothesis_detail.html",
+        hypothesis=_enrich_connection_hypothesis(dict(row)),
+    )
 
 
 @app.route("/patterns")
@@ -530,6 +964,17 @@ def emails():
     )
 
 
+@app.route("/replies")
+def replies():
+    """Render the list of reply emails and their mapping status."""
+    reply_list = _list_reply_emails()
+    return render_template(
+        "replies.html",
+        replies=reply_list,
+        needs_mapping_count=len([reply for reply in reply_list if reply["mapping_status"] == "needs_mapping"]),
+    )
+
+
 @app.route("/ingest", methods=["POST"])
 def ingest():
     """Run the email ingest pipeline from data/sample_emails.json.
@@ -537,6 +982,8 @@ def ingest():
     Loads every sample email, stores it in the database, and runs the full
     case-manager pipeline for each one. Safe to run multiple times — existing
     emails and cases are updated rather than duplicated.
+
+    # AI is off by default — RuntimeOptions defaults disable model calls for this route.
     """
     import json
     import uuid as _uuid
@@ -610,6 +1057,221 @@ def email_detail(email_id):
         email=email_dict,
         events=events,
     )
+
+
+# ---------------------------------------------------------------------------
+# Phase 3: Manual review context, reply mapping, and draft approval
+# ---------------------------------------------------------------------------
+
+
+@app.route("/reviews/<review_id>")
+def review_detail(review_id: str):
+    """Show full detail for a single manual review."""
+    conn = db.get_connection()
+    review_row = conn.execute(
+        "SELECT * FROM manual_reviews WHERE review_id = ?",
+        (review_id,),
+    ).fetchone()
+
+    if not review_row:
+        return jsonify({"error": "Review not found"}), 404
+
+    review = dict(review_row)
+
+    # Get linked case
+    case = None
+    case_requirements = []
+    if review.get("case_id"):
+        case = db.get_case_by_id(review["case_id"])
+        case_requirements = [dict(r) for r in db.get_case_data_requirements(review["case_id"])]
+
+    # Get linked email
+    email = None
+    if review.get("email_id"):
+        email = db.get_email_by_id(review["email_id"])
+        if email:
+            email = dict(email)
+
+    # Get linked group if case is in a group
+    group = None
+    if case:
+        group_rows = db.list_building_issue_group_cases(
+            filters={"case_id": case["case_id"]}
+        )
+        if group_rows:
+            group_id = group_rows[0].get("group_id")
+            group = db.get_building_group(group_id)
+
+    return render_template(
+        "review_detail.html",
+        review=review,
+        case=case,
+        email=email,
+        group=group,
+        case_requirements=case_requirements,
+    )
+
+
+@app.route("/replies/<email_id>")
+def reply_detail(email_id: str):
+    """Show reply detail with mapping suggestions and existing mappings."""
+    email = db.get_email_by_id(email_id)
+    if not email:
+        return jsonify({"error": "Email not found"}), 404
+
+    email = dict(email)
+
+    # Get existing mappings for this reply
+    existing_mappings = [
+        dict(row) for row in db.get_reply_mappings_for_email(email_id)
+    ]
+
+    # Get mapping suggestions (deterministic proposals)
+    import reply_mapping
+    suggestions = reply_mapping.propose_reply_case_mappings(email_id)
+
+    # Get building groups for manual mapping selection
+    all_groups = [dict(row) for row in db.list_building_groups()]
+
+    return render_template(
+        "reply_detail.html",
+        email=email,
+        existing_mappings=existing_mappings,
+        suggestions=suggestions,
+        all_groups=all_groups,
+    )
+
+
+@app.route("/replies/<email_id>/map-to-group", methods=["POST"])
+def reply_map_to_group(email_id: str):
+    """Attach a reply email to a building group."""
+    group_id = request.form.get("group_id")
+    if not group_id:
+        flash("Group ID is required", "error")
+        return redirect(url_for("reply_detail", email_id=email_id))
+
+    import reply_mapping
+    mapping_id = reply_mapping.attach_reply_to_group(email_id, group_id, source="manual")
+    flash(f"Reply attached to group. Mapping ID: {mapping_id[:8]}...", "success")
+    return redirect(url_for("reply_detail", email_id=email_id))
+
+
+@app.route("/replies/<email_id>/map-to-case", methods=["POST"])
+def reply_map_to_case(email_id: str):
+    """Map a reply email to a specific case."""
+    case_id = request.form.get("case_id")
+    if not case_id:
+        flash("Case ID is required", "error")
+        return redirect(url_for("reply_detail", email_id=email_id))
+
+    import reply_mapping
+    mapping_id = reply_mapping.save_reply_case_mapping(
+        reply_email_id=email_id,
+        case_id=case_id,
+        source="manual",
+    )
+    flash(f"Reply mapped to case. Mapping ID: {mapping_id[:8]}...", "success")
+    return redirect(url_for("reply_detail", email_id=email_id))
+
+
+@app.route("/drafts")
+def drafts():
+    """List building group email drafts awaiting review or approval."""
+    conn = db.get_connection()
+    drafts_list = conn.execute("""
+        SELECT be.*, big.building, big.contractor
+        FROM building_group_emails be
+        JOIN building_issue_groups big ON be.group_id = big.group_id
+        WHERE be.status IN ('draft_generated', 'needs_review')
+        ORDER BY be.created_at DESC
+    """).fetchall()
+    drafts_list = [dict(row) for row in drafts_list]
+
+    return render_template(
+        "drafts.html",
+        drafts=drafts_list,
+    )
+
+
+@app.route("/drafts/<group_email_id>")
+def draft_detail(group_email_id: str):
+    """Show detailed view of a draft email."""
+    conn = db.get_connection()
+    draft_row = conn.execute(
+        "SELECT * FROM building_group_emails WHERE group_email_id = ?",
+        (group_email_id,),
+    ).fetchone()
+
+    if not draft_row:
+        return jsonify({"error": "Draft not found"}), 404
+
+    draft = dict(draft_row)
+    group = db.get_building_group(draft["group_id"])
+
+    # Get cases in group
+    case_rows = db.list_building_issue_group_cases(
+        filters={"group_id": draft["group_id"], "status": "active"}
+    )
+    cases = []
+    for case_row in case_rows:
+        case = db.get_case_by_id(case_row["case_id"])
+        if case:
+            cases.append(case)
+
+    return render_template(
+        "draft_detail.html",
+        draft=draft,
+        group=group,
+        cases=cases,
+    )
+
+
+@app.route("/drafts/<group_email_id>/approve", methods=["POST"])
+def approve_draft(group_email_id: str):
+    """Approve a draft email for sending."""
+    db.update_draft_status(group_email_id, "approved", approved_at=utc_now_iso())
+    flash("Draft approved.", "success")
+    return redirect(url_for("drafts"))
+
+
+@app.route("/drafts/<group_email_id>/reject", methods=["POST"])
+def reject_draft(group_email_id: str):
+    """Reject a draft email."""
+    review_notes = request.form.get("review_notes", "")
+    db.update_draft_status(
+        group_email_id,
+        "rejected",
+        rejected_at=utc_now_iso(),
+        review_notes=review_notes,
+    )
+    flash("Draft rejected.", "success")
+    return redirect(url_for("drafts"))
+
+
+@app.route("/jobs")
+def jobs():
+    """Render recent read-only connection discovery job runs."""
+    return render_template(
+        "jobs.html",
+        runs=[dict(row) for row in db.get_discovery_runs(limit=50)],
+    )
+
+
+@app.route("/settings")
+def settings():
+    """Render safe read-only runtime configuration values."""
+    safe_settings = [
+        {"label": "DATABASE_PATH", "value": str(config.DATABASE_PATH)},
+        {"label": "AI_REPORT_PATH", "value": str(config.AI_REPORT_PATH)},
+        {"label": "DEMO_MODE", "value": str(bool(config.DEMO_MODE))},
+        {"label": "CLAUDE_MODEL", "value": config.CLAUDE_MODEL},
+    ]
+    if config.DEMO_MODE:
+        safe_settings.insert(
+            3,
+            {"label": "DEMO_RECIPIENT_EMAIL", "value": config.DEMO_RECIPIENT_EMAIL},
+        )
+    return render_template("settings.html", settings=safe_settings)
 
 
 def create_app():

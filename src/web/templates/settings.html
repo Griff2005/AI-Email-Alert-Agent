@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+{% block title %}Settings - Solucore Alert Triage{% endblock %}
+
+{% block content %}
+<h1>Settings</h1>
+<p class="section-note">
+  Safe read-only runtime configuration values.
+</p>
+
+<div class="card" style="padding:0">
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Field</th>
+          <th>Value</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for setting in settings %}
+        <tr>
+          <td><strong>{{ setting.label }}</strong></td>
+          <td style="word-break:break-all">{{ setting.value }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

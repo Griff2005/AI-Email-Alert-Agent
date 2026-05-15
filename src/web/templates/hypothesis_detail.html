@@ -1,0 +1,122 @@
+{% extends "base.html" %}
+{% block title %}Hypothesis {{ hypothesis.hypothesis_id[:8] }} - Solucore Alert Triage{% endblock %}
+
+{% block content %}
+<div style="display:flex;align-items:center;gap:12px;margin-bottom:20px;flex-wrap:wrap">
+  <a href="/connection-hypotheses" style="font-size:0.85rem;color:#6b7280;text-decoration:none">&larr; Connection Hypotheses</a>
+  <h1 style="margin:0">Hypothesis {{ hypothesis.hypothesis_id[:8] }}...</h1>
+  <span class="badge {{ hypothesis.status_badge_class }}">{{ hypothesis.status }}</span>
+</div>
+
+<div class="demo-mode-banner" style="margin-bottom:20px">
+  <strong>PROPOSED</strong> &mdash; AI-generated, not confirmed. Review the linked cases and supporting evidence before taking action.
+</div>
+
+<div class="card">
+  <h2>Summary</h2>
+  <p style="font-size:0.95rem;color:#1f2937;margin-bottom:14px">{{ hypothesis.summary }}</p>
+  <div class="detail-grid">
+    <div class="detail-field">
+      <div class="df-label">Type</div>
+      <div class="df-value">{{ hypothesis.hypothesis_type.replace('_', ' ').title() }}</div>
+    </div>
+    <div class="detail-field">
+      <div class="df-label">Building</div>
+      <div class="df-value {% if not hypothesis.building %}empty{% endif %}">{{ hypothesis.building or '-' }}</div>
+    </div>
+    <div class="detail-field">
+      <div class="df-label">Contractor</div>
+      <div class="df-value {% if not hypothesis.contractor %}empty{% endif %}">{{ hypothesis.contractor or '-' }}</div>
+    </div>
+    <div class="detail-field">
+      <div class="df-label">Device</div>
+      <div class="df-value {% if not hypothesis.device %}empty{% endif %}">{{ hypothesis.device or '-' }}</div>
+    </div>
+    <div class="detail-field">
+      <div class="df-label">Confidence</div>
+      <div class="df-value"><span class="badge {{ hypothesis.confidence_badge_class }}">{{ hypothesis.confidence }}</span></div>
+    </div>
+    <div class="detail-field">
+      <div class="df-label">Risk</div>
+      <div class="df-value"><span class="badge {{ hypothesis.risk_badge_class }}">{{ hypothesis.risk_level.replace('_', ' ') }}</span></div>
+    </div>
+    <div class="detail-field">
+      <div class="df-label">Created</div>
+      <div class="df-value">{{ hypothesis.created_at[:16].replace('T', ' ') if hypothesis.created_at else '-' }}</div>
+    </div>
+  </div>
+</div>
+
+<div class="split-grid">
+  <div class="card">
+    <h2>Reasoning</h2>
+    {% if hypothesis.reasoning %}
+    <div class="msg-body">{{ hypothesis.reasoning }}</div>
+    {% else %}
+    <div class="empty-state">No reasoning text stored.</div>
+    {% endif %}
+  </div>
+
+  <div class="card">
+    <h2>Recommended Human Review</h2>
+    {% if hypothesis.recommended_human_review %}
+    <div class="msg-body">{{ hypothesis.recommended_human_review }}</div>
+    {% else %}
+    <div class="empty-state">No review recommendation stored.</div>
+    {% endif %}
+  </div>
+</div>
+
+<div class="card">
+  <h2>Evidence</h2>
+  <p class="section-note">Only supported case links and whitelisted evidence fields are shown here.</p>
+
+  {% if hypothesis.cases %}
+  <div class="table-wrap" style="margin-bottom:16px">
+    <table class="mini-table">
+      <thead>
+        <tr>
+          <th>Case</th>
+          <th>Type</th>
+          <th>Building</th>
+          <th>Device</th>
+          <th>Contractor</th>
+          <th>Status</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for case in hypothesis.cases %}
+        <tr>
+          <td><a href="/cases/{{ case.case_id }}">{{ case.case_id }}</a></td>
+          <td>{{ case.case_type.replace('_', ' ').title() }}</td>
+          <td>{{ case.building or '-' }}</td>
+          <td>{{ case.device or '-' }}</td>
+          <td>{{ case.contractor or '-' }}</td>
+          <td><span class="badge badge-{{ case.status }}">{{ case.status }}</span></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% elif hypothesis.case_ids %}
+  <div class="pill-row">
+    {% for case_id in hypothesis.case_ids %}
+    <a class="badge badge-info" href="/cases/{{ case_id }}">{{ case_id }}</a>
+    {% endfor %}
+  </div>
+  {% endif %}
+
+  {% if hypothesis.evidence_items %}
+  <div class="detail-grid">
+    {% for item in hypothesis.evidence_items %}
+    <div class="detail-field">
+      <div class="df-label">{{ item.label }}</div>
+      <div class="df-value">{{ item.value }}</div>
+    </div>
+    {% endfor %}
+  </div>
+  {% else %}
+  <div class="empty-state">No whitelisted evidence fields stored beyond linked cases.</div>
+  {% endif %}
+</div>
+{% endblock %}

@@ -1,0 +1,166 @@
+{% extends "base.html" %}
+
+{% block title %}Reply from {{ email.get('from_addr', 'Unknown') }}{% endblock %}
+
+{% block content %}
+<div class="container mt-4">
+    <h1>Reply Email Detail</h1>
+
+    <div class="row">
+        <div class="col-md-8">
+            <!-- Email Info -->
+            <div class="card mb-4">
+                <div class="card-header">
+                    <h5>Email Information</h5>
+                </div>
+                <div class="card-body">
+                    <dl class="row">
+                        <dt class="col-sm-3">From</dt>
+                        <dd class="col-sm-9">{{ email.get('from_addr') }}</dd>
+
+                        <dt class="col-sm-3">Subject</dt>
+                        <dd class="col-sm-9">{{ email.get('subject') }}</dd>
+
+                        <dt class="col-sm-3">Received</dt>
+                        <dd class="col-sm-9">{{ email.get('received_at') }}</dd>
+
+                        <dt class="col-sm-3">Message ID</dt>
+                        <dd class="col-sm-9"><code>{{ email.get('message_id') }}</code></dd>
+                    </dl>
+                </div>
+            </div>
+
+            <!-- Body -->
+            <div class="card mb-4">
+                <div class="card-header">
+                    <h5>Body</h5>
+                </div>
+                <div class="card-body">
+                    <pre style="max-height: 300px; overflow-y: auto; white-space: pre-wrap; word-wrap: break-word;">{{ email.get('raw_body', '') }}</pre>
+                </div>
+            </div>
+
+            <!-- Existing Mappings -->
+            {% if existing_mappings %}
+            <div class="card mb-4">
+                <div class="card-header">
+                    <h5>Existing Mappings ({{ existing_mappings | length }})</h5>
+                </div>
+                <div class="card-body">
+                    <table class="table table-sm">
+                        <thead>
+                            <tr>
+                                <th>Mapped To</th>
+                                <th>Source</th>
+                                <th>Status</th>
+                                <th>Confidence</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for mapping in existing_mappings %}
+                            <tr>
+                                <td>
+                                    {% if mapping.get('case_id') %}
+                                    <a href="/cases/{{ mapping['case_id'] }}">{{ mapping['case_id'] }}</a>
+                                    {% elif mapping.get('group_id') %}
+                                    <a href="/building-groups/{{ mapping['group_id'] }}">Group: {{ mapping['group_id'][:12] }}...</a>
+                                    {% else %}
+                                    Unknown
+                                    {% endif %}
+                                </td>
+                                <td>{{ mapping.get('mapping_source') | title }}</td>
+                                <td>
+                                    <span class="badge" style="background-color: {% if mapping['status'] == 'confirmed' %}#28a745{% elif mapping['status'] == 'proposed' %}#ffc107{% else %}#dc3545{% endif %}">
+                                        {{ mapping['status'] | title }}
+                                    </span>
+                                </td>
+                                <td>{{ mapping.get('confidence', '—') }}</td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+            {% endif %}
+
+            <!-- Mapping Suggestions -->
+            {% if suggestions %}
+            <div class="card mb-4">
+                <div class="card-header">
+                    <h5>Suggested Mappings</h5>
+                </div>
+                <div class="card-body">
+                    <p class="text-muted">The system detected possible mappings based on case IDs and building/contractor patterns.</p>
+                    <table class="table table-sm">
+                        <thead>
+                            <tr>
+                                <th>Target</th>
+                                <th>Confidence</th>
+                                <th>Reason</th>
+                                <th>Action</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for suggestion in suggestions %}
+                            <tr>
+                                <td>
+                                    {% if suggestion.get('case_id') %}
+                                    <a href="/cases/{{ suggestion['case_id'] }}">{{ suggestion['case_id'] }}</a>
+                                    {% elif suggestion.get('group_id') %}
+                                    <a href="/building-groups/{{ suggestion['group_id'] }}">{{ suggestion['group_id'] }}</a>
+                                    {% endif %}
+                                </td>
+                                <td>{{ suggestion.get('confidence', 'unknown') | title }}</td>
+                                <td>{{ suggestion.get('reason') }}</td>
+                                <td>
+                                    <form method="POST" action="/replies/{{ email['email_id'] }}/map-to-case" style="display: inline;">
+                                        <input type="hidden" name="case_id" value="{{ suggestion.get('case_id') }}">
+                                        <button type="submit" class="btn btn-sm btn-success">Accept</button>
+                                    </form>
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+            {% endif %}
+        </div>
+
+        <div class="col-md-4">
+            <!-- Manual Mapping Sidebar -->
+            <div class="card sticky-top" style="top: 20px;">
+                <div class="card-header">
+                    <h5>Manual Mapping</h5>
+                </div>
+                <div class="card-body">
+                    <div class="mb-3">
+                        <label for="case_id_input" class="form-label">Map to Case</label>
+                        <form method="POST" action="/replies/{{ email['email_id'] }}/map-to-case">
+                            <div class="input-group">
+                                <input type="text" class="form-control form-control-sm" id="case_id_input" name="case_id" placeholder="case-xxx">
+                                <button class="btn btn-primary btn-sm" type="submit">Map</button>
+                            </div>
+                        </form>
+                    </div>
+
+                    <hr>
+
+                    <label for="group_id_select" class="form-label">Map to Building Group</label>
+                    <form method="POST" action="/replies/{{ email['email_id'] }}/map-to-group">
+                        <div class="mb-2">
+                            <select class="form-control form-control-sm" id="group_id_select" name="group_id">
+                                <option value="">— Select a group —</option>
+                                {% for group in all_groups %}
+                                <option value="{{ group['group_id'] }}">{{ group['building'] }} / {{ group['contractor'] }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <button type="submit" class="btn btn-primary btn-block btn-sm">Attach to Group</button>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

@@ -5,22 +5,25 @@ Uses a module-level write lock for thread safety with Flask + APScheduler.
 
 import sqlite3
 import threading
+import uuid
 from typing import Any, Dict, List, Optional
 
 from config import config
 from constants import (
+    DRAFT_STATUSES,
     EVENT_BACKLOG_CASE_CREATED,
     EVENT_BACKLOG_CASE_UPDATED,
     EVENT_BACKLOG_EMAIL_IMPORTED,
     EVENT_CASE_CREATED,
     EVENT_EMAIL_RECEIVED,
+    QUEUE_STATUSES,
     SUPPORTED_CASE_TYPES,
 )
 from time_utils import utc_now_iso
 
 # Thread-local storage for connections — each thread gets its own connection
 _local = threading.local()
-_write_lock = threading.Lock()
+_write_lock = threading.RLock()
 
 _ALLOWED_CASE_UPDATE_FIELDS = frozenset(
     {
@@ -104,6 +107,33 @@ def _execute_write(sql: str, params: tuple = ()) -> sqlite3.Cursor:
         cursor = conn.execute(sql, params)
         conn.commit()
         return cursor
+
+
+def _column_exists(table_name: str, column_name: str) -> bool:
+    """Return whether ``table_name`` currently contains ``column_name``."""
+    conn = get_connection()
+    rows = conn.execute(f"PRAGMA table_info({table_name})").fetchall()
+    return any(row["name"] == column_name for row in rows)
+
+
+def _add_column_if_missing(table_name: str, column_name: str, ddl_fragment: str) -> None:
+    """Add a column with ``ddl_fragment`` only when it is absent.
+
+    This helper is intentionally additive-only. Callers should use it while
+    holding ``_write_lock`` when applying startup compatibility changes.
+    """
+    if _column_exists(table_name, column_name):
+        return
+    conn = get_connection()
+    conn.execute(f"ALTER TABLE {table_name} ADD COLUMN {column_name} {ddl_fragment}")
+
+
+def _init_compatibility_columns() -> None:
+    """Apply future additive-only compatibility columns for existing databases."""
+    with _write_lock:
+        _add_column_if_missing("manual_reviews", "review_category", "TEXT")
+        _add_column_if_missing("manual_reviews", "blocking", "INTEGER DEFAULT 1")
+        _add_column_if_missing("manual_reviews", "context_json", "TEXT")
 
 
 def init_schema() -> None:
@@ -310,8 +340,161 @@ def init_schema() -> None:
                 FOREIGN KEY (case_id) REFERENCES cases(case_id)
             );
 
+            CREATE TABLE IF NOT EXISTS connection_discovery_runs (
+                run_id TEXT PRIMARY KEY,
+                scope TEXT NOT NULL,
+                status TEXT NOT NULL,
+                started_at TEXT NOT NULL,
+                completed_at TEXT,
+                max_ai_calls INTEGER NOT NULL,
+                ai_calls_used INTEGER DEFAULT 0,
+                packets_created INTEGER DEFAULT 0,
+                packets_analyzed INTEGER DEFAULT 0,
+                hypotheses_created INTEGER DEFAULT 0,
+                hypotheses_rejected INTEGER DEFAULT 0,
+                unsupported_records_included INTEGER DEFAULT 0,
+                error_count INTEGER DEFAULT 0,
+                config_json TEXT
+            );
+
+            CREATE TABLE IF NOT EXISTS connection_discovery_packets (
+                packet_id TEXT PRIMARY KEY,
+                run_id TEXT NOT NULL,
+                packet_type TEXT NOT NULL,
+                entity_type TEXT,
+                entity_value TEXT,
+                case_count INTEGER DEFAULT 0,
+                pattern_count INTEGER DEFAULT 0,
+                status TEXT NOT NULL DEFAULT 'pending',
+                ai_call_used INTEGER DEFAULT 0,
+                hypotheses_created INTEGER DEFAULT 0,
+                created_at TEXT NOT NULL,
+                completed_at TEXT,
+                error TEXT
+            );
+
+            CREATE TABLE IF NOT EXISTS building_issue_groups (
+                group_id TEXT PRIMARY KEY,
+                grouping_key TEXT UNIQUE NOT NULL,
+                building TEXT NOT NULL,
+                normalized_building TEXT NOT NULL,
+                contractor TEXT NOT NULL,
+                normalized_contractor TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'open',
+                health_status TEXT,
+                last_email_sent_at TEXT,
+                next_email_allowed_at TEXT,
+                last_response_at TEXT,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS building_issue_group_cases (
+                group_id TEXT NOT NULL,
+                case_id TEXT NOT NULL,
+                added_at TEXT NOT NULL,
+                included_in_email_at TEXT,
+                new_since_last_email INTEGER NOT NULL DEFAULT 1,
+                status TEXT NOT NULL DEFAULT 'active',
+                source TEXT NOT NULL DEFAULT 'live_pipeline',
+                PRIMARY KEY (group_id, case_id),
+                FOREIGN KEY (group_id) REFERENCES building_issue_groups(group_id),
+                FOREIGN KEY (case_id) REFERENCES cases(case_id)
+            );
+
+            CREATE TABLE IF NOT EXISTS building_group_emails (
+                group_email_id TEXT PRIMARY KEY,
+                group_id TEXT NOT NULL,
+                outbound_msg_id TEXT,
+                email_type TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'draft_generated',
+                subject TEXT NOT NULL,
+                body TEXT NOT NULL,
+                intended_to TEXT,
+                intended_cc TEXT DEFAULT '',
+                actual_to TEXT,
+                summary_json TEXT,
+                quality_check_json TEXT,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                approved_at TEXT,
+                rejected_at TEXT,
+                sent_at TEXT,
+                review_notes TEXT,
+                FOREIGN KEY (group_id) REFERENCES building_issue_groups(group_id),
+                FOREIGN KEY (outbound_msg_id) REFERENCES outbound_messages(msg_id)
+            );
+
+            CREATE TABLE IF NOT EXISTS communication_queue (
+                queue_id TEXT PRIMARY KEY,
+                group_id TEXT NOT NULL,
+                case_id TEXT,
+                queue_type TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'pending',
+                reason TEXT,
+                suppression_reason TEXT,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                FOREIGN KEY (group_id) REFERENCES building_issue_groups(group_id),
+                FOREIGN KEY (case_id) REFERENCES cases(case_id)
+            );
+
+            CREATE TABLE IF NOT EXISTS case_data_requirements (
+                requirement_id TEXT PRIMARY KEY,
+                case_id TEXT NOT NULL,
+                requirement_key TEXT NOT NULL,
+                label TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'missing',
+                required INTEGER NOT NULL DEFAULT 1,
+                source TEXT,
+                evidence_json TEXT,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                UNIQUE(case_id, requirement_key),
+                FOREIGN KEY (case_id) REFERENCES cases(case_id)
+            );
+
+            CREATE TABLE IF NOT EXISTS reply_case_mappings (
+                mapping_id TEXT PRIMARY KEY,
+                reply_email_id TEXT NOT NULL,
+                case_id TEXT,
+                group_id TEXT,
+                mapping_source TEXT NOT NULL,
+                confidence TEXT,
+                status TEXT NOT NULL DEFAULT 'proposed',
+                completeness_json TEXT,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                FOREIGN KEY (reply_email_id) REFERENCES emails(email_id),
+                FOREIGN KEY (case_id) REFERENCES cases(case_id),
+                FOREIGN KEY (group_id) REFERENCES building_issue_groups(group_id)
+            );
+
             CREATE INDEX IF NOT EXISTS idx_connection_hypotheses_status ON connection_hypotheses(status);
             CREATE INDEX IF NOT EXISTS idx_connection_hypothesis_cases_case_id ON connection_hypothesis_cases(case_id);
+            CREATE INDEX IF NOT EXISTS idx_connection_discovery_runs_started
+                ON connection_discovery_runs(started_at);
+            CREATE INDEX IF NOT EXISTS idx_connection_discovery_packets_run
+                ON connection_discovery_packets(run_id, status);
+
+            CREATE INDEX IF NOT EXISTS idx_building_issue_groups_key ON building_issue_groups(grouping_key);
+            CREATE INDEX IF NOT EXISTS idx_building_issue_groups_status ON building_issue_groups(status);
+            CREATE INDEX IF NOT EXISTS idx_building_issue_groups_normalized
+                ON building_issue_groups(normalized_building, normalized_contractor);
+            CREATE INDEX IF NOT EXISTS idx_building_issue_groups_updated_at ON building_issue_groups(updated_at);
+            CREATE INDEX IF NOT EXISTS idx_building_issue_group_cases_case_id ON building_issue_group_cases(case_id);
+            CREATE INDEX IF NOT EXISTS idx_building_issue_group_cases_status ON building_issue_group_cases(status);
+            CREATE INDEX IF NOT EXISTS idx_building_issue_group_cases_new ON building_issue_group_cases(new_since_last_email);
+            CREATE INDEX IF NOT EXISTS idx_building_issue_group_cases_source ON building_issue_group_cases(source);
+            CREATE INDEX IF NOT EXISTS idx_group_emails_group_status ON building_group_emails(group_id, status);
+            CREATE INDEX IF NOT EXISTS idx_comm_queue_status ON communication_queue(status);
+
+            CREATE INDEX IF NOT EXISTS idx_case_requirements_case_status ON case_data_requirements(case_id, status);
+            CREATE INDEX IF NOT EXISTS idx_case_requirements_created_at ON case_data_requirements(created_at);
+            CREATE INDEX IF NOT EXISTS idx_reply_mappings_reply ON reply_case_mappings(reply_email_id);
+            CREATE INDEX IF NOT EXISTS idx_reply_mappings_case ON reply_case_mappings(case_id);
+            CREATE INDEX IF NOT EXISTS idx_reply_mappings_group ON reply_case_mappings(group_id);
+            CREATE INDEX IF NOT EXISTS idx_reply_mappings_status ON reply_case_mappings(status);
 
             CREATE INDEX IF NOT EXISTS idx_cases_grouping_key ON cases(grouping_key);
             CREATE INDEX IF NOT EXISTS idx_cases_status ON cases(status);
@@ -329,6 +512,7 @@ def init_schema() -> None:
             CREATE INDEX IF NOT EXISTS idx_case_links_source_case_id ON case_links(source_case_id);
             CREATE INDEX IF NOT EXISTS idx_case_links_target_case_id ON case_links(target_case_id);
         """)
+        _init_compatibility_columns()
         conn.commit()
     print("[DB] Schema initialized.")
 
@@ -611,6 +795,20 @@ def get_events_for_case(case_id: str) -> List[sqlite3.Row]:
     return conn.execute(
         "SELECT * FROM case_events WHERE case_id = ? ORDER BY created_at ASC",
         (case_id,),
+    ).fetchall()
+
+
+def get_recent_events(limit: int = 100) -> List[sqlite3.Row]:
+    """Return the most recent case events joined with case metadata."""
+    return get_connection().execute(
+        """
+        SELECT ce.*, c.case_type, c.building
+        FROM case_events ce
+        LEFT JOIN cases c ON ce.case_id = c.case_id
+        ORDER BY ce.created_at DESC
+        LIMIT ?
+        """,
+        (limit,),
     ).fetchall()
 
 
@@ -949,34 +1147,6 @@ def get_followup_actions_for_case(case_id: str) -> List[sqlite3.Row]:
 # manual_reviews table
 # ---------------------------------------------------------------------------
 
-def insert_manual_review(
-    review_id: str,
-    case_id: str,
-    email_id: Optional[str],
-    reason: str,
-) -> None:
-    """Flag a case for manual human review.
-
-    Used in four situations: low classification confidence, injection detected,
-    reply suggests possible resolution, escalation threshold reached.
-
-    Args:
-        review_id: Application UUID.
-        case_id: UUID of the case to flag.
-        email_id: UUID of the triggering email, or None for system-triggered reviews.
-        reason: Human-readable explanation of why review is required.
-    """
-    now = utc_now_iso()
-    _execute_write(
-        """
-        INSERT INTO manual_reviews
-            (review_id, case_id, email_id, reason, flagged_at, resolved)
-        VALUES (?, ?, ?, ?, ?, 0)
-        """,
-        (review_id, case_id, email_id, reason, now),
-    )
-
-
 def get_open_manual_reviews() -> List[sqlite3.Row]:
     """Return all unresolved manual review records with case context.
 
@@ -1025,6 +1195,264 @@ def resolve_manual_review(review_id: str) -> None:
         "UPDATE manual_reviews SET resolved = 1 WHERE review_id = ?",
         (review_id,),
     )
+
+
+# ---------------------------------------------------------------------------
+# building_group_emails table
+# ---------------------------------------------------------------------------
+
+def insert_building_group_email(
+    group_email_id: str,
+    group_id: str,
+    email_type: str,
+    subject: str,
+    body: str,
+    intended_to: str,
+    intended_cc: str,
+    actual_to: str,
+    summary_json: Optional[str] = None,
+    quality_check_json: Optional[str] = None,
+    outbound_msg_id: Optional[str] = None,
+    status: str = "draft_generated",
+) -> None:
+    """Insert a review-only consolidated building-group draft row."""
+    if status not in DRAFT_STATUSES:
+        raise ValueError(f"Unsupported group email status: {status}")
+    now = utc_now_iso()
+    _execute_write(
+        """
+        INSERT INTO building_group_emails
+            (group_email_id, group_id, outbound_msg_id, email_type, status,
+             subject, body, intended_to, intended_cc, actual_to, summary_json,
+             quality_check_json, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            group_email_id,
+            group_id,
+            outbound_msg_id,
+            email_type,
+            status,
+            subject,
+            body,
+            intended_to,
+            intended_cc,
+            actual_to,
+            summary_json,
+            quality_check_json,
+            now,
+            now,
+        ),
+    )
+
+
+def get_building_group_email(group_email_id: str) -> Optional[sqlite3.Row]:
+    """Return a consolidated building-group email row by ID."""
+    conn = get_connection()
+    return conn.execute(
+        "SELECT * FROM building_group_emails WHERE group_email_id = ?",
+        (group_email_id,),
+    ).fetchone()
+
+
+def list_building_group_emails(
+    group_id: Optional[str] = None,
+    status: Optional[str] = None,
+    limit: int = 50,
+) -> List[sqlite3.Row]:
+    """Return consolidated building-group email rows, newest first."""
+    clauses = []
+    params: list[Any] = []
+    if group_id:
+        clauses.append("group_id = ?")
+        params.append(group_id)
+    if status:
+        clauses.append("status = ?")
+        params.append(status)
+    where_sql = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+    safe_limit = max(1, int(limit))
+    conn = get_connection()
+    return conn.execute(
+        f"""
+        SELECT *
+        FROM building_group_emails
+        {where_sql}
+        ORDER BY created_at DESC, rowid DESC
+        LIMIT ?
+        """,
+        tuple(params + [safe_limit]),
+    ).fetchall()
+
+
+def update_building_group_email_status(
+    group_email_id: str,
+    status: str,
+    notes: Optional[str] = None,
+    outbound_msg_id: Optional[str] = None,
+) -> Optional[sqlite3.Row]:
+    """Update a consolidated draft status and return the updated row."""
+    if status not in DRAFT_STATUSES:
+        raise ValueError(f"Unsupported group email status: {status}")
+    now = utc_now_iso()
+    approved_at = now if status == "approved" else None
+    rejected_at = now if status == "rejected" else None
+    sent_at = now if status == "sent" else None
+    _execute_write(
+        """
+        UPDATE building_group_emails
+        SET status = ?,
+            outbound_msg_id = COALESCE(?, outbound_msg_id),
+            updated_at = ?,
+            approved_at = COALESCE(?, approved_at),
+            rejected_at = COALESCE(?, rejected_at),
+            sent_at = COALESCE(?, sent_at),
+            review_notes = COALESCE(?, review_notes)
+        WHERE group_email_id = ?
+        """,
+        (
+            status,
+            outbound_msg_id,
+            now,
+            approved_at,
+            rejected_at,
+            sent_at,
+            notes,
+            group_email_id,
+        ),
+    )
+    return get_building_group_email(group_email_id)
+
+
+# ---------------------------------------------------------------------------
+# communication_queue table
+# ---------------------------------------------------------------------------
+
+def get_communication_queue_item(queue_id: str) -> Optional[sqlite3.Row]:
+    """Return one communication queue row by ID."""
+    conn = get_connection()
+    return conn.execute(
+        "SELECT * FROM communication_queue WHERE queue_id = ?",
+        (queue_id,),
+    ).fetchone()
+
+
+def list_communication_queue(
+    status: Optional[str] = None,
+    group_id: Optional[str] = None,
+    limit: int = 100,
+) -> List[sqlite3.Row]:
+    """Return communication queue rows, optionally filtered by status or group."""
+    clauses = []
+    params: list[Any] = []
+    if status:
+        clauses.append("status = ?")
+        params.append(status)
+    if group_id:
+        clauses.append("group_id = ?")
+        params.append(group_id)
+    where_sql = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+    safe_limit = max(1, int(limit))
+    conn = get_connection()
+    return conn.execute(
+        f"""
+        SELECT *
+        FROM communication_queue
+        {where_sql}
+        ORDER BY created_at DESC, rowid DESC
+        LIMIT ?
+        """,
+        tuple(params + [safe_limit]),
+    ).fetchall()
+
+
+def upsert_communication_queue_item(
+    group_id: str,
+    queue_type: str,
+    case_id: Optional[str] = None,
+    reason: Optional[str] = None,
+    status: str = "pending",
+    suppression_reason: Optional[str] = None,
+    queue_id: Optional[str] = None,
+) -> str:
+    """Insert or update a non-completed communication queue row."""
+    if status not in QUEUE_STATUSES:
+        raise ValueError(f"Unsupported communication queue status: {status}")
+    now = utc_now_iso()
+    with _write_lock:
+        conn = get_connection()
+        existing = conn.execute(
+            """
+            SELECT queue_id
+            FROM communication_queue
+            WHERE group_id = ?
+              AND queue_type = ?
+              AND COALESCE(case_id, '') = COALESCE(?, '')
+              AND status != 'completed'
+            ORDER BY created_at DESC, rowid DESC
+            LIMIT 1
+            """,
+            (group_id, queue_type, case_id),
+        ).fetchone()
+        if existing:
+            existing_queue_id = existing["queue_id"]
+            conn.execute(
+                """
+                UPDATE communication_queue
+                SET status = ?,
+                    reason = COALESCE(?, reason),
+                    suppression_reason = COALESCE(?, suppression_reason),
+                    updated_at = ?
+                WHERE queue_id = ?
+                """,
+                (status, reason, suppression_reason, now, existing_queue_id),
+            )
+            conn.commit()
+            return existing_queue_id
+
+        new_queue_id = queue_id or str(uuid.uuid4())
+        conn.execute(
+            """
+            INSERT INTO communication_queue
+                (queue_id, group_id, case_id, queue_type, status, reason,
+                 suppression_reason, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                new_queue_id,
+                group_id,
+                case_id,
+                queue_type,
+                status,
+                reason,
+                suppression_reason,
+                now,
+                now,
+            ),
+        )
+        conn.commit()
+        return new_queue_id
+
+
+def update_communication_queue_status(
+    queue_id: str,
+    status: str,
+    suppression_reason: Optional[str] = None,
+) -> Optional[sqlite3.Row]:
+    """Update a communication queue row status and return the updated row."""
+    if status not in QUEUE_STATUSES:
+        raise ValueError(f"Unsupported communication queue status: {status}")
+    now = utc_now_iso()
+    _execute_write(
+        """
+        UPDATE communication_queue
+        SET status = ?,
+            suppression_reason = COALESCE(?, suppression_reason),
+            updated_at = ?
+        WHERE queue_id = ?
+        """,
+        (status, suppression_reason, now, queue_id),
+    )
+    return get_communication_queue_item(queue_id)
 
 
 # ---------------------------------------------------------------------------
@@ -1793,6 +2221,32 @@ def get_cases_for_hypothesis(hypothesis_id: str) -> List[str]:
     return [row["case_id"] for row in rows]
 
 
+def update_connection_hypothesis(hypothesis_id: str, updates: Dict[str, Any]) -> None:
+    """Update additive review fields on a connection hypothesis."""
+    allowed_fields = {
+        "summary",
+        "confidence",
+        "risk_level",
+        "evidence_json",
+        "reasoning",
+        "recommended_human_review",
+        "status",
+    }
+    unsupported_fields = sorted(set(updates) - allowed_fields)
+    if unsupported_fields:
+        raise ValueError(
+            "Unsupported connection hypothesis update field(s): "
+            + ", ".join(unsupported_fields)
+        )
+    if not updates:
+        return
+    set_clause = ", ".join(f"{key} = ?" for key in updates)
+    _execute_write(
+        f"UPDATE connection_hypotheses SET {set_clause} WHERE hypothesis_id = ?",
+        tuple(updates.values()) + (hypothesis_id,),
+    )
+
+
 def get_supported_cases_for_discovery(
     building: Optional[str] = None,
     case_type: Optional[str] = None,
@@ -1833,6 +2287,199 @@ def get_supported_cases_for_discovery(
     return conn.execute(sql, params).fetchall()
 
 
+# ---------------------------------------------------------------------------
+# connection_discovery_runs / connection_discovery_packets tables
+# ---------------------------------------------------------------------------
+
+_DISCOVERY_RUN_UPDATE_FIELDS = frozenset(
+    {
+        "scope",
+        "status",
+        "started_at",
+        "completed_at",
+        "max_ai_calls",
+        "ai_calls_used",
+        "packets_created",
+        "packets_analyzed",
+        "hypotheses_created",
+        "hypotheses_rejected",
+        "unsupported_records_included",
+        "error_count",
+        "config_json",
+    }
+)
+
+_DISCOVERY_PACKET_UPDATE_FIELDS = frozenset(
+    {
+        "packet_type",
+        "entity_type",
+        "entity_value",
+        "case_count",
+        "pattern_count",
+        "status",
+        "ai_call_used",
+        "hypotheses_created",
+        "created_at",
+        "completed_at",
+        "error",
+    }
+)
+
+
+def insert_discovery_run(
+    run_id: str,
+    scope: str,
+    status: str,
+    max_ai_calls: int,
+    started_at: Optional[str] = None,
+    config_json: Optional[str] = None,
+    ai_calls_used: int = 0,
+    packets_created: int = 0,
+    packets_analyzed: int = 0,
+    hypotheses_created: int = 0,
+    hypotheses_rejected: int = 0,
+    unsupported_records_included: int = 0,
+    error_count: int = 0,
+    completed_at: Optional[str] = None,
+) -> None:
+    """Insert a connection discovery run tracking row."""
+    _execute_write(
+        """
+        INSERT INTO connection_discovery_runs
+            (run_id, scope, status, started_at, completed_at, max_ai_calls,
+             ai_calls_used, packets_created, packets_analyzed,
+             hypotheses_created, hypotheses_rejected,
+             unsupported_records_included, error_count, config_json)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            run_id,
+            scope,
+            status,
+            started_at or utc_now_iso(),
+            completed_at,
+            int(max_ai_calls),
+            int(ai_calls_used),
+            int(packets_created),
+            int(packets_analyzed),
+            int(hypotheses_created),
+            int(hypotheses_rejected),
+            int(unsupported_records_included),
+            int(error_count),
+            config_json,
+        ),
+    )
+
+
+def update_discovery_run(run_id: str, updates: Dict[str, Any]) -> None:
+    """Update fields on a connection discovery run row."""
+    unsupported_fields = sorted(set(updates) - _DISCOVERY_RUN_UPDATE_FIELDS)
+    if unsupported_fields:
+        raise ValueError(
+            "Unsupported discovery run update field(s): "
+            + ", ".join(unsupported_fields)
+        )
+    if not updates:
+        return
+    set_clause = ", ".join(f"{key} = ?" for key in updates)
+    _execute_write(
+        f"UPDATE connection_discovery_runs SET {set_clause} WHERE run_id = ?",
+        tuple(updates.values()) + (run_id,),
+    )
+
+
+def insert_discovery_packet(
+    packet_id: str,
+    run_id: str,
+    packet_type: str,
+    status: str = "pending",
+    entity_type: Optional[str] = None,
+    entity_value: Optional[str] = None,
+    case_count: int = 0,
+    pattern_count: int = 0,
+    ai_call_used: int = 0,
+    hypotheses_created: int = 0,
+    created_at: Optional[str] = None,
+    completed_at: Optional[str] = None,
+    error: Optional[str] = None,
+) -> None:
+    """Insert a connection discovery packet tracking row."""
+    _execute_write(
+        """
+        INSERT INTO connection_discovery_packets
+            (packet_id, run_id, packet_type, entity_type, entity_value,
+             case_count, pattern_count, status, ai_call_used,
+             hypotheses_created, created_at, completed_at, error)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            packet_id,
+            run_id,
+            packet_type,
+            entity_type,
+            entity_value,
+            int(case_count),
+            int(pattern_count),
+            status,
+            int(ai_call_used),
+            int(hypotheses_created),
+            created_at or utc_now_iso(),
+            completed_at,
+            error,
+        ),
+    )
+
+
+def update_discovery_packet(packet_id: str, updates: Dict[str, Any]) -> None:
+    """Update fields on a connection discovery packet row."""
+    unsupported_fields = sorted(set(updates) - _DISCOVERY_PACKET_UPDATE_FIELDS)
+    if unsupported_fields:
+        raise ValueError(
+            "Unsupported discovery packet update field(s): "
+            + ", ".join(unsupported_fields)
+        )
+    if not updates:
+        return
+    set_clause = ", ".join(f"{key} = ?" for key in updates)
+    _execute_write(
+        f"UPDATE connection_discovery_packets SET {set_clause} WHERE packet_id = ?",
+        tuple(updates.values()) + (packet_id,),
+    )
+
+
+def get_discovery_runs(
+    status_filter: Optional[str] = None,
+    limit: Optional[int] = None,
+) -> List[sqlite3.Row]:
+    """Return discovery runs ordered newest first."""
+    conn = get_connection()
+    sql = "SELECT * FROM connection_discovery_runs"
+    params: list[Any] = []
+    if status_filter:
+        sql += " WHERE status = ?"
+        params.append(status_filter)
+    sql += " ORDER BY started_at DESC"
+    if limit is not None:
+        sql += " LIMIT ?"
+        params.append(limit)
+    return conn.execute(sql, params).fetchall()
+
+
+def get_discovery_packets_for_run(
+    run_id: str,
+    status_filter: Optional[str] = None,
+) -> List[sqlite3.Row]:
+    """Return packet tracking rows for a discovery run."""
+    conn = get_connection()
+    sql = "SELECT * FROM connection_discovery_packets WHERE run_id = ?"
+    params: list[Any] = [run_id]
+    if status_filter:
+        sql += " AND status = ?"
+        params.append(status_filter)
+    sql += " ORDER BY created_at ASC, packet_id ASC"
+    return conn.execute(sql, params).fetchall()
+
+
 def resolve_missing_pattern_flags(case_id: str, active_pattern_types: List[str]) -> int:
     """Resolve active pattern flags for a case that were not present in the latest run."""
     now = utc_now_iso()
@@ -1866,3 +2513,345 @@ def resolve_missing_pattern_flags(case_id: str, active_pattern_types: List[str])
             )
         conn.commit()
         return int(cursor.rowcount)
+
+
+# ---------------------------------------------------------------------------
+# case_data_requirements table
+# ---------------------------------------------------------------------------
+
+def upsert_case_data_requirement(
+    requirement_id: str,
+    case_id: str,
+    requirement_key: str,
+    label: str,
+    status: str = "missing",
+    required: int = 1,
+    source: Optional[str] = None,
+    evidence_json: Optional[str] = None,
+) -> None:
+    """Upsert a case data requirement row.
+
+    Args:
+        requirement_id: UUID for this requirement.
+        case_id: Case this requirement belongs to.
+        requirement_key: Unique key within case (e.g. 'upload_confirmation').
+        label: Human-readable label for the requirement.
+        status: One of REQUIREMENT_STATUSES.
+        required: 1 if required, 0 if optional.
+        source: Where the value came from (e.g. 'email_body', 'manual_entry').
+        evidence_json: JSON object with supporting evidence.
+    """
+    now = utc_now_iso()
+    _execute_write(
+        """
+        INSERT INTO case_data_requirements
+            (requirement_id, case_id, requirement_key, label, status, required, source, evidence_json, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(case_id, requirement_key) DO UPDATE SET
+            status = CASE WHEN status IN ('provided', 'partial') THEN status ELSE excluded.status END,
+            source = excluded.source,
+            evidence_json = excluded.evidence_json,
+            updated_at = excluded.updated_at
+        """,
+        (requirement_id, case_id, requirement_key, label, status, required, source, evidence_json, now, now),
+    )
+
+
+def get_case_data_requirements(case_id: str) -> List[Dict[str, Any]]:
+    """Fetch all data requirements for a case.
+
+    Args:
+        case_id: Case to fetch requirements for.
+
+    Returns:
+        List of requirement dicts with keys: requirement_id, case_id, requirement_key, label,
+        status, required, source, evidence_json, created_at, updated_at.
+    """
+    conn = get_connection()
+    rows = conn.execute(
+        "SELECT * FROM case_data_requirements WHERE case_id = ? ORDER BY created_at ASC",
+        (case_id,),
+    ).fetchall()
+    return [dict(row) for row in rows]
+
+
+def update_case_requirement_status(
+    case_id: str,
+    requirement_key: str,
+    status: str,
+    source: Optional[str] = None,
+    evidence_json: Optional[str] = None,
+) -> None:
+    """Update the status of a specific requirement within a case.
+
+    Args:
+        case_id: Case owning the requirement.
+        requirement_key: Requirement key within that case.
+        status: New status (one of REQUIREMENT_STATUSES).
+        source: Optional source/reason for the update.
+        evidence_json: Optional evidence for the update.
+    """
+    now = utc_now_iso()
+    _execute_write(
+        """
+        UPDATE case_data_requirements
+        SET status = ?, source = ?, evidence_json = ?, updated_at = ?
+        WHERE case_id = ? AND requirement_key = ?
+        """,
+        (status, source, evidence_json, now, case_id, requirement_key),
+    )
+
+
+# ---------------------------------------------------------------------------
+# reply_case_mappings table
+# ---------------------------------------------------------------------------
+
+def insert_reply_case_mapping(
+    mapping_id: str,
+    reply_email_id: str,
+    case_id: Optional[str] = None,
+    group_id: Optional[str] = None,
+    mapping_source: str = "manual",
+    confidence: Optional[str] = None,
+    status: str = "proposed",
+) -> None:
+    """Insert a mapping from a reply email to a case or group.
+
+    At least one of case_id or group_id must be provided.
+
+    Args:
+        mapping_id: UUID for this mapping.
+        reply_email_id: The inbound reply email being mapped.
+        case_id: Target case ID (optional if group_id provided).
+        group_id: Target building group ID (optional if case_id provided).
+        mapping_source: One of REPLY_MAPPING_SOURCES.
+        confidence: Confidence level (e.g. 'low', 'medium', 'high').
+        status: One of REPLY_MAPPING_STATUSES (default 'proposed').
+    """
+    now = utc_now_iso()
+    _execute_write(
+        """
+        INSERT INTO reply_case_mappings
+            (mapping_id, reply_email_id, case_id, group_id, mapping_source, confidence, status, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (mapping_id, reply_email_id, case_id, group_id, mapping_source, confidence, status, now, now),
+    )
+
+
+def get_reply_mappings_for_email(reply_email_id: str) -> List[Dict[str, Any]]:
+    """Fetch all mappings for a reply email.
+
+    Args:
+        reply_email_id: Email to fetch mappings for.
+
+    Returns:
+        List of mapping dicts.
+    """
+    conn = get_connection()
+    rows = conn.execute(
+        "SELECT * FROM reply_case_mappings WHERE reply_email_id = ? ORDER BY created_at ASC",
+        (reply_email_id,),
+    ).fetchall()
+    return [dict(row) for row in rows]
+
+
+def get_reply_mappings_for_case(case_id: str) -> List[Dict[str, Any]]:
+    """Fetch all mappings for a case.
+
+    Args:
+        case_id: Case to fetch mappings for.
+
+    Returns:
+        List of mapping dicts.
+    """
+    conn = get_connection()
+    rows = conn.execute(
+        "SELECT * FROM reply_case_mappings WHERE case_id = ? ORDER BY created_at ASC",
+        (case_id,),
+    ).fetchall()
+    return [dict(row) for row in rows]
+
+
+def get_reply_mappings_for_group(group_id: str) -> List[Dict[str, Any]]:
+    """Fetch all mappings for a building group.
+
+    Args:
+        group_id: Group to fetch mappings for.
+
+    Returns:
+        List of mapping dicts.
+    """
+    conn = get_connection()
+    rows = conn.execute(
+        "SELECT * FROM reply_case_mappings WHERE group_id = ? ORDER BY created_at ASC",
+        (group_id,),
+    ).fetchall()
+    return [dict(row) for row in rows]
+
+
+def update_reply_mapping_completeness(
+    mapping_id: str,
+    completeness_json: Optional[str],
+) -> None:
+    """Update the completeness analysis for a reply mapping.
+
+    Args:
+        mapping_id: Mapping to update.
+        completeness_json: JSON object with completeness analysis results.
+    """
+    now = utc_now_iso()
+    _execute_write(
+        """
+        UPDATE reply_case_mappings
+        SET completeness_json = ?, updated_at = ?
+        WHERE mapping_id = ?
+        """,
+        (completeness_json, now, mapping_id),
+    )
+
+
+# Additional helpers for manual reviews and building groups
+
+def insert_manual_review(
+    review_id: str,
+    case_id: str,
+    email_id: Optional[str] = None,
+    reason: Optional[str] = None,
+    review_category: Optional[str] = None,
+    blocking: int = 1,
+) -> None:
+    """Insert a manual review record.
+
+    Args:
+        review_id: UUID for this review.
+        case_id: Case to review.
+        email_id: Source email ID (optional).
+        reason: Human-readable reason for review.
+        review_category: Category of review (one of REVIEW_CATEGORIES).
+        blocking: 1 if this blocks action, 0 if informational.
+    """
+    now = utc_now_iso()
+    _execute_write(
+        """
+        INSERT INTO manual_reviews
+            (review_id, case_id, email_id, reason, review_category, blocking, flagged_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+        """,
+        (review_id, case_id, email_id, reason, review_category, blocking, now),
+    )
+
+
+def get_manual_reviews_for_case(case_id: str) -> List[Dict[str, Any]]:
+    """Fetch all manual reviews for a case.
+
+    Args:
+        case_id: Case to fetch reviews for.
+
+    Returns:
+        List of review dicts.
+    """
+    conn = get_connection()
+    rows = conn.execute(
+        "SELECT * FROM manual_reviews WHERE case_id = ? ORDER BY flagged_at ASC",
+        (case_id,),
+    ).fetchall()
+    return [dict(row) for row in rows]
+
+
+def list_building_issue_group_cases(filters: Optional[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
+    """Fetch building_issue_group_cases rows with optional filters.
+
+    Args:
+        filters: Dict with optional filters: {case_id, group_id, status}
+
+    Returns:
+        List of dicts.
+    """
+    conn = get_connection()
+    sql = "SELECT * FROM building_issue_group_cases WHERE 1=1"
+    params = []
+
+    if filters:
+        if "case_id" in filters:
+            sql += " AND case_id = ?"
+            params.append(filters["case_id"])
+        if "group_id" in filters:
+            sql += " AND group_id = ?"
+            params.append(filters["group_id"])
+        if "status" in filters:
+            sql += " AND status = ?"
+            params.append(filters["status"])
+
+    rows = conn.execute(sql, params).fetchall()
+    return [dict(row) for row in rows]
+
+
+def get_building_group(group_id: str) -> Optional[Dict[str, Any]]:
+    """Fetch a building group by ID.
+
+    Args:
+        group_id: Group to fetch.
+
+    Returns:
+        Dict or None if not found.
+    """
+    conn = get_connection()
+    row = conn.execute(
+        "SELECT * FROM building_issue_groups WHERE group_id = ?",
+        (group_id,),
+    ).fetchone()
+    return dict(row) if row else None
+
+
+def list_building_groups(filters: Optional[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
+    """Fetch building_issue_groups rows with optional filters.
+
+    Args:
+        filters: Dict with optional filters: {status, building}
+
+    Returns:
+        List of dicts.
+    """
+    conn = get_connection()
+    sql = "SELECT * FROM building_issue_groups WHERE 1=1"
+    params = []
+
+    if filters:
+        if "status" in filters:
+            sql += " AND status = ?"
+            params.append(filters["status"])
+        if "building" in filters:
+            sql += " AND normalized_building LIKE ?"
+            params.append(f"%{filters['building']}%")
+
+    sql += " ORDER BY updated_at DESC"
+    rows = conn.execute(sql, params).fetchall()
+    return [dict(row) for row in rows]
+
+
+def update_draft_status(
+    draft_id: str,
+    status: str,
+    approved_at: Optional[str] = None,
+    rejected_at: Optional[str] = None,
+    review_notes: Optional[str] = None,
+) -> None:
+    """Update the status of a building_group_emails draft.
+
+    Args:
+        draft_id: Draft to update.
+        status: New status (one of DRAFT_STATUSES).
+        approved_at: Approval timestamp (if approving).
+        rejected_at: Rejection timestamp (if rejecting).
+        review_notes: Notes for rejection.
+    """
+    now = utc_now_iso()
+    _execute_write(
+        """
+        UPDATE building_group_emails
+        SET status = ?, approved_at = ?, rejected_at = ?, review_notes = ?, updated_at = ?
+        WHERE group_email_id = ?
+        """,
+        (status, approved_at, rejected_at, review_notes, now, draft_id),
+    )
