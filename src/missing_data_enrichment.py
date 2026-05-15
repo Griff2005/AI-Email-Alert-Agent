@@ -27,7 +27,7 @@ _VALID_FIELDS = frozenset({"contractor"})
 _VALID_CONFIDENCES = frozenset({"low", "medium", "high"})
 _BAD_SUGGESTION_VALUES = frozenset({"unknown", "n/a", "none"})
 _PROHIBITED_LANGUAGE = re.compile(
-    r"\b(send|escalate|close|confirmed)\b"
+    r"\b(send|escalate|close)\b"
     r"|notify client"
     r"|contractor failure",
     re.IGNORECASE,
