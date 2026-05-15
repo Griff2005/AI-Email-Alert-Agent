@@ -982,6 +982,8 @@ def ingest():
     Loads every sample email, stores it in the database, and runs the full
     case-manager pipeline for each one. Safe to run multiple times — existing
     emails and cases are updated rather than duplicated.
+
+    # AI is off by default — RuntimeOptions defaults disable model calls for this route.
     """
     import json
     import uuid as _uuid

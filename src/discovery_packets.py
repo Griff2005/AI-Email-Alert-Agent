@@ -211,6 +211,14 @@ def _base_packet(
     entity_value: Optional[str],
     entity: Dict[str, Any],
 ) -> Dict[str, Any]:
+    """Return the standard empty packet skeleton used as the base for all packet types.
+
+    Initializes all required top-level fields with safe defaults: an empty
+    ``cases`` list, empty ``pattern_flags`` / ``observations`` / ``known_links``
+    lists, a frozen scope guard copied from ``_SCOPE``, and zero for
+    ``unsupported_records_included``. Callers must set ``packet_id`` and
+    ``case_count`` after cases are attached via ``_finalize_case_split_packets``.
+    """
     return {
         "packet_id": "",
         "run_id": run_id,
@@ -273,6 +281,14 @@ def _split_chunk_to_prompt_size(
     max_prompt_chars: int,
     identity_key: str,
 ) -> List[Dict[str, Any]]:
+    """Recursively bisect a case chunk until every sub-packet fits within the prompt size limit.
+
+    If the serialized packet for ``chunk`` fits within ``max_prompt_chars``,
+    it is returned as-is. Otherwise the chunk is split at its midpoint and
+    each half is recursively processed. A single-case chunk that still exceeds
+    the limit is logged and dropped (returning ``[]``) to avoid blocking the
+    entire run on one oversized record.
+    """
     packet = _copy_packet_with_cases(base_packet, chunk)
     if _estimate_prompt_chars(packet) <= max_prompt_chars:
         return [packet]

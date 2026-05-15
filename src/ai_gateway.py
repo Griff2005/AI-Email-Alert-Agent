@@ -92,7 +92,22 @@ class AiBudgetExceeded(RuntimeError):
 
 
 class AiGateway:
-    """Centralized controller for all model requests."""
+    """Centralized controller for all model requests.
+
+    Enforces per-run ``AiUsageConfig`` budgets (global, per-email, per-case,
+    and per-purpose call caps). Maintains a JSON prompt cache keyed by
+    content hash so identical prompts are never charged against the live
+    budget twice. Records per-call telemetry (purpose, status, token
+    estimates, cache hit) and exposes ``build_report()`` for usage summaries.
+
+    In tests, install deterministic replacements for the live Claude transport
+    via ``set_test_transports(json_transport=..., text_transport=...)``.
+    Use ``gateway.reset()`` in ``setUp``/``tearDown`` to prevent state leakage
+    between test cases.
+
+    All product modules must access this singleton through
+    ``ai_gateway.get_ai_gateway()`` — never import ``claude_client`` directly.
+    """
 
     def __init__(self) -> None:
         self._config = AiUsageConfig()
@@ -459,6 +474,15 @@ class AiGateway:
         )
 
     def _allow_call(self, purpose: str, email_id: Optional[str], case_id: Optional[str]) -> Optional[str]:
+        """Check whether a new AI call is permitted under the active budget policy.
+
+        Returns ``None`` if the call should proceed, or a non-empty string
+        describing the block reason when the call must be suppressed.
+
+        Checks are applied in order: AI enabled, global max_calls,
+        per-email cap, per-case cap, and per-purpose cap. The first failing
+        check short-circuits and returns its reason string.
+        """
         if not self._config.enabled:
             return "AI is disabled for this run."
 

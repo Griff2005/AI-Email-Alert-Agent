@@ -45,7 +45,27 @@ def build_grouping_key(building: str, contractor: str) -> str:
 
 
 def get_or_create_group(building: str, contractor: str, group_id: str | None = None) -> str:
-    """Return the group ID for ``building`` and ``contractor``, creating it if needed."""
+    """Return the group ID for ``building`` and ``contractor``, creating it if needed.
+
+    The lookup and conditional insert are executed inside a single
+    ``db._write_lock`` block to prevent duplicate group creation under
+    concurrent writes. If a group already exists for the normalized
+    building/contractor pair, its existing ``group_id`` is returned without
+    any write. If no group exists, one is created with status ``'open'``.
+
+    Args:
+        building: Raw building name (normalized internally before lookup).
+        contractor: Raw contractor name (normalized internally before lookup).
+        group_id: Optional caller-supplied UUID to use when creating a new
+            group. Defaults to a freshly generated UUID.
+
+    Returns:
+        The ``group_id`` UUID string for the resolved or newly created group.
+
+    Raises:
+        ValueError: If either ``building`` or ``contractor`` normalizes to
+            an empty string.
+    """
     normalized_building = normalize_group_value(building)
     normalized_contractor = normalize_group_value(contractor)
     if not normalized_building or not normalized_contractor:
