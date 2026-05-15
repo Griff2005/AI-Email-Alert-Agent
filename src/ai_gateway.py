@@ -112,6 +112,12 @@ class AiGateway:
     def __init__(self) -> None:
         self._config = AiUsageConfig()
         self._records: List[_AiCallRecord] = []
+        # Running counter for total_ai_calls — avoids O(N) scan of _records on
+        # every _allow_call() check (which would make budget enforcement O(N²)
+        # for long discovery runs).  Mirrors build_report()["total_ai_calls"]
+        # exactly: incremented after every "allowed" or "mocked" record is
+        # appended, never for "blocked" or "cached" records.
+        self._ai_call_count: int = 0
         self._cache: Optional[Dict[str, Any]] = None
         self._json_transport: Optional[Callable[[str, str], Dict[str, Any]]] = None
         self._text_transport: Optional[Callable[[str, str], str]] = None
@@ -132,6 +138,7 @@ class AiGateway:
         """Reset usage records, transports, cache, and runtime policy."""
         self._config = AiUsageConfig()
         self._records = []
+        self._ai_call_count = 0
         self._cache = None
         self._json_transport = None
         self._text_transport = None
@@ -424,6 +431,9 @@ class AiGateway:
                 mocked_call=mocked_call,
             )
         )
+        # Keep the running counter in sync with build_report()["total_ai_calls"].
+        # Status is always "allowed" or "mocked" at this point — both count.
+        self._ai_call_count += 1
         return AiCallOutcome(
             status=status,
             payload=output_payload,
@@ -486,8 +496,10 @@ class AiGateway:
         if not self._config.enabled:
             return "AI is disabled for this run."
 
-        current_report = self.build_report()
-        if self._config.max_calls is not None and current_report["total_ai_calls"] >= self._config.max_calls:
+        # Use the O(1) running counter instead of build_report() (which is O(N)).
+        # _ai_call_count mirrors total_ai_calls exactly — both track "allowed"
+        # and "mocked" records only.
+        if self._config.max_calls is not None and self._ai_call_count >= self._config.max_calls:
             return f"AI budget exceeded: max_calls={self._config.max_calls}"
 
         if email_id and self._config.max_calls_per_email > 0:

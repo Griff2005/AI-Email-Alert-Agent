@@ -1429,6 +1429,11 @@ def cmd_safety_check(args):
     )
 
     ai_blocked = False
+    # Intentionally instantiate a fresh, isolated AiGateway() rather than
+    # using the module-level singleton (get_ai_gateway()).  This keeps the
+    # safety-check probe completely out of the singleton's usage records and
+    # telemetry, so it cannot skew budget counters or AI-call logs for any
+    # real run that shares the same process.
     gateway = AiGateway()
     try:
         gateway.configure(
