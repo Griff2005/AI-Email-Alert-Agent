@@ -56,11 +56,6 @@ def normalize_text(value: str) -> str:
     return normalized.strip()
 
 
-def _now_iso() -> str:
-    """Return the current UTC timestamp in the existing database format."""
-    return utc_now_iso()
-
-
 def _parse_iso(value: Optional[str]) -> Optional[datetime]:
     if not value:
         return None
@@ -104,7 +99,7 @@ def _get_observed_at(case_id: Optional[str], email_id: Optional[str], observed_a
         case_row = db.get_case_by_id(case_id)
         if case_row and case_row["updated_at"]:
             return str(case_row["updated_at"])
-    return _now_iso()
+    return utc_now_iso()
 
 
 def _case_anchor(case_id: str) -> datetime:
@@ -330,7 +325,7 @@ def upsert_entity(
     if not normalized_name:
         return None
 
-    now = _now_iso()
+    now = utc_now_iso()
     existing = db.get_entity_by_normalized_name(entity_type, normalized_name)
     existing_name = str(existing["canonical_name"]) if existing else None
     entity_id = db.upsert_entity_record(
@@ -516,7 +511,7 @@ def record_reply_observations(case_id: str, reply_text: str, analysis: Optional[
     if not case:
         return
 
-    observed_at = _now_iso()
+    observed_at = utc_now_iso()
     contractor = case["contractor"]
     add_observation(
         case_id=case_id,
@@ -613,7 +608,7 @@ def record_no_response(case_id: str) -> None:
             "follow_count": int(followup["follow_count"]) if followup else 0,
             "deadline": followup["deadline"] if followup else None,
         },
-        observed_at=_now_iso(),
+        observed_at=utc_now_iso(),
         source="followup",
     )
 

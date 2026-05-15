@@ -721,7 +721,7 @@ def _analyze_packet(
         result["error_count"] = 1
         return result
 
-    if outcome.status in {"allowed", "mocked", "cached"}:
+    if outcome.status in {"allowed", "mocked"}:
         result["ai_call_used"] = 1
 
     if outcome.status == "blocked" or outcome.payload is None:
