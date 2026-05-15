@@ -17,6 +17,7 @@ src/
   backlog_loader.py     standalone backlog import workflow
   connection_discovery.py  AI-assisted connection hypothesis discovery (read-only; never mutates cases)
   discovery_packets.py  structured evidence packet builders for connection discovery
+  missing_data_enrichment.py  AI contractor enrichment — packet builder, response validation, accept/reject workflow
   pst_to_backlog_json.py one-off PST-to-JSON helper for staged backlog files
   classifier.py         supported KPI family classification
   extractor.py          field extraction, grouping keys, outbound templates
@@ -66,6 +67,8 @@ tests/
   test_reply_mapping.py
   test_response_requirements.py
   test_web_memory_ui.py
+  test_missing_data_review.py
+  test_missing_data_enrichment.py
 ```
 
 Generated files such as SQLite databases, harness reports, AI usage reports, caches, and `__pycache__` are ignored.
@@ -128,7 +131,8 @@ The backlog import flow is separate from the main pipeline:
 - `claude_client.py`: low-level Claude CLI transport used by `ai_gateway.py`.
 - `email_sender.py`: preserves `intended_to` vs `actual_to` and demo recipient override. Normal new-case processing creates drafts only; `send_draft()` and `create_and_send()` are explicit send helpers.
 - `followup.py`: idempotent follow-up generation and escalation review creation.
-- `web/app.py`: Flask case list, case detail, review queue, event feed, Memory / Intelligence, and Building Groups views. The UI renders deterministic pattern signals, related cases, entity connections, observations, and evidence from stored memory records. Exposes read-only `/connection-hypotheses.json` and `/observability.json` endpoints. Routes are read-only except for schema initialization and the `/ingest` action. AI is off by default — `RuntimeOptions` defaults disable model calls for all routes.
+- `missing_data_enrichment.py`: AI-assisted contractor field enrichment. Main entry point: `run_enrichment(max_ai_calls, field_name, ...)`. Builds prompt-sized packets of supported cases missing the target field, calls AI through `AiGateway` with purpose `"missing_data_enrichment"`, validates responses against a strict ruleset (confidence enum, non-empty evidence email IDs, no action language, no blank/URL values), and stores accepted proposals as `status='proposed'` in `case_field_suggestions`. `accept_suggestion()` is the only path that writes to `cases.contractor` — it also inserts an `extracted_fields` row, a `case_events` audit row, and refreshes the building group link via `building_groups.attach_case_to_group`. `reject_suggestion()` marks the row rejected without touching the case. Dry-run mode builds packets and returns a summary without calling AI or writing any rows. Never sends email, closes cases, or auto-accepts suggestions.
+- `web/app.py`: Flask case list, case detail, review queue, event feed, Memory / Intelligence, Building Groups, Missing Data queue/detail, and AI Suggestions views. The UI renders deterministic pattern signals, related cases, entity connections, observations, and evidence from stored memory records. Exposes read-only `/connection-hypotheses.json` and `/observability.json` endpoints. Routes are read-only except for schema initialization, the `/ingest` action, and the suggestion accept/reject POST handlers (which require explicit human submission). AI is off by default — `RuntimeOptions` defaults disable model calls for all routes.
 
 ## Safety-Critical Behavior
 
@@ -143,8 +147,9 @@ Preserve these rules:
 - Placeholder SMTP credentials produce dry-run sends only if an explicit send path is invoked.
 - Placeholder IMAP credentials disable polling.
 - The offline harness blocks SMTP and IMAP.
-- Cases are never auto-closed from replies or follow-ups.
-- Prompt-injection content creates manual-review pressure, not automatic action.
+- Cases are never auto-closed from replies, follow-ups, or AI output.
+- AI suggestions (`case_field_suggestions`) are stored as `proposed` only. No case field is updated without explicit human accept via a POST route.
+- Prompt-injection content creates manual-review pressure, not automatic action. Email bodies that trigger `detect_injection` are excluded from AI enrichment packets.
 - Observability commands and routes are read-only against case state except for schema initialization and optional local JSON/JSONL report files.
 
 ## SQLite Tables
@@ -174,6 +179,10 @@ Connection discovery tables:
 - `connection_hypothesis_cases`
 - `connection_discovery_runs`
 - `connection_discovery_packets`
+
+AI enrichment tables:
+
+- `case_field_suggestions` — proposed AI-generated field values awaiting human review. Valid statuses: `proposed`, `accepted`, `rejected`, `superseded`. The unique index on `(case_id, field_name, suggested_value) WHERE status='proposed'` prevents duplicate in-flight proposals for the same value.
 
 Building group tables:
 
@@ -278,6 +287,42 @@ The discovery command is intentionally restricted:
 - Dry-run prints hypotheses without touching the database.
 - Writes a JSONL observability event with `unsupported_kpi_included=0`.
 - Proposed hypotheses are readable at `/connection-hypotheses.json` (read-only Flask endpoint).
+
+## Missing Data Review
+
+The `/missing-data` Flask route surfaces all open cases with one or more blank required fields (contractor, building, device, due_date, period) or unmet evidence requirements. Cases are linked to their source emails through three paths: `case_events.source_email_id`, `extracted_fields.email_id`, and `manual_reviews.email_id`. All three are queried via a UNION in `db.get_source_emails_for_case()`.
+
+Key DB helpers in `database.py`:
+- `list_missing_data_cases(status_filter, field_filter, limit)` — SQL + Python enrichment returning missing field lists, evidence gaps, and manual review status per case.
+- `get_missing_data_case_detail(case_id)` — returns case, source emails, latest field values, missing fields, manual reviews, and proposed suggestions.
+- `get_latest_field_values_for_case(case_id)` — reads `extracted_fields` ordered by rowid to return the last non-empty value per field name.
+
+The panel is fully read-only. `list_missing_data_cases` never calls `build_case_requirements()` (which writes rows); it reads existing `case_data_requirements` rows and overlays `get_required_response_items()` in Python instead.
+
+## AI Missing Data Enrichment
+
+Run from the CLI only. The web UI provides review, accept, and reject — never initiation.
+
+```bash
+python src/agent.py enrich-missing-data --field contractor --max-ai-calls 5
+python src/agent.py enrich-missing-data --field contractor --max-ai-calls 0 --dry-run
+```
+
+`missing_data_enrichment.run_enrichment()` orchestrates the full flow:
+1. `build_enrichment_packets()` — queries `list_cases_missing_field_for_enrichment()` (excludes cases with an existing `proposed` suggestion for the field), loads source emails, sanitizes bodies through `content_safety.detect_injection()`, groups cases into batches, and splits oversized batches until each prompt fits within `max_prompt_chars`.
+2. `build_enrichment_prompt(packet)` — assembles the JSON-only prompt with the packet embedded, requesting the exact output schema.
+3. `AiGateway.call_json(prompt, purpose="missing_data_enrichment")` — AI call with purpose tracking and budget enforcement.
+4. `validate_ai_response(payload, packet)` — rejects suggestions with invalid case IDs, wrong field name, blank/URL/action-language values, invalid confidence, empty source email evidence, or reasoning over 1000 chars.
+5. `db.insert_case_field_suggestion(...)` — stores validated proposals as `status='proposed'`. `reasoning` maps to the `rationale` column; `evidence` dict is JSON-serialized into `evidence_json`; `source_email_id` is the first element of `evidence.source_email_ids`.
+
+Accept workflow (`accept_suggestion`):
+1. Validates suggestion is `proposed` and `contractor`.
+2. Verifies `cases.contractor` is still blank.
+3. `db.update_case(case_id, {"contractor": value})`.
+4. `db.insert_extracted_field(...)` so `building_groups._latest_group_fields()` sees the new value.
+5. `db.insert_case_event(...)` with `event_type="case_field_suggestion_accepted"` for audit.
+6. `building_groups.attach_case_to_group(case_id, source="manual", enqueue=False)`.
+7. Marks suggestion `accepted`; marks all other `proposed` suggestions for same case+field `superseded`.
 
 ## Known Limitations
 
