@@ -148,7 +148,11 @@ Supported case types: `CAT1_COMPLIANCE`, `CAT5_COMPLIANCE`, `DATA_ABSENCE`, `MAI
 Filtering behavior: supported KPI records are imported, obvious non-KPI messages are rejected, and supported subjects with weak bodies or missing required fields go to review.
 Safety: No AI. No outbound emails. No follow-ups. No escalations.
 Reports are written to `data/backlog_runs/<timestamp>/` after each run.
-Optional arguments: `--limit <N>` limits records processed. `--report-dir <PATH>` overrides the default report output directory.
+Optional arguments:
+- `--limit <N>` — cap records processed.
+- `--report-dir <PATH>` — override the default report output directory.
+- `--resume` — skip records already present in the database (useful for incremental re-runs).
+- `--report-detail summary|full` — control verbosity of the post-run report (default: `summary`).
 
 The backlog loader itself accepts JSON only. The optional one-off `src/pst_to_backlog_json.py` helper can convert PST data to that JSON shape when `libpff-python` is installed, but PST import is not part of the runtime backlog loader.
 
@@ -172,9 +176,17 @@ python src/agent.py discover-connections --max-ai-calls 5 --building "123 Main S
 
 # Limit cases analyzed:
 python src/agent.py discover-connections --max-ai-calls 5 --limit 50
+
+# Packetized discovery over a wider scope:
+python src/agent.py discover-connections --max-ai-calls 20 --scope all-supported --packet-by entity --batch-size 10
 ```
 
 `--max-ai-calls` is required and must be > 0. The command refuses to run without it.
+
+Optional arguments:
+- `--scope` — discovery mode: omit or `small` for small-case path; `patterns`, `building-groups`, or `all-supported` for packetized path.
+- `--packet-by` — packetized grouping dimension: `entity`, `building`, `contractor`, `device`, or `case-type` (default: `entity`).
+- `--batch-size` — maximum cases per packet before size-based bisection (default: 25).
 
 Hypotheses are validated before storage:
 - `confidence` must be `low`, `medium`, or `high`
@@ -213,6 +225,42 @@ python src/agent.py memory-report --case-id <CASE_ID>
 
 The memory layer stores entities, observations, related-case links, and deterministic pattern flags. It does not use AI to decide whether a pattern exists.
 Pattern signals are review-oriented indicators based on stored data, not proof of root cause. Mechanic/technician intelligence appears only when explicit mechanic or technician data exists in KPI emails or replies.
+
+## Safety and Demo Operations
+
+```bash
+# Run a quick pre-flight safety check (no AI, no network, no outbound):
+python src/agent.py safety-check
+
+# Build a pre-wired demo scenario into the database (demo fixtures + cases):
+python src/agent.py build-demo-scenario
+
+# Drop and reinitialize the demo database (WARNING: destroys all data):
+python src/agent.py reset-demo-db
+
+# Replay stored emails through the pipeline (for regression testing):
+python src/agent.py replay
+```
+
+## Building Groups
+
+```bash
+# Rebuild the building-groups table from scratch (idempotent):
+python src/agent.py rebuild-building-groups
+
+# Print all building groups and their case membership:
+python src/agent.py show-building-groups
+
+# Generate a draft group communication for a building group:
+python src/agent.py generate-building-draft --group-id <GROUP_ID>
+```
+
+## Connection Hypothesis Management
+
+```bash
+# Merge or deduplicate stored connection hypotheses:
+python src/agent.py merge-connection-hypotheses
+```
 
 ## AI Usage Rules
 
