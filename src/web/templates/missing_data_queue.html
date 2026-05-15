@@ -1,0 +1,56 @@
+{% extends "base.html" %}
+{% block title %}Missing Data - Solucore Alert Triage{% endblock %}
+
+{% block content %}
+<h2>Missing Data</h2>
+<p class="section-note">
+  {{ total }} cases with missing data &mdash; {{ open_review_count }} with open reviews
+</p>
+
+<div class="filter-bar">
+  <a href="{{ url_for('missing_data_queue', status=status_filter) }}" {% if not field_filter %}class="active"{% endif %}>All</a>
+  <a href="{{ url_for('missing_data_queue', field='contractor', status=status_filter) }}" {% if field_filter == 'contractor' %}class="active"{% endif %}>Contractor</a>
+  <a href="{{ url_for('missing_data_queue', field='building', status=status_filter) }}" {% if field_filter == 'building' %}class="active"{% endif %}>Building</a>
+  <a href="{{ url_for('missing_data_queue', field='device', status=status_filter) }}" {% if field_filter == 'device' %}class="active"{% endif %}>Device</a>
+  <a href="{{ url_for('missing_data_queue', field='evidence', status=status_filter) }}" {% if field_filter == 'evidence' %}class="active"{% endif %}>Evidence</a>
+</div>
+
+<div class="card" style="padding:0">
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Case</th>
+          <th>Type</th>
+          <th>Building</th>
+          <th>Contractor</th>
+          <th>Missing Fields</th>
+          <th>Open Reviews</th>
+          <th>Updated</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for case in cases %}
+        <tr>
+          <td><a href="{{ url_for('missing_data_detail', case_id=case.case_id) }}">{{ case.case_id[:8] }}...</a></td>
+          <td>{{ case.case_type.replace('_', ' ').title() }}</td>
+          <td>{{ case.building or '-' }}</td>
+          <td>{{ case.contractor or '-' }}</td>
+          <td>
+            {{ (case.missing_fields + (['evidence'] if case.missing_required_evidence else [])) | join(', ') }}
+          </td>
+          <td><span class="badge badge-{{ case.manual_review_status }}">{{ case.open_review_count }}</span></td>
+          <td class="nowrap muted">{{ case.updated_at[:16].replace('T', ' ') if case.updated_at else '-' }}</td>
+        </tr>
+        {% else %}
+        <tr>
+          <td colspan="7">
+            <div class="empty-state"><p>No cases with missing data.</p></div>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

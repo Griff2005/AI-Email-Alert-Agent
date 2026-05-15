@@ -698,6 +698,9 @@ def _process_record(record: Dict[str, Any], dry_run: bool) -> Dict[str, Any]:
         received_at=normalized["received_at"],
         raw_body=normalized["body"],
         normalized_text=sanitize_email_content(normalized["body"]),
+        cc_addrs="; ".join(normalized.get("cc_addrs") or []),
+        bcc_addrs="; ".join(normalized.get("bcc_addrs") or []),
+        reply_to=normalized.get("reply_to") or "",
     )
     db.mark_email_processed(email_id)
 

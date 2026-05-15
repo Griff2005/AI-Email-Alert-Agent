@@ -339,6 +339,15 @@ def _first_nonempty(*values: Any) -> Optional[str]:
     return None
 
 
+def _missing_case_fields(case: Dict[str, Any]) -> List[str]:
+    field_names = ("contractor", "building", "device", "due_date", "period")
+    return [
+        field_name
+        for field_name in field_names
+        if case.get(field_name) is None or str(case.get(field_name)).strip() == ""
+    ]
+
+
 def _list_drafts_needing_approval(limit: int = 50) -> List[Dict[str, Any]]:
     rows = db.get_connection().execute(
         """
@@ -491,8 +500,10 @@ def _attention_queue_items() -> List[Dict[str, Any]]:
         _enrich_connection_hypothesis(dict(row))
         for row in db.get_connection_hypotheses(status_filter="proposed")
     ]
+    missing_data_cases = db.list_missing_data_cases()
 
     latest_review = open_reviews[0] if open_reviews else None
+    latest_missing_data = missing_data_cases[0] if missing_data_cases else None
     latest_draft = drafts_pending[0] if drafts_pending else None
     latest_reply = replies_needing_mapping[0] if replies_needing_mapping else None
     latest_hypothesis = proposed_hypotheses[0] if proposed_hypotheses else None
@@ -511,6 +522,24 @@ def _attention_queue_items() -> List[Dict[str, Any]]:
                 if latest_review else url_for("reviews")
             ),
             "queue_href": url_for("reviews"),
+            "badge_class": "badge-review",
+        },
+        {
+            "item_type": "Missing Data",
+            "count": len(missing_data_cases),
+            "latest_at": latest_missing_data.get("updated_at") if latest_missing_data else None,
+            "latest_text": (
+                (
+                    f"Case {latest_missing_data['case_id'][:8]}... "
+                    f"missing {', '.join(latest_missing_data.get('missing_fields') or ['evidence'])}"
+                )
+                if latest_missing_data else "No cases with missing data"
+            ),
+            "latest_href": (
+                url_for("missing_data_detail", case_id=latest_missing_data["case_id"])
+                if latest_missing_data else url_for("missing_data_queue")
+            ),
+            "queue_href": url_for("missing_data_queue"),
             "badge_class": "badge-review",
         },
         {
@@ -603,7 +632,124 @@ def needs_attention():
         "needs_attention.html",
         attention_items=attention_items,
         total_attention_count=sum(item["count"] for item in attention_items),
+        missing_data_count=next(
+            (item["count"] for item in attention_items if item["item_type"] == "Missing Data"),
+            0,
+        ),
     )
+
+
+@app.route("/missing-data")
+def missing_data_queue():
+    """Render the read-only missing-data review queue."""
+    field_filter = request.args.get("field", "").strip() or None
+    status_filter = request.args.get("status", "open").strip() or "open"
+    cases = db.list_missing_data_cases(
+        status_filter=status_filter,
+        field_filter=field_filter,
+    )
+    return render_template(
+        "missing_data_queue.html",
+        cases=cases,
+        field_filter=field_filter,
+        status_filter=status_filter,
+        total=len(cases),
+        open_review_count=sum(1 for c in cases if c.get("manual_review_status") == "open"),
+    )
+
+
+@app.route("/missing-data/suggestions")
+def case_field_suggestions():
+    """Render AI field suggestions queued for human review."""
+    status_filter = request.args.get("status", "proposed").strip() or "proposed"
+    field_filter = request.args.get("field", None)
+    suggestions = db.list_case_field_suggestions(
+        status_filter=status_filter,
+        field_name=field_filter,
+    )
+    return render_template(
+        "case_field_suggestions.html",
+        suggestions=suggestions,
+        status_filter=status_filter,
+        field_filter=field_filter,
+        total=len(suggestions),
+    )
+
+
+@app.route("/missing-data/suggestions/<suggestion_id>")
+def case_field_suggestion_detail(suggestion_id):
+    """Render one AI field suggestion with source evidence and review forms."""
+    suggestion = db.get_case_field_suggestion(suggestion_id)
+    if not suggestion:
+        return redirect(url_for("case_field_suggestions"))
+    case = db.get_case_by_id(suggestion["case_id"])
+    source_emails = db.get_source_emails_for_case(suggestion["case_id"])
+    import json as _json
+    evidence = {}
+    if suggestion["evidence_json"]:
+        try:
+            evidence = _json.loads(suggestion["evidence_json"])
+        except Exception:
+            evidence = {}
+    return render_template(
+        "case_field_suggestion_detail.html",
+        suggestion=dict(suggestion),
+        case=dict(case) if case else None,
+        source_emails=[dict(e) for e in source_emails],
+        evidence=evidence,
+    )
+
+
+@app.route("/missing-data/suggestions/<suggestion_id>/accept", methods=["POST"])
+def accept_case_field_suggestion(suggestion_id):
+    """Accept one proposed field suggestion after explicit human submission."""
+    import missing_data_enrichment
+    notes = request.form.get("notes", "").strip() or None
+    try:
+        result = missing_data_enrichment.accept_suggestion(
+            suggestion_id,
+            reviewed_by="web_user",
+            notes=notes,
+        )
+        flash(f"Accepted: contractor set to \"{result['accepted_value']}\" for case {result['case_id']}.", "success")
+    except ValueError as e:
+        flash(f"Cannot accept: {e}", "error")
+    return redirect(url_for("case_field_suggestion_detail", suggestion_id=suggestion_id))
+
+
+@app.route("/missing-data/suggestions/<suggestion_id>/reject", methods=["POST"])
+def reject_case_field_suggestion(suggestion_id):
+    """Reject one proposed field suggestion after explicit human submission."""
+    import missing_data_enrichment
+    notes = request.form.get("notes", "").strip() or None
+    try:
+        missing_data_enrichment.reject_suggestion(
+            suggestion_id,
+            reviewed_by="web_user",
+            notes=notes,
+        )
+        flash("Suggestion rejected.", "success")
+    except ValueError as e:
+        flash(f"Cannot reject: {e}", "error")
+    return redirect(url_for("case_field_suggestion_detail", suggestion_id=suggestion_id))
+
+
+@app.route("/missing-data/<case_id>")
+def missing_data_detail(case_id):
+    """Render read-only source email context for one missing-data case."""
+    detail = db.get_missing_data_case_detail(case_id)
+    if not detail:
+        return render_template(
+            "missing_data_queue.html",
+            cases=[],
+            field_filter=None,
+            status_filter="open",
+            total=0,
+            open_review_count=0,
+        ), 404
+    # proposed_suggestions is already populated by get_missing_data_case_detail;
+    # no second query needed.
+    return render_template("missing_data_detail.html", **detail)
 
 
 @app.route("/cases")
@@ -710,6 +856,7 @@ def case_detail(case_id):
         flash(f"Case {case_id} not found.", "error")
         return redirect(url_for("cases"))
 
+    case_dict = dict(case)
     events = db.get_events_for_case(case_id)
     messages = db.get_messages_for_case(case_id)
     fields = [dict(f) for f in db.get_fields_for_case(case_id)]
@@ -728,14 +875,15 @@ def case_detail(case_id):
 
     return render_template(
         "case_detail.html",
-        case=dict(case),
+        case=case_dict,
         events=[dict(e) for e in events],
         messages=[dict(m) for m in messages],
         fields=fields,
         followup=dict(followup) if followup else None,
         memory_context=memory_context,
         memory_summary=memory_context["summary"],
-        entity_connections=_entity_connections(dict(case), fields, memory_context),
+        entity_connections=_entity_connections(case_dict, fields, memory_context),
+        missing_fields=_missing_case_fields(case_dict),
     )
 
 

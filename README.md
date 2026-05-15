@@ -160,6 +160,69 @@ The backlog loader itself accepts JSON only. The optional one-off `src/pst_to_ba
 python src/pst_to_backlog_json.py Email_Backlog.pst data/my_backlog.json
 ```
 
+## Missing Data Review Panel
+
+View all open cases with missing required fields (contractor, building, device, due date, period, or required evidence) and their linked source emails in the web UI:
+
+```text
+http://localhost:5000/missing-data
+```
+
+Filter by missing field type using query parameters (`?field=contractor`, `?field=building`, etc.). Click any case to view:
+
+- Case summary and missing fields
+- Source email subject, sender, recipients, CC, reply-to, and body
+- Extracted fields already on record
+- Open manual reviews
+- Proposed AI contractor suggestions (if any have been generated)
+
+This panel is fully read-only. No cases, fields, or emails are modified.
+
+## AI Missing Data Enrichment
+
+Propose contractor names for cases that have a linked source email but no contractor value. Proposals are stored for human review — no case fields are updated automatically.
+
+```bash
+# Build packets and preview without calling AI:
+python src/agent.py enrich-missing-data --field contractor --max-ai-calls 0 --dry-run
+
+# Run with an explicit AI budget:
+python src/agent.py enrich-missing-data --field contractor --max-ai-calls 5
+
+# Scope to a specific building or case type:
+python src/agent.py enrich-missing-data --field contractor --max-ai-calls 5 \
+  --building "123 Main St" --case-type CAT1_COMPLIANCE
+
+# Limit cases analyzed:
+python src/agent.py enrich-missing-data --field contractor --max-ai-calls 5 --limit 20
+```
+
+`--max-ai-calls` must be > 0 for live mode. Use `--dry-run` to preview packets without calling AI or writing any proposals.
+
+Optional arguments:
+- `--limit <N>` — cap the number of cases processed.
+- `--case-id <ID>` — restrict to a single case.
+- `--building <TEXT>` — filter by building name (case-insensitive).
+- `--case-type <TYPE>` — filter by case type.
+- `--batch-size <N>` — cases per AI prompt packet (default: 10).
+- `--max-prompt-chars <N>` — hard cap on each packet's character count (default: 20000).
+
+Proposals appear at:
+
+```text
+http://localhost:5000/missing-data/suggestions
+```
+
+Each proposal shows the AI's reasoning and the source email evidence. A human must explicitly accept or reject each proposal via the web UI before any case field is updated. Accepting a suggestion writes `contractor` to the case and refreshes its building group link; rejecting leaves the case unchanged.
+
+Safety constraints:
+- `--dry-run` writes zero proposals and makes zero AI calls.
+- `--max-ai-calls 0` without `--dry-run` exits with an error.
+- Email bodies flagged by prompt-injection detection are excluded from AI packets.
+- Only supported KPI case types are included (`unsupported_records_included: 0` is enforced per packet).
+- Proposed values are validated before storage: blank values, URLs, action language, invalid confidence, and unknown case IDs are all rejected.
+- Cases are never closed, emails are never sent, and no case field is ever updated without explicit human approval.
+
 ## Connection Discovery
 
 Discover possible hidden connections across supported KPI cases using AI. All hypotheses are stored as `proposed` items for human review. The command never modifies cases, sends emails, schedules follow-ups, escalates, or closes cases.
@@ -287,25 +350,26 @@ All model access goes through `src/ai_gateway.py`. Do not call the Claude client
 
 ```text
 src/
-  agent.py              CLI entry point
-  config.py             environment-backed settings
-  constants.py          shared case/status/event/review string constants
-  time_utils.py         UTC timestamp helpers preserving existing storage format
-  observability.py      local JSON metrics snapshots and structured event logs
-  runtime_options.py    per-run AI/outbound/follow-up switches
-  content_safety.py     transport-agnostic sanitization and injection helpers
-  database.py           SQLite schema and query helpers
-  classifier.py         deterministic-first KPI classification
-  extractor.py          deterministic extraction and outbound templates
-  case_manager.py       main case pipeline and reply handling
-  memory.py             entities, observations, links, pattern flags
-  reply_analyzer.py     deterministic-first reply interpretation
-  email_reader.py       optional IMAP polling
-  email_sender.py       outbound drafts and explicit send helpers with demo guardrails
-  followup.py           background follow-up processing
-  demo_fixtures.py      synthetic offline fixture data
-  demo_scale_harness.py safe offline demo validator
-  web/                  Flask UI
+  agent.py                  CLI entry point
+  config.py                 environment-backed settings
+  constants.py              shared case/status/event/review string constants
+  time_utils.py             UTC timestamp helpers preserving existing storage format
+  observability.py          local JSON metrics snapshots and structured event logs
+  runtime_options.py        per-run AI/outbound/follow-up switches
+  content_safety.py         transport-agnostic sanitization and injection helpers
+  database.py               SQLite schema and query helpers
+  classifier.py             deterministic-first KPI classification
+  extractor.py              deterministic extraction and outbound templates
+  case_manager.py           main case pipeline and reply handling
+  memory.py                 entities, observations, links, pattern flags
+  reply_analyzer.py         deterministic-first reply interpretation
+  missing_data_enrichment.py  AI contractor enrichment: packet builder, validation, accept/reject
+  email_reader.py           optional IMAP polling
+  email_sender.py           outbound drafts and explicit send helpers with demo guardrails
+  followup.py               background follow-up processing
+  demo_fixtures.py          synthetic offline fixture data
+  demo_scale_harness.py     safe offline demo validator
+  web/                      Flask UI
 data/
   sample_emails.json    committed sample demo alerts
 tests/

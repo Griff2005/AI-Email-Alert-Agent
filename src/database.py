@@ -18,6 +18,7 @@ from constants import (
     EVENT_EMAIL_RECEIVED,
     QUEUE_STATUSES,
     SUPPORTED_CASE_TYPES,
+    SUPPORTED_CASE_TYPES_SET,
 )
 from time_utils import utc_now_iso
 
@@ -131,6 +132,9 @@ def _add_column_if_missing(table_name: str, column_name: str, ddl_fragment: str)
 def _init_compatibility_columns() -> None:
     """Apply future additive-only compatibility columns for existing databases."""
     with _write_lock:
+        _add_column_if_missing("emails", "cc_addrs", "TEXT DEFAULT ''")
+        _add_column_if_missing("emails", "bcc_addrs", "TEXT DEFAULT ''")
+        _add_column_if_missing("emails", "reply_to", "TEXT DEFAULT ''")
         _add_column_if_missing("manual_reviews", "review_category", "TEXT")
         _add_column_if_missing("manual_reviews", "blocking", "INTEGER DEFAULT 1")
         _add_column_if_missing("manual_reviews", "context_json", "TEXT")
@@ -156,6 +160,9 @@ def init_schema() -> None:
                 received_at  TEXT NOT NULL,
                 raw_body     TEXT,
                 normalized_text TEXT,
+                cc_addrs    TEXT DEFAULT '',
+                bcc_addrs   TEXT DEFAULT '',
+                reply_to    TEXT DEFAULT '',
                 processed    INTEGER DEFAULT 0
             );
 
@@ -470,6 +477,32 @@ def init_schema() -> None:
                 FOREIGN KEY (group_id) REFERENCES building_issue_groups(group_id)
             );
 
+            CREATE TABLE IF NOT EXISTS case_field_suggestions (
+                suggestion_id          TEXT PRIMARY KEY,
+                case_id                TEXT NOT NULL,
+                field_name             TEXT NOT NULL,
+                suggested_value        TEXT NOT NULL,
+                confidence             TEXT NOT NULL,
+                confidence_score       REAL,
+                rationale              TEXT,
+                evidence_json          TEXT,
+                source_email_id        TEXT,
+                source                 TEXT NOT NULL DEFAULT 'ai_missing_data_enrichment',
+                status                 TEXT NOT NULL DEFAULT 'proposed',
+                run_id                 TEXT,
+                packet_id              TEXT,
+                model_name             TEXT,
+                prompt_schema_version  TEXT,
+                created_at             TEXT NOT NULL,
+                reviewed_at            TEXT,
+                reviewed_by            TEXT,
+                review_notes           TEXT,
+                accepted_at            TEXT,
+                rejected_at            TEXT,
+                FOREIGN KEY (case_id) REFERENCES cases(case_id),
+                FOREIGN KEY (source_email_id) REFERENCES emails(email_id)
+            );
+
             CREATE INDEX IF NOT EXISTS idx_connection_hypotheses_status ON connection_hypotheses(status);
             CREATE INDEX IF NOT EXISTS idx_connection_hypothesis_cases_case_id ON connection_hypothesis_cases(case_id);
             CREATE INDEX IF NOT EXISTS idx_connection_discovery_runs_started
@@ -495,6 +528,16 @@ def init_schema() -> None:
             CREATE INDEX IF NOT EXISTS idx_reply_mappings_case ON reply_case_mappings(case_id);
             CREATE INDEX IF NOT EXISTS idx_reply_mappings_group ON reply_case_mappings(group_id);
             CREATE INDEX IF NOT EXISTS idx_reply_mappings_status ON reply_case_mappings(status);
+
+            CREATE INDEX IF NOT EXISTS idx_case_field_suggestions_case_status
+                ON case_field_suggestions(case_id, status);
+            CREATE INDEX IF NOT EXISTS idx_case_field_suggestions_field_status
+                ON case_field_suggestions(field_name, status);
+            CREATE INDEX IF NOT EXISTS idx_case_field_suggestions_created_at
+                ON case_field_suggestions(created_at);
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_case_field_suggestions_proposed_unique
+                ON case_field_suggestions(case_id, field_name, suggested_value)
+                WHERE status = 'proposed';
 
             CREATE INDEX IF NOT EXISTS idx_cases_grouping_key ON cases(grouping_key);
             CREATE INDEX IF NOT EXISTS idx_cases_status ON cases(status);
@@ -531,6 +574,9 @@ def insert_email(
     received_at: str,
     raw_body: str,
     normalized_text: str,
+    cc_addrs: str = "",
+    bcc_addrs: str = "",
+    reply_to: str = "",
 ) -> None:
     """Insert an inbound KPI alert email record.
 
@@ -548,16 +594,20 @@ def insert_email(
         received_at: ISO 8601 receipt timestamp.
         raw_body: Original body (may contain HTML).
         normalized_text: HTML-stripped, whitespace-normalised body.
+        cc_addrs: Semicolon-separated CC recipients preserved for review.
+        bcc_addrs: Semicolon-separated BCC recipients preserved for review.
+        reply_to: Reply-To header value preserved for review.
     """
     _execute_write(
         """
         INSERT OR IGNORE INTO emails
             (email_id, message_id, thread_id, subject, from_addr, to_addr,
-             received_at, raw_body, normalized_text, processed)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
+             received_at, raw_body, normalized_text, cc_addrs, bcc_addrs,
+             reply_to, processed)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
         """,
         (email_id, message_id, thread_id, subject, from_addr, to_addr,
-         received_at, raw_body, normalized_text),
+         received_at, raw_body, normalized_text, cc_addrs, bcc_addrs, reply_to),
     )
 
 
@@ -2121,6 +2171,442 @@ def get_events_for_email(email_id: str) -> list:
         (email_id,),
     ).fetchall()
     return [dict(row) for row in rows]
+
+
+# ---------------------------------------------------------------------------
+# Missing-data review helpers
+# ---------------------------------------------------------------------------
+
+_MISSING_CASE_FIELD_NAMES = ("contractor", "building", "device", "due_date", "period")
+_CASE_FIELD_SUGGESTION_STATUSES = frozenset(
+    {"proposed", "accepted", "rejected", "superseded"}
+)
+_ENRICHMENT_FIELD_COLUMNS = frozenset({"contractor"})
+
+
+def _is_blank(value: Any) -> bool:
+    return value is None or str(value).strip() == ""
+
+
+def _missing_case_fields(case_row: Dict[str, Any]) -> List[str]:
+    return [
+        field_name
+        for field_name in _MISSING_CASE_FIELD_NAMES
+        if _is_blank(case_row.get(field_name))
+    ]
+
+
+def _manual_review_status(case_row: Dict[str, Any]) -> str:
+    open_count = int(case_row.get("open_review_count") or 0)
+    total_count = int(case_row.get("total_review_count") or 0)
+    if open_count > 0:
+        return "open"
+    if total_count > 0:
+        return "resolved"
+    return "none"
+
+
+def _missing_required_evidence_for_case(case_id: str, case_type: str) -> List[str]:
+    if case_type not in SUPPORTED_CASE_TYPES_SET:
+        return []
+
+    # Keep the read helper side-effect free; build_case_requirements() writes rows.
+    from response_requirements import get_required_response_items
+
+    existing = {
+        requirement["requirement_key"]: requirement
+        for requirement in get_case_data_requirements(case_id)
+    }
+    missing = []
+    for item in get_required_response_items(case_type):
+        key = item["key"]
+        current = existing.get(key)
+        if current is None or current.get("status") in {"missing", "partial"}:
+            missing.append(key)
+    return missing
+
+
+def _include_missing_data_case(case_row: Dict[str, Any], field_filter: Optional[str]) -> bool:
+    if not field_filter:
+        return True
+    normalized = field_filter.strip().lower()
+    if normalized == "client":
+        return _is_blank(case_row.get("client"))
+    if normalized in {"evidence", "required_evidence", "missing_required_evidence"}:
+        return bool(case_row.get("missing_required_evidence"))
+    return normalized in case_row.get("missing_fields", [])
+
+
+def get_source_emails_for_case(case_id: str) -> List[sqlite3.Row]:
+    """Return source emails linked to a case through events, fields, or reviews."""
+    conn = get_connection()
+    return conn.execute(
+        """
+        WITH linked_email_ids AS (
+            SELECT source_email_id AS email_id
+            FROM case_events
+            WHERE case_id = ? AND source_email_id IS NOT NULL
+            UNION
+            SELECT email_id
+            FROM extracted_fields
+            WHERE case_id = ?
+            UNION
+            SELECT email_id
+            FROM manual_reviews
+            WHERE case_id = ? AND email_id IS NOT NULL
+        )
+        SELECT e.*
+        FROM emails e
+        JOIN linked_email_ids l ON l.email_id = e.email_id
+        ORDER BY e.received_at ASC, e.email_id ASC
+        """,
+        (case_id, case_id, case_id),
+    ).fetchall()
+
+
+def get_latest_field_values_for_case(case_id: str) -> Dict[str, str]:
+    """Return the latest non-empty extracted value for each field on a case."""
+    conn = get_connection()
+    rows = conn.execute(
+        """
+        SELECT field_name, field_value
+        FROM extracted_fields
+        WHERE case_id = ?
+        ORDER BY rowid ASC
+        """,
+        (case_id,),
+    ).fetchall()
+    values: Dict[str, str] = {}
+    for row in rows:
+        field_name = row["field_name"]
+        field_value = row["field_value"]
+        if _is_blank(field_name) or _is_blank(field_value):
+            continue
+        values[str(field_name)] = str(field_value)
+    return values
+
+
+def list_missing_data_cases(
+    status_filter: str = "open",
+    field_filter: Optional[str] = None,
+    limit: int = 200,
+) -> List[Dict[str, Any]]:
+    """Return cases with blank core fields, client data, or required evidence."""
+    status_filter = (status_filter or "open").strip().lower()
+    params: List[Any] = []
+    if status_filter == "all":
+        status_sql = "1=1"
+    elif status_filter == "open":
+        status_sql = "c.status != 'closed'"
+    else:
+        status_sql = "c.status = ?"
+        params.append(status_filter)
+
+    safe_limit = max(1, int(limit))
+    params.append(safe_limit)
+    conn = get_connection()
+    rows = conn.execute(
+        f"""
+        WITH field_values AS (
+            SELECT
+                case_id,
+                MAX(CASE
+                    WHEN field_name IN ('client', 'customer', 'property_manager')
+                     AND NULLIF(TRIM(COALESCE(field_value, '')), '') IS NOT NULL
+                    THEN field_value
+                END) AS client
+            FROM extracted_fields
+            GROUP BY case_id
+        ),
+        missing_requirements AS (
+            SELECT
+                case_id,
+                COUNT(*) AS missing_evidence_count,
+                GROUP_CONCAT(requirement_key, ', ') AS missing_evidence_keys
+            FROM case_data_requirements
+            WHERE required = 1 AND status IN ('missing', 'partial')
+            GROUP BY case_id
+        ),
+        review_status AS (
+            SELECT
+                case_id,
+                COUNT(*) AS total_review_count,
+                SUM(CASE WHEN resolved = 0 THEN 1 ELSE 0 END) AS open_review_count,
+                GROUP_CONCAT(CASE WHEN resolved = 0 THEN reason END, ' | ') AS open_review_reasons
+            FROM manual_reviews
+            GROUP BY case_id
+        )
+        SELECT
+            c.*,
+            fv.client,
+            COALESCE(mr.missing_evidence_count, 0) AS missing_evidence_count,
+            mr.missing_evidence_keys,
+            COALESCE(rv.total_review_count, 0) AS total_review_count,
+            COALESCE(rv.open_review_count, 0) AS open_review_count,
+            rv.open_review_reasons
+        FROM cases c
+        LEFT JOIN field_values fv ON fv.case_id = c.case_id
+        LEFT JOIN missing_requirements mr ON mr.case_id = c.case_id
+        LEFT JOIN review_status rv ON rv.case_id = c.case_id
+        WHERE {status_sql}
+          AND (
+              NULLIF(TRIM(COALESCE(c.contractor, '')), '') IS NULL
+           OR NULLIF(TRIM(COALESCE(c.building, '')), '') IS NULL
+           OR NULLIF(TRIM(COALESCE(c.device, '')), '') IS NULL
+           OR NULLIF(TRIM(COALESCE(c.due_date, '')), '') IS NULL
+           OR NULLIF(TRIM(COALESCE(c.period, '')), '') IS NULL
+           OR NULLIF(TRIM(COALESCE(fv.client, '')), '') IS NULL
+           OR COALESCE(mr.missing_evidence_count, 0) > 0
+          )
+        ORDER BY COALESCE(rv.open_review_count, 0) DESC, c.updated_at DESC
+        LIMIT ?
+        """,
+        tuple(params),
+    ).fetchall()
+
+    cases = []
+    for row in rows:
+        case = dict(row)
+        case["missing_fields"] = _missing_case_fields(case)
+        case["missing_required_evidence"] = _missing_required_evidence_for_case(
+            case["case_id"],
+            case["case_type"],
+        )
+        case["manual_review_status"] = _manual_review_status(case)
+        if _include_missing_data_case(case, field_filter):
+            cases.append(case)
+    return cases
+
+
+def get_missing_data_case_detail(case_id: str) -> Optional[Dict[str, Any]]:
+    """Return all read-only review data needed by the missing-data detail view."""
+    case_row = get_case_by_id(case_id)
+    if case_row is None:
+        return None
+
+    case = dict(case_row)
+    missing_fields = _missing_case_fields(case)
+    missing_required_evidence = _missing_required_evidence_for_case(
+        case_id,
+        case["case_type"],
+    )
+    manual_review_helper = globals().get("get_manual_reviews_for_case")
+    manual_reviews = (
+        manual_review_helper(case_id)
+        if callable(manual_review_helper)
+        else []
+    )
+    return {
+        "case": case,
+        "source_emails": [dict(row) for row in get_source_emails_for_case(case_id)],
+        "field_values": get_latest_field_values_for_case(case_id),
+        "missing_fields": missing_fields,
+        "missing_required_evidence": missing_required_evidence,
+        "manual_reviews": manual_reviews,
+        "proposed_suggestions": [
+            dict(row)
+            for row in list_case_field_suggestions(
+                case_id=case_id,
+                status_filter="proposed",
+            )
+        ],
+    }
+
+
+def insert_case_field_suggestion(
+    suggestion_id: str,
+    case_id: str,
+    field_name: str,
+    suggested_value: str,
+    confidence: str,
+    confidence_score: Optional[float] = None,
+    rationale: Optional[str] = None,
+    evidence_json: Optional[str] = None,
+    source_email_id: Optional[str] = None,
+    source: str = "ai_missing_data_enrichment",
+    run_id: Optional[str] = None,
+    packet_id: Optional[str] = None,
+    model_name: Optional[str] = None,
+    prompt_schema_version: Optional[str] = None,
+    created_at: Optional[str] = None,
+) -> None:
+    """Insert a proposed field-value suggestion for later human review."""
+    _execute_write(
+        """
+        INSERT INTO case_field_suggestions
+            (suggestion_id, case_id, field_name, suggested_value, confidence,
+             confidence_score, rationale, evidence_json, source_email_id,
+             source, status, run_id, packet_id, model_name,
+             prompt_schema_version, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'proposed', ?, ?, ?, ?, ?)
+        """,
+        (
+            suggestion_id,
+            case_id,
+            field_name,
+            suggested_value,
+            confidence,
+            confidence_score,
+            rationale,
+            evidence_json,
+            source_email_id,
+            source,
+            run_id,
+            packet_id,
+            model_name,
+            prompt_schema_version,
+            created_at or utc_now_iso(),
+        ),
+    )
+
+
+def get_case_field_suggestion(suggestion_id: str) -> Optional[sqlite3.Row]:
+    """Return one field suggestion row by ID, or None when absent."""
+    conn = get_connection()
+    return conn.execute(
+        "SELECT * FROM case_field_suggestions WHERE suggestion_id = ?",
+        (suggestion_id,),
+    ).fetchone()
+
+
+def list_case_field_suggestions(
+    status_filter: str = "proposed",
+    case_id: Optional[str] = None,
+    field_name: Optional[str] = None,
+    limit: int = 100,
+) -> List[sqlite3.Row]:
+    """Return field suggestions filtered by status, case, or field."""
+    clauses: List[str] = []
+    params: List[Any] = []
+    normalized_status = (status_filter or "proposed").strip().lower()
+    if normalized_status != "all":
+        clauses.append("status = ?")
+        params.append(normalized_status)
+    if case_id:
+        clauses.append("case_id = ?")
+        params.append(case_id)
+    if field_name:
+        clauses.append("field_name = ?")
+        params.append(field_name)
+
+    where_sql = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+    safe_limit = max(1, int(limit))
+    conn = get_connection()
+    return conn.execute(
+        f"""
+        SELECT *
+        FROM case_field_suggestions
+        {where_sql}
+        ORDER BY created_at DESC, rowid DESC
+        LIMIT ?
+        """,
+        tuple(params + [safe_limit]),
+    ).fetchall()
+
+
+def update_case_field_suggestion_status(
+    suggestion_id: str,
+    status: str,
+    *,
+    reviewed_by: Optional[str] = None,
+    review_notes: Optional[str] = None,
+    accepted_at: Optional[str] = None,
+    rejected_at: Optional[str] = None,
+) -> None:
+    """Update a field suggestion review status and optional review metadata."""
+    if status not in _CASE_FIELD_SUGGESTION_STATUSES:
+        raise ValueError(f"Unsupported case field suggestion status: {status}")
+    now = utc_now_iso()
+    _execute_write(
+        """
+        UPDATE case_field_suggestions
+        SET status = ?,
+            reviewed_at = ?,
+            reviewed_by = COALESCE(?, reviewed_by),
+            review_notes = COALESCE(?, review_notes),
+            accepted_at = COALESCE(?, accepted_at),
+            rejected_at = COALESCE(?, rejected_at)
+        WHERE suggestion_id = ?
+        """,
+        (
+            status,
+            now,
+            reviewed_by,
+            review_notes,
+            accepted_at,
+            rejected_at,
+            suggestion_id,
+        ),
+    )
+
+
+def mark_other_field_suggestions_superseded(
+    case_id: str,
+    field_name: str,
+    accepted_suggestion_id: str,
+) -> int:
+    """Mark competing proposed suggestions for the same case field superseded."""
+    now = utc_now_iso()
+    cursor = _execute_write(
+        """
+        UPDATE case_field_suggestions
+        SET status = 'superseded',
+            reviewed_at = ?
+        WHERE case_id = ?
+          AND field_name = ?
+          AND suggestion_id != ?
+          AND status = 'proposed'
+        """,
+        (now, case_id, field_name, accepted_suggestion_id),
+    )
+    return int(cursor.rowcount)
+
+
+def list_cases_missing_field_for_enrichment(
+    field_name: str = "contractor",
+    limit: Optional[int] = None,
+    case_id: Optional[str] = None,
+    building: Optional[str] = None,
+    case_type: Optional[str] = None,
+) -> List[sqlite3.Row]:
+    """Return supported open cases missing ``field_name`` and lacking proposals."""
+    if field_name not in _ENRICHMENT_FIELD_COLUMNS:
+        raise ValueError(f"Unsupported enrichment field: {field_name}")
+
+    supported_placeholders = ", ".join("?" for _ in SUPPORTED_CASE_TYPES)
+    sql = f"""
+        SELECT c.*
+        FROM cases c
+        WHERE c.status != 'closed'
+          AND c.case_type IN ({supported_placeholders})
+          AND (NULLIF(TRIM(COALESCE(c.{field_name}, '')), '') IS NULL)
+          AND NOT EXISTS (
+              SELECT 1 FROM case_field_suggestions s
+              WHERE s.case_id = c.case_id
+                AND s.field_name = ?
+                AND s.status = 'proposed'
+          )
+    """
+    params: List[Any] = list(SUPPORTED_CASE_TYPES)
+    params.append(field_name)
+
+    if case_id:
+        sql += " AND c.case_id = ?"
+        params.append(case_id)
+    if building:
+        sql += " AND lower(COALESCE(c.building, '')) LIKE ?"
+        params.append(f"%{building.lower()}%")
+    if case_type:
+        sql += " AND c.case_type = ?"
+        params.append(case_type)
+
+    sql += " ORDER BY c.updated_at DESC"
+    if limit is not None:
+        sql += " LIMIT ?"
+        params.append(int(limit))
+
+    conn = get_connection()
+    return conn.execute(sql, tuple(params)).fetchall()
 
 
 # ---------------------------------------------------------------------------

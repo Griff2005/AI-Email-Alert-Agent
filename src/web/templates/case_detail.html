@@ -56,6 +56,18 @@
   </div>
 </div>
 
+{% if missing_fields %}
+<div class="card">
+  <h2>Missing Data</h2>
+  <div class="pill-row">
+    {% for field_name in missing_fields %}
+    <span class="badge badge-review">{{ field_name.replace('_', ' ').title() }}</span>
+    {% endfor %}
+  </div>
+  <a class="btn btn-primary btn-sm" href="{{ url_for('missing_data_detail', case_id=case.case_id) }}">Review Source Email</a>
+</div>
+{% endif %}
+
 <!-- Agent Workflow -->
 {% set event_types = events | map(attribute="event_type") | list %}
 <div class="card">

@@ -31,6 +31,7 @@ AI_PURPOSES = {
     "pattern_analysis",
     "manual_review_reasoning",
     "connection_discovery",
+    "missing_data_enrichment",
     "other",
 }
 

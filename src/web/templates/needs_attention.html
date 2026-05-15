@@ -4,7 +4,10 @@
 {% block content %}
 <h1>Needs Attention</h1>
 <p class="section-note">
-  Human action queue across reviews, approval drafts, reply mapping, and proposed AI hypotheses.
+  Human action queue across reviews, missing data, approval drafts, reply mapping, and proposed AI hypotheses.
+</p>
+<p class="section-note">
+  Missing data: <a href="{{ url_for('missing_data_queue') }}">{{ missing_data_count }} cases</a>
 </p>
 
 <div class="stat-row">
