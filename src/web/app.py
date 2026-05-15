@@ -658,6 +658,82 @@ def missing_data_queue():
     )
 
 
+@app.route("/missing-data/suggestions")
+def case_field_suggestions():
+    """Render AI field suggestions queued for human review."""
+    status_filter = request.args.get("status", "proposed").strip() or "proposed"
+    field_filter = request.args.get("field", None)
+    suggestions = db.list_case_field_suggestions(
+        status_filter=status_filter,
+        field_name=field_filter,
+    )
+    return render_template(
+        "case_field_suggestions.html",
+        suggestions=suggestions,
+        status_filter=status_filter,
+        field_filter=field_filter,
+        total=len(suggestions),
+    )
+
+
+@app.route("/missing-data/suggestions/<suggestion_id>")
+def case_field_suggestion_detail(suggestion_id):
+    """Render one AI field suggestion with source evidence and review forms."""
+    suggestion = db.get_case_field_suggestion(suggestion_id)
+    if not suggestion:
+        return redirect(url_for("case_field_suggestions"))
+    case = db.get_case_by_id(suggestion["case_id"])
+    source_emails = db.get_source_emails_for_case(suggestion["case_id"])
+    import json as _json
+    evidence = {}
+    if suggestion["evidence_json"]:
+        try:
+            evidence = _json.loads(suggestion["evidence_json"])
+        except Exception:
+            evidence = {}
+    return render_template(
+        "case_field_suggestion_detail.html",
+        suggestion=dict(suggestion),
+        case=dict(case) if case else None,
+        source_emails=[dict(e) for e in source_emails],
+        evidence=evidence,
+    )
+
+
+@app.route("/missing-data/suggestions/<suggestion_id>/accept", methods=["POST"])
+def accept_case_field_suggestion(suggestion_id):
+    """Accept one proposed field suggestion after explicit human submission."""
+    import missing_data_enrichment
+    notes = request.form.get("notes", "").strip() or None
+    try:
+        result = missing_data_enrichment.accept_suggestion(
+            suggestion_id,
+            reviewed_by="web_user",
+            notes=notes,
+        )
+        flash(f"Accepted: contractor set to \"{result['accepted_value']}\" for case {result['case_id']}.", "success")
+    except ValueError as e:
+        flash(f"Cannot accept: {e}", "error")
+    return redirect(url_for("case_field_suggestion_detail", suggestion_id=suggestion_id))
+
+
+@app.route("/missing-data/suggestions/<suggestion_id>/reject", methods=["POST"])
+def reject_case_field_suggestion(suggestion_id):
+    """Reject one proposed field suggestion after explicit human submission."""
+    import missing_data_enrichment
+    notes = request.form.get("notes", "").strip() or None
+    try:
+        missing_data_enrichment.reject_suggestion(
+            suggestion_id,
+            reviewed_by="web_user",
+            notes=notes,
+        )
+        flash("Suggestion rejected.", "success")
+    except ValueError as e:
+        flash(f"Cannot reject: {e}", "error")
+    return redirect(url_for("case_field_suggestion_detail", suggestion_id=suggestion_id))
+
+
 @app.route("/missing-data/<case_id>")
 def missing_data_detail(case_id):
     """Render read-only source email context for one missing-data case."""
@@ -671,6 +747,9 @@ def missing_data_detail(case_id):
             total=0,
             open_review_count=0,
         ), 404
+    suggestions = db.list_case_field_suggestions(case_id=case_id, status_filter="proposed")
+    detail["suggestions"] = [dict(s) for s in suggestions]
+    detail["proposed_suggestions"] = [dict(s) for s in suggestions]
     return render_template("missing_data_detail.html", **detail)
 
 

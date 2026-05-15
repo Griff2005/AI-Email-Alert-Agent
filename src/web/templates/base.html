@@ -532,7 +532,8 @@
   <nav>
     <span class="brand">Solucore <span>/ Alert Triage</span></span>
     <a href="/needs-attention" class="nav-attention{% if request.path.startswith('/needs-attention') %} active{% endif %}">Needs Attention</a>
-    <a href="{{ url_for('missing_data_queue') }}" {% if request.path.startswith('/missing-data') %}class="active"{% endif %}>Missing Data</a>
+    <a href="{{ url_for('missing_data_queue') }}" {% if request.path.startswith('/missing-data') and not request.path.startswith('/missing-data/suggestions') %}class="active"{% endif %}>Missing Data</a>
+    <a href="{{ url_for('case_field_suggestions') }}" {% if request.path.startswith('/missing-data/suggestions') %}class="active"{% endif %}>AI Suggestions</a>
     <a href="/" {% if request.path == '/' %}class="active"{% endif %}>Dashboard</a>
     <a href="/emails" {% if request.path.startswith('/emails') %}class="active"{% endif %}>Emails</a>
     <a href="/cases" {% if request.path.startswith('/cases') %}class="active"{% endif %}>Cases</a>
