@@ -657,10 +657,10 @@ def insert_case(
     case_type: str,
     grouping_key: str,
     building: Optional[str],
-    device: Optional[str],
-    contractor: Optional[str],
-    due_date: Optional[str],
-    period: Optional[str],
+    device: Optional[str] = None,
+    contractor: Optional[str] = None,
+    due_date: Optional[str] = None,
+    period: Optional[str] = None,
     priority: str = "medium",
 ) -> None:
     """Insert a new compliance case record.
@@ -699,7 +699,7 @@ def update_case(case_id: str, updates: Dict[str, Any]) -> None:
     """Update allowed mutable fields on an existing case.
 
     Always writes ``updated_at = <now>`` alongside the supplied fields. The
-    caller's ``updates`` dict is not mutated.
+    callers ``updates`` dict is not mutated.
 
     Args:
         case_id: UUID of the case to update.

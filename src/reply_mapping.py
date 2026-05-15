@@ -84,6 +84,8 @@ def propose_reply_case_mappings(reply_email_id: str) -> list[dict]:
     email = db.get_email_by_id(reply_email_id)
     if not email:
         return []
+    
+    email = dict(email)
 
     suggestions = []
     subject = email.get("subject", "") or ""
@@ -143,6 +145,86 @@ def save_reply_case_mapping(
     )
     return mapping_id
 
+def _normalize_requirement_token(token: str) -> str:
+    """Normalize simple word variants for deterministic reply matching.
+
+    This intentionally stays lightweight and explainable. It is not trying to
+    understand the full reply, only whether the reply appears to address a
+    known response requirement.
+    """
+    token = (token or "").lower().strip()
+
+    variants = {
+        "confirmed": "confirm",
+        "confirmation": "confirm",
+        "confirming": "confirm",
+        "uploaded": "upload",
+        "uploading": "upload",
+        "completed": "complete",
+        "completion": "complete",
+        "scheduled": "schedule",
+        "scheduling": "schedule",
+        "revised": "revise",
+        "revision": "revise",
+        "expected": "expect",
+        "documentation": "document",
+        "documents": "document",
+        "blockers": "blocker",
+        "blocked": "blocker",
+    }
+
+    return variants.get(token, token)
+
+
+def _meaningful_tokens(value: str) -> set[str]:
+    """Return normalized content tokens from requirement text."""
+    stop_words = {
+        "a",
+        "an",
+        "and",
+        "any",
+        "or",
+        "of",
+        "for",
+        "the",
+        "to",
+        "if",
+        "is",
+        "are",
+        "was",
+        "were",
+    }
+
+    tokens = re.findall(r"[a-z0-9]+", (value or "").lower())
+    return {
+        _normalize_requirement_token(token)
+        for token in tokens
+        if token and token not in stop_words
+    }
+
+
+def _requirement_addressed(key: str, label: str, combined_text: str) -> bool:
+    """Return True when reply text appears to address a requirement.
+
+    This uses deterministic keyword matching only. It avoids AI and keeps reply
+    completeness review explainable.
+    """
+    text_tokens = _meaningful_tokens(combined_text)
+    if not text_tokens:
+        return False
+
+    label_tokens = _meaningful_tokens(label)
+    key_tokens = _meaningful_tokens(key.replace("_", " "))
+
+    # Prefer the human-readable label because it is less noisy than the key.
+    if label_tokens and label_tokens.issubset(text_tokens):
+        return True
+
+    # Fall back to the requirement key when the label is unavailable.
+    if key_tokens and key_tokens.issubset(text_tokens):
+        return True
+
+    return False
 
 def analyze_reply_completeness(reply_email_id: str, case_id: str) -> dict:
     """Compare reply body to case_data_requirements for a case.
@@ -178,6 +260,8 @@ def analyze_reply_completeness(reply_email_id: str, case_id: str) -> dict:
             "completion_claimed": False,
             "evidence_found": False,
         }
+        
+    email = dict(email)
 
     requirements = db.get_case_data_requirements(case_id)
     if not requirements:
@@ -202,7 +286,7 @@ def analyze_reply_completeness(reply_email_id: str, case_id: str) -> dict:
         label = req["label"].lower()
 
         # Check if requirement is mentioned in reply
-        if label in combined:
+        if _requirement_addressed(key, label, combined):
             addressed_keys.append(key)
         else:
             missing_keys.append(key)

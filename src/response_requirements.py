@@ -276,25 +276,38 @@ def validate_required_response_in_email(case_ids: list[str], body: str) -> list[
     """Return requirement keys not mentioned in an email body for the cases."""
     normalized_body = _normalize(body)
     missing: list[str] = []
+
     for case_id in case_ids:
         for item in build_case_requirements(case_id):
-            key = item["key"]
+            key = item.get("key") or item.get("requirement_key")
+            if not key:
+                continue
             if key in missing:
                 continue
             if _item_mentioned(item, normalized_body):
                 continue
             missing.append(key)
+
     return missing
 
 
 def _item_mentioned(item: dict[str, str], normalized_body: str) -> bool:
+    key = item.get("key") or item.get("requirement_key") or ""
+    label = item.get("label") or ""
+    description = item.get("description") or ""
+
     candidates = {
-        item["key"],
-        item["key"].replace("_", " "),
-        item["label"],
-        item["description"],
+        key,
+        key.replace("_", " "),
+        label,
+        description,
     }
-    return any(_normalize(candidate) in normalized_body for candidate in candidates)
+
+    return any(
+        _normalize(candidate) in normalized_body
+        for candidate in candidates
+        if candidate
+    )
 
 
 def _normalize(value: str) -> str:
