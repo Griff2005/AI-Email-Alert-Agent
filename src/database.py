@@ -18,6 +18,7 @@ from constants import (
     EVENT_EMAIL_RECEIVED,
     QUEUE_STATUSES,
     SUPPORTED_CASE_TYPES,
+    SUPPORTED_CASE_TYPES_SET,
 )
 from time_utils import utc_now_iso
 
@@ -2134,6 +2135,235 @@ def get_events_for_email(email_id: str) -> list:
         (email_id,),
     ).fetchall()
     return [dict(row) for row in rows]
+
+
+# ---------------------------------------------------------------------------
+# Missing-data review helpers
+# ---------------------------------------------------------------------------
+
+_MISSING_CASE_FIELD_NAMES = ("contractor", "building", "device", "due_date", "period")
+
+
+def _is_blank(value: Any) -> bool:
+    return value is None or str(value).strip() == ""
+
+
+def _missing_case_fields(case_row: Dict[str, Any]) -> List[str]:
+    return [
+        field_name
+        for field_name in _MISSING_CASE_FIELD_NAMES
+        if _is_blank(case_row.get(field_name))
+    ]
+
+
+def _manual_review_status(case_row: Dict[str, Any]) -> str:
+    open_count = int(case_row.get("open_review_count") or 0)
+    total_count = int(case_row.get("total_review_count") or 0)
+    if open_count > 0:
+        return "open"
+    if total_count > 0:
+        return "resolved"
+    return "none"
+
+
+def _missing_required_evidence_for_case(case_id: str, case_type: str) -> List[str]:
+    if case_type not in SUPPORTED_CASE_TYPES_SET:
+        return []
+
+    # Keep the read helper side-effect free; build_case_requirements() writes rows.
+    from response_requirements import get_required_response_items
+
+    existing = {
+        requirement["requirement_key"]: requirement
+        for requirement in get_case_data_requirements(case_id)
+    }
+    missing = []
+    for item in get_required_response_items(case_type):
+        key = item["key"]
+        current = existing.get(key)
+        if current is None or current.get("status") in {"missing", "partial"}:
+            missing.append(key)
+    return missing
+
+
+def _include_missing_data_case(case_row: Dict[str, Any], field_filter: Optional[str]) -> bool:
+    if not field_filter:
+        return True
+    normalized = field_filter.strip().lower()
+    if normalized == "client":
+        return _is_blank(case_row.get("client"))
+    if normalized in {"evidence", "required_evidence", "missing_required_evidence"}:
+        return bool(case_row.get("missing_required_evidence"))
+    return normalized in case_row.get("missing_fields", [])
+
+
+def get_source_emails_for_case(case_id: str) -> List[sqlite3.Row]:
+    """Return source emails linked to a case through events, fields, or reviews."""
+    conn = get_connection()
+    return conn.execute(
+        """
+        WITH linked_email_ids AS (
+            SELECT source_email_id AS email_id
+            FROM case_events
+            WHERE case_id = ? AND source_email_id IS NOT NULL
+            UNION
+            SELECT email_id
+            FROM extracted_fields
+            WHERE case_id = ?
+            UNION
+            SELECT email_id
+            FROM manual_reviews
+            WHERE case_id = ? AND email_id IS NOT NULL
+        )
+        SELECT e.*
+        FROM emails e
+        JOIN linked_email_ids l ON l.email_id = e.email_id
+        ORDER BY e.received_at ASC, e.email_id ASC
+        """,
+        (case_id, case_id, case_id),
+    ).fetchall()
+
+
+def get_latest_field_values_for_case(case_id: str) -> Dict[str, str]:
+    """Return the latest non-empty extracted value for each field on a case."""
+    conn = get_connection()
+    rows = conn.execute(
+        """
+        SELECT field_name, field_value
+        FROM extracted_fields
+        WHERE case_id = ?
+        ORDER BY rowid ASC
+        """,
+        (case_id,),
+    ).fetchall()
+    values: Dict[str, str] = {}
+    for row in rows:
+        field_name = row["field_name"]
+        field_value = row["field_value"]
+        if _is_blank(field_name) or _is_blank(field_value):
+            continue
+        values[str(field_name)] = str(field_value)
+    return values
+
+
+def list_missing_data_cases(
+    status_filter: str = "open",
+    field_filter: Optional[str] = None,
+    limit: int = 200,
+) -> List[Dict[str, Any]]:
+    """Return cases with blank core fields, client data, or required evidence."""
+    status_filter = (status_filter or "open").strip().lower()
+    params: List[Any] = []
+    if status_filter == "all":
+        status_sql = "1=1"
+    elif status_filter == "open":
+        status_sql = "c.status != 'closed'"
+    else:
+        status_sql = "c.status = ?"
+        params.append(status_filter)
+
+    safe_limit = max(1, int(limit))
+    params.append(safe_limit)
+    conn = get_connection()
+    rows = conn.execute(
+        f"""
+        WITH field_values AS (
+            SELECT
+                case_id,
+                MAX(CASE
+                    WHEN field_name IN ('client', 'customer', 'property_manager')
+                     AND NULLIF(TRIM(COALESCE(field_value, '')), '') IS NOT NULL
+                    THEN field_value
+                END) AS client
+            FROM extracted_fields
+            GROUP BY case_id
+        ),
+        missing_requirements AS (
+            SELECT
+                case_id,
+                COUNT(*) AS missing_evidence_count,
+                GROUP_CONCAT(requirement_key, ', ') AS missing_evidence_keys
+            FROM case_data_requirements
+            WHERE required = 1 AND status IN ('missing', 'partial')
+            GROUP BY case_id
+        ),
+        review_status AS (
+            SELECT
+                case_id,
+                COUNT(*) AS total_review_count,
+                SUM(CASE WHEN resolved = 0 THEN 1 ELSE 0 END) AS open_review_count,
+                GROUP_CONCAT(CASE WHEN resolved = 0 THEN reason END, ' | ') AS open_review_reasons
+            FROM manual_reviews
+            GROUP BY case_id
+        )
+        SELECT
+            c.*,
+            fv.client,
+            COALESCE(mr.missing_evidence_count, 0) AS missing_evidence_count,
+            mr.missing_evidence_keys,
+            COALESCE(rv.total_review_count, 0) AS total_review_count,
+            COALESCE(rv.open_review_count, 0) AS open_review_count,
+            rv.open_review_reasons
+        FROM cases c
+        LEFT JOIN field_values fv ON fv.case_id = c.case_id
+        LEFT JOIN missing_requirements mr ON mr.case_id = c.case_id
+        LEFT JOIN review_status rv ON rv.case_id = c.case_id
+        WHERE {status_sql}
+          AND (
+              NULLIF(TRIM(COALESCE(c.contractor, '')), '') IS NULL
+           OR NULLIF(TRIM(COALESCE(c.building, '')), '') IS NULL
+           OR NULLIF(TRIM(COALESCE(c.device, '')), '') IS NULL
+           OR NULLIF(TRIM(COALESCE(c.due_date, '')), '') IS NULL
+           OR NULLIF(TRIM(COALESCE(c.period, '')), '') IS NULL
+           OR NULLIF(TRIM(COALESCE(fv.client, '')), '') IS NULL
+           OR COALESCE(mr.missing_evidence_count, 0) > 0
+          )
+        ORDER BY COALESCE(rv.open_review_count, 0) DESC, c.updated_at DESC
+        LIMIT ?
+        """,
+        tuple(params),
+    ).fetchall()
+
+    cases = []
+    for row in rows:
+        case = dict(row)
+        case["missing_fields"] = _missing_case_fields(case)
+        case["missing_required_evidence"] = _missing_required_evidence_for_case(
+            case["case_id"],
+            case["case_type"],
+        )
+        case["manual_review_status"] = _manual_review_status(case)
+        if _include_missing_data_case(case, field_filter):
+            cases.append(case)
+    return cases
+
+
+def get_missing_data_case_detail(case_id: str) -> Optional[Dict[str, Any]]:
+    """Return all read-only review data needed by the missing-data detail view."""
+    case_row = get_case_by_id(case_id)
+    if case_row is None:
+        return None
+
+    case = dict(case_row)
+    missing_fields = _missing_case_fields(case)
+    missing_required_evidence = _missing_required_evidence_for_case(
+        case_id,
+        case["case_type"],
+    )
+    manual_review_helper = globals().get("get_manual_reviews_for_case")
+    manual_reviews = (
+        manual_review_helper(case_id)
+        if callable(manual_review_helper)
+        else []
+    )
+    return {
+        "case": case,
+        "source_emails": [dict(row) for row in get_source_emails_for_case(case_id)],
+        "field_values": get_latest_field_values_for_case(case_id),
+        "missing_fields": missing_fields,
+        "missing_required_evidence": missing_required_evidence,
+        "manual_reviews": manual_reviews,
+    }
 
 
 # ---------------------------------------------------------------------------
