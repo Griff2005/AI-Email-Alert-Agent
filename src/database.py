@@ -131,6 +131,9 @@ def _add_column_if_missing(table_name: str, column_name: str, ddl_fragment: str)
 def _init_compatibility_columns() -> None:
     """Apply future additive-only compatibility columns for existing databases."""
     with _write_lock:
+        _add_column_if_missing("emails", "cc_addrs", "TEXT DEFAULT ''")
+        _add_column_if_missing("emails", "bcc_addrs", "TEXT DEFAULT ''")
+        _add_column_if_missing("emails", "reply_to", "TEXT DEFAULT ''")
         _add_column_if_missing("manual_reviews", "review_category", "TEXT")
         _add_column_if_missing("manual_reviews", "blocking", "INTEGER DEFAULT 1")
         _add_column_if_missing("manual_reviews", "context_json", "TEXT")
@@ -156,6 +159,9 @@ def init_schema() -> None:
                 received_at  TEXT NOT NULL,
                 raw_body     TEXT,
                 normalized_text TEXT,
+                cc_addrs    TEXT DEFAULT '',
+                bcc_addrs   TEXT DEFAULT '',
+                reply_to    TEXT DEFAULT '',
                 processed    INTEGER DEFAULT 0
             );
 
@@ -531,6 +537,9 @@ def insert_email(
     received_at: str,
     raw_body: str,
     normalized_text: str,
+    cc_addrs: str = "",
+    bcc_addrs: str = "",
+    reply_to: str = "",
 ) -> None:
     """Insert an inbound KPI alert email record.
 
@@ -548,16 +557,20 @@ def insert_email(
         received_at: ISO 8601 receipt timestamp.
         raw_body: Original body (may contain HTML).
         normalized_text: HTML-stripped, whitespace-normalised body.
+        cc_addrs: Semicolon-separated CC recipients preserved for review.
+        bcc_addrs: Semicolon-separated BCC recipients preserved for review.
+        reply_to: Reply-To header value preserved for review.
     """
     _execute_write(
         """
         INSERT OR IGNORE INTO emails
             (email_id, message_id, thread_id, subject, from_addr, to_addr,
-             received_at, raw_body, normalized_text, processed)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
+             received_at, raw_body, normalized_text, cc_addrs, bcc_addrs,
+             reply_to, processed)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
         """,
         (email_id, message_id, thread_id, subject, from_addr, to_addr,
-         received_at, raw_body, normalized_text),
+         received_at, raw_body, normalized_text, cc_addrs, bcc_addrs, reply_to),
     )
 
 
