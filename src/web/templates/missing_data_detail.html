@@ -1,0 +1,175 @@
+{% extends "base.html" %}
+{% block title %}Missing Data {{ case.case_id[:8] }} - Solucore Alert Triage{% endblock %}
+
+{% block content %}
+<div style="display:flex;align-items:center;gap:12px;margin-bottom:20px;flex-wrap:wrap">
+  <a href="{{ url_for('missing_data_queue') }}" style="font-size:0.85rem;color:#6b7280;text-decoration:none">&lt; Missing Data Queue</a>
+  <span class="muted">|</span>
+  <a href="{{ url_for('case_detail', case_id=case.case_id) }}" style="font-size:0.85rem;color:#6b7280;text-decoration:none">View Full Case</a>
+  <h1 style="margin:0">Case {{ case.case_id[:8] }}...</h1>
+  <span class="badge badge-{{ case.status }}">{{ case.status }}</span>
+</div>
+
+<div class="card">
+  <h2>Case Summary</h2>
+  <div class="detail-grid">
+    <div class="detail-field">
+      <div class="df-label">Case ID</div>
+      <div class="df-value">{{ case.case_id }}</div>
+    </div>
+    <div class="detail-field">
+      <div class="df-label">Type</div>
+      <div class="df-value">{{ case.case_type.replace('_', ' ').title() }}</div>
+    </div>
+    <div class="detail-field">
+      <div class="df-label">Status</div>
+      <div class="df-value"><span class="badge badge-{{ case.status }}">{{ case.status }}</span></div>
+    </div>
+    <div class="detail-field">
+      <div class="df-label">Building</div>
+      <div class="df-value {% if not case.building %}empty{% endif %}">{{ case.building or 'Not extracted' }}</div>
+    </div>
+    <div class="detail-field">
+      <div class="df-label">Contractor</div>
+      <div class="df-value {% if not case.contractor %}empty{% endif %}">{{ case.contractor or 'Not extracted' }}</div>
+    </div>
+    <div class="detail-field">
+      <div class="df-label">Device</div>
+      <div class="df-value {% if not case.device %}empty{% endif %}">{{ case.device or 'Not extracted' }}</div>
+    </div>
+    <div class="detail-field">
+      <div class="df-label">Due Date</div>
+      <div class="df-value {% if not case.due_date %}empty{% endif %}">{{ case.due_date or 'Not extracted' }}</div>
+    </div>
+    <div class="detail-field">
+      <div class="df-label">Period</div>
+      <div class="df-value {% if not case.period %}empty{% endif %}">{{ case.period or 'N/A' }}</div>
+    </div>
+  </div>
+</div>
+
+<div class="split-grid">
+  <div class="card">
+    <h2>Missing Fields</h2>
+    {% if missing_fields %}
+    <div class="pill-row">
+      {% for field_name in missing_fields %}
+      <span class="badge badge-review"><strong>{{ field_name.replace('_', ' ').title() }}</strong></span>
+      {% endfor %}
+    </div>
+    {% else %}
+    <p class="muted">No core case fields are missing.</p>
+    {% endif %}
+
+    {% if missing_required_evidence %}
+    <div class="section-note" style="margin-bottom:6px">Required evidence</div>
+    <div class="pill-row">
+      {% for key in missing_required_evidence %}
+      <span class="badge badge-high">{{ key.replace('_', ' ') }}</span>
+      {% endfor %}
+    </div>
+    {% endif %}
+  </div>
+
+  <div class="card">
+    <h2>Manual Reviews</h2>
+    {% set open_reviews = [] %}
+    {% for review in manual_reviews %}
+      {% if not review.resolved %}{% set _ = open_reviews.append(review) %}{% endif %}
+    {% endfor %}
+    {% if open_reviews %}
+    <div class="subtle-list">
+      {% for review in open_reviews %}
+      <div class="subtle-item">
+        <div class="title">{{ review.reason or 'Review required' }}</div>
+        <div class="meta">{{ review.flagged_at[:16].replace('T', ' ') if review.flagged_at else '-' }}</div>
+      </div>
+      {% endfor %}
+    </div>
+    {% else %}
+    <p class="muted">No open manual reviews.</p>
+    {% endif %}
+  </div>
+</div>
+
+<div class="card">
+  <h2>Source Emails</h2>
+  {% if source_emails %}
+  <div class="subtle-list">
+    {% for email in source_emails %}
+    <div class="subtle-item">
+      <div class="title">{{ email.subject or '(no subject)' }}</div>
+      <div class="detail-grid" style="margin-top:10px">
+        <div class="detail-field">
+          <div class="df-label">From</div>
+          <div class="df-value">{{ email.from_addr or '-' }}</div>
+        </div>
+        <div class="detail-field">
+          <div class="df-label">To</div>
+          <div class="df-value">{{ email.to_addr or '-' }}</div>
+        </div>
+        {% if email.cc_addrs %}
+        <div class="detail-field">
+          <div class="df-label">Cc</div>
+          <div class="df-value">{{ email.cc_addrs }}</div>
+        </div>
+        {% endif %}
+        {% if email.bcc_addrs %}
+        <div class="detail-field">
+          <div class="df-label">Bcc</div>
+          <div class="df-value">{{ email.bcc_addrs }}</div>
+        </div>
+        {% endif %}
+        {% if email.reply_to %}
+        <div class="detail-field">
+          <div class="df-label">Reply To</div>
+          <div class="df-value">{{ email.reply_to }}</div>
+        </div>
+        {% endif %}
+        <div class="detail-field">
+          <div class="df-label">Received</div>
+          <div class="df-value">{{ email.received_at[:16].replace('T', ' ') if email.received_at else '-' }}</div>
+        </div>
+        <div class="detail-field">
+          <div class="df-label">Message ID</div>
+          <div class="df-value">{{ email.message_id or '-' }}</div>
+        </div>
+      </div>
+      <details class="evidence-box">
+        <summary>Email body</summary>
+        <pre class="msg-body" style="margin-top:10px">{{ email.normalized_text or email.raw_body }}</pre>
+      </details>
+    </div>
+    {% endfor %}
+  </div>
+  {% else %}
+  <p class="muted">No source email linked to this case.</p>
+  {% endif %}
+</div>
+
+<div class="card">
+  <h2>Extracted Fields</h2>
+  {% if field_values %}
+  <div class="table-wrap">
+    <table class="mini-table">
+      <thead>
+        <tr>
+          <th>Field</th>
+          <th>Value</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for field_name, field_value in field_values.items() | sort %}
+        <tr>
+          <td>{{ field_name.replace('_', ' ').title() }}</td>
+          <td>{{ field_value }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p class="muted">No extracted fields recorded.</p>
+  {% endif %}
+</div>
+{% endblock %}
