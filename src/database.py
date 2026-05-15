@@ -699,7 +699,7 @@ def update_case(case_id: str, updates: Dict[str, Any]) -> None:
     """Update allowed mutable fields on an existing case.
 
     Always writes ``updated_at = <now>`` alongside the supplied fields. The
-    callers ``updates`` dict is not mutated.
+    caller ``updates`` dict is not mutated.
 
     Args:
         case_id: UUID of the case to update.

@@ -9,16 +9,12 @@ No AI calls. No automatic case closure. No automatic email sending.
 
 from __future__ import annotations
 
-import json
+
 import re
 import uuid
-from typing import Any, Optional
+from typing import Optional
 
 import database as db
-import response_requirements
-from config import config
-from constants import REVIEW_REASON_REPLY_POSSIBLE_RESOLUTION
-from time_utils import utc_now_iso
 
 _COMPLETION_KEYWORDS = (
     "complete",
@@ -84,7 +80,6 @@ def propose_reply_case_mappings(reply_email_id: str) -> list[dict]:
     email = db.get_email_by_id(reply_email_id)
     if not email:
         return []
-    
     email = dict(email)
 
     suggestions = []
@@ -144,6 +139,7 @@ def save_reply_case_mapping(
         status="confirmed",
     )
     return mapping_id
+
 
 def _normalize_requirement_token(token: str) -> str:
     """Normalize simple word variants for deterministic reply matching.
@@ -226,6 +222,7 @@ def _requirement_addressed(key: str, label: str, combined_text: str) -> bool:
 
     return False
 
+
 def analyze_reply_completeness(reply_email_id: str, case_id: str) -> dict:
     """Compare reply body to case_data_requirements for a case.
 
@@ -260,7 +257,6 @@ def analyze_reply_completeness(reply_email_id: str, case_id: str) -> dict:
             "completion_claimed": False,
             "evidence_found": False,
         }
-        
     email = dict(email)
 
     requirements = db.get_case_data_requirements(case_id)
@@ -283,7 +279,7 @@ def analyze_reply_completeness(reply_email_id: str, case_id: str) -> dict:
 
     for req in requirements:
         key = req["requirement_key"]
-        label = req["label"].lower()
+        label = (req["label"] or "").lower()
 
         # Check if requirement is mentioned in reply
         if _requirement_addressed(key, label, combined):
