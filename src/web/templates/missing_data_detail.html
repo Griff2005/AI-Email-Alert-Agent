@@ -93,6 +93,40 @@
 </div>
 
 <div class="card">
+  <h2>Proposed AI Suggestions</h2>
+  {% if proposed_suggestions %}
+  <div class="table-wrap">
+    <table class="mini-table">
+      <thead>
+        <tr>
+          <th>Suggestion ID</th>
+          <th>Field</th>
+          <th>Proposed Value</th>
+          <th>Confidence</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for suggestion in proposed_suggestions %}
+        <tr>
+          <td>
+            <a href="{{ url_for('case_field_suggestion_detail', suggestion_id=suggestion.suggestion_id) }}">
+              {{ suggestion.suggestion_id[:8] }}
+            </a>
+          </td>
+          <td>{{ suggestion.field_name.replace('_', ' ').title() }}</td>
+          <td>{{ suggestion.suggested_value }}</td>
+          <td><span class="badge badge-{{ suggestion.confidence }}">{{ suggestion.confidence }}</span></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p class="muted">No proposed AI suggestions for this case.</p>
+  {% endif %}
+</div>
+
+<div class="card">
   <h2>Source Emails</h2>
   {% if source_emails %}
   <div class="subtle-list">

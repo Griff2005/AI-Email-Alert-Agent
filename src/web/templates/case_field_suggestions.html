@@ -1,0 +1,60 @@
+{% extends "base.html" %}
+{% block title %}AI Suggestions - Solucore Alert Triage{% endblock %}
+
+{% block content %}
+<h2>AI Field Suggestions</h2>
+
+<div class="stat-row">
+  <div class="stat">
+    <div class="label">Suggestions</div>
+    <div class="value">{{ total }}</div>
+  </div>
+</div>
+
+<div class="filter-bar">
+  {% for status in ['proposed', 'accepted', 'rejected', 'all'] %}
+  <a href="{{ url_for('case_field_suggestions', status=status) }}" class="{% if status_filter == status %}active{% endif %}">
+    {{ status.replace('_', ' ').title() }}
+  </a>
+  {% endfor %}
+</div>
+
+<div class="card" style="padding:0">
+  {% if suggestions %}
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Suggestion</th>
+          <th>Case</th>
+          <th>Field</th>
+          <th>Proposed Value</th>
+          <th>Confidence</th>
+          <th>Status</th>
+          <th>Created</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for suggestion in suggestions %}
+        <tr>
+          <td>
+            <a href="{{ url_for('case_field_suggestion_detail', suggestion_id=suggestion.suggestion_id) }}">
+              {{ suggestion.suggestion_id[:8] }}
+            </a>
+          </td>
+          <td><a href="{{ url_for('case_detail', case_id=suggestion.case_id) }}">{{ suggestion.case_id[:8] }}</a></td>
+          <td>{{ suggestion.field_name.replace('_', ' ').title() }}</td>
+          <td>{{ suggestion.suggested_value }}</td>
+          <td><span class="badge badge-{{ suggestion.confidence }}">{{ suggestion.confidence }}</span></td>
+          <td><span class="badge badge-{{ suggestion.status }}">{{ suggestion.status }}</span></td>
+          <td class="nowrap muted">{{ suggestion.created_at[:16].replace('T', ' ') if suggestion.created_at else '-' }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p style="padding:20px">No suggestions found.</p>
+  {% endif %}
+</div>
+{% endblock %}

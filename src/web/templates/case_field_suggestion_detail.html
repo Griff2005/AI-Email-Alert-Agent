@@ -1,0 +1,191 @@
+{% extends "base.html" %}
+{% block title %}AI Suggestion {{ suggestion.suggestion_id[:8] }} - Solucore Alert Triage{% endblock %}
+
+{% block content %}
+<div style="display:flex;align-items:center;gap:12px;margin-bottom:20px;flex-wrap:wrap">
+  <a href="{{ url_for('case_field_suggestions') }}" style="font-size:0.85rem;color:#6b7280;text-decoration:none">&lt; AI Suggestions</a>
+  {% if case %}
+  <span class="muted">|</span>
+  <a href="{{ url_for('case_detail', case_id=suggestion.case_id) }}" style="font-size:0.85rem;color:#6b7280;text-decoration:none">View Full Case</a>
+  <span class="muted">|</span>
+  <a href="{{ url_for('missing_data_detail', case_id=suggestion.case_id) }}" style="font-size:0.85rem;color:#6b7280;text-decoration:none">View Missing Data</a>
+  {% endif %}
+  <h1 style="margin:0">Suggestion {{ suggestion.suggestion_id[:8] }}...</h1>
+  <span class="badge badge-{{ suggestion.status }}">{{ suggestion.status }}</span>
+</div>
+
+<div class="card">
+  <h2>Suggestion Details</h2>
+  <div class="detail-grid">
+    <div class="detail-field">
+      <div class="df-label">Suggestion ID</div>
+      <div class="df-value">{{ suggestion.suggestion_id }}</div>
+    </div>
+    <div class="detail-field">
+      <div class="df-label">Case</div>
+      <div class="df-value"><a href="{{ url_for('case_detail', case_id=suggestion.case_id) }}">{{ suggestion.case_id }}</a></div>
+    </div>
+    <div class="detail-field">
+      <div class="df-label">Field</div>
+      <div class="df-value">{{ suggestion.field_name.replace('_', ' ').title() }}</div>
+    </div>
+    <div class="detail-field">
+      <div class="df-label">Suggested Value</div>
+      <div class="df-value">{{ suggestion.suggested_value }}</div>
+    </div>
+    <div class="detail-field">
+      <div class="df-label">Confidence</div>
+      <div class="df-value"><span class="badge badge-{{ suggestion.confidence }}">{{ suggestion.confidence }}</span></div>
+    </div>
+    <div class="detail-field">
+      <div class="df-label">Confidence Score</div>
+      <div class="df-value">{{ suggestion.confidence_score if suggestion.confidence_score is not none else '-' }}</div>
+    </div>
+    <div class="detail-field">
+      <div class="df-label">Status</div>
+      <div class="df-value"><span class="badge badge-{{ suggestion.status }}">{{ suggestion.status }}</span></div>
+    </div>
+    <div class="detail-field">
+      <div class="df-label">Created</div>
+      <div class="df-value">{{ suggestion.created_at[:16].replace('T', ' ') if suggestion.created_at else '-' }}</div>
+    </div>
+  </div>
+</div>
+
+<div class="card">
+  <h2>Reasoning</h2>
+  {% if suggestion.rationale %}
+  <div class="msg-body">{{ suggestion.rationale }}</div>
+  {% else %}
+  <p class="muted">No reasoning stored.</p>
+  {% endif %}
+</div>
+
+<div class="card">
+  <h2>Evidence</h2>
+  <div class="detail-grid">
+    <div class="detail-field">
+      <div class="df-label">Source Email IDs</div>
+      <div class="df-value">
+        {% for email_id in evidence.source_email_ids or [] %}
+        <span class="badge badge-info">{{ email_id }}</span>
+        {% else %}
+        <span class="muted">-</span>
+        {% endfor %}
+      </div>
+    </div>
+    <div class="detail-field">
+      <div class="df-label">Source Fields</div>
+      <div class="df-value">
+        {% for field in evidence.source_fields or [] %}
+        <span class="badge badge-low">{{ field }}</span>
+        {% else %}
+        <span class="muted">-</span>
+        {% endfor %}
+      </div>
+    </div>
+  </div>
+  {% if evidence.quoted_evidence %}
+  <div class="subtle-list" style="margin-top:12px">
+    {% for quote in evidence.quoted_evidence %}
+    <div class="subtle-item">
+      <div class="body">{{ quote }}</div>
+    </div>
+    {% endfor %}
+  </div>
+  {% endif %}
+</div>
+
+<div class="card">
+  <h2>Source Emails</h2>
+  {% if source_emails %}
+  <div class="subtle-list">
+    {% for email in source_emails %}
+    <div class="subtle-item">
+      <div class="title">{{ email.subject or '(no subject)' }}</div>
+      <div class="detail-grid" style="margin-top:10px">
+        <div class="detail-field">
+          <div class="df-label">From</div>
+          <div class="df-value">{{ email.from_addr or '-' }}</div>
+        </div>
+        <div class="detail-field">
+          <div class="df-label">To</div>
+          <div class="df-value">{{ email.to_addr or '-' }}</div>
+        </div>
+        {% if email.cc_addrs %}
+        <div class="detail-field">
+          <div class="df-label">Cc</div>
+          <div class="df-value">{{ email.cc_addrs }}</div>
+        </div>
+        {% endif %}
+        {% if email.reply_to %}
+        <div class="detail-field">
+          <div class="df-label">Reply To</div>
+          <div class="df-value">{{ email.reply_to }}</div>
+        </div>
+        {% endif %}
+        <div class="detail-field">
+          <div class="df-label">Received</div>
+          <div class="df-value">{{ email.received_at[:16].replace('T', ' ') if email.received_at else '-' }}</div>
+        </div>
+        <div class="detail-field">
+          <div class="df-label">Message ID</div>
+          <div class="df-value">{{ email.message_id or '-' }}</div>
+        </div>
+      </div>
+      <details class="evidence-box">
+        <summary>Email body</summary>
+        <pre class="msg-body" style="margin-top:10px">{{ email.normalized_text or email.raw_body }}</pre>
+      </details>
+    </div>
+    {% endfor %}
+  </div>
+  {% else %}
+  <p class="muted">No source email linked to this suggestion.</p>
+  {% endif %}
+</div>
+
+{% if suggestion.status == "proposed" %}
+<div class="split-grid">
+  <div class="card">
+    <h2>Accept</h2>
+    <form method="post" action="{{ url_for('accept_case_field_suggestion', suggestion_id=suggestion.suggestion_id) }}">
+      <label class="detail-field">
+        <div class="df-label">Notes</div>
+        <textarea name="notes" rows="4" style="width:100%;padding:10px;border:1px solid #d1d5db;border-radius:6px"></textarea>
+      </label>
+      <button class="btn btn-primary" type="submit" style="margin-top:12px">Accept Suggestion</button>
+    </form>
+  </div>
+
+  <div class="card">
+    <h2>Reject</h2>
+    <form method="post" action="{{ url_for('reject_case_field_suggestion', suggestion_id=suggestion.suggestion_id) }}">
+      <label class="detail-field">
+        <div class="df-label">Notes</div>
+        <textarea name="notes" rows="4" style="width:100%;padding:10px;border:1px solid #d1d5db;border-radius:6px"></textarea>
+      </label>
+      <button class="btn btn-danger" type="submit" style="margin-top:12px">Reject Suggestion</button>
+    </form>
+  </div>
+</div>
+{% else %}
+<div class="card">
+  <h2>Resolved</h2>
+  <div class="detail-grid">
+    <div class="detail-field">
+      <div class="df-label">Reviewed By</div>
+      <div class="df-value">{{ suggestion.reviewed_by or '-' }}</div>
+    </div>
+    <div class="detail-field">
+      <div class="df-label">Reviewed At</div>
+      <div class="df-value">{{ suggestion.reviewed_at[:16].replace('T', ' ') if suggestion.reviewed_at else '-' }}</div>
+    </div>
+    <div class="detail-field">
+      <div class="df-label">Review Notes</div>
+      <div class="df-value">{{ suggestion.review_notes or '-' }}</div>
+    </div>
+  </div>
+</div>
+{% endif %}
+{% endblock %}
