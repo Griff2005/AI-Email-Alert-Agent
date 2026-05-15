@@ -477,6 +477,32 @@ def init_schema() -> None:
                 FOREIGN KEY (group_id) REFERENCES building_issue_groups(group_id)
             );
 
+            CREATE TABLE IF NOT EXISTS case_field_suggestions (
+                suggestion_id          TEXT PRIMARY KEY,
+                case_id                TEXT NOT NULL,
+                field_name             TEXT NOT NULL,
+                suggested_value        TEXT NOT NULL,
+                confidence             TEXT NOT NULL,
+                confidence_score       REAL,
+                rationale              TEXT,
+                evidence_json          TEXT,
+                source_email_id        TEXT,
+                source                 TEXT NOT NULL DEFAULT 'ai_missing_data_enrichment',
+                status                 TEXT NOT NULL DEFAULT 'proposed',
+                run_id                 TEXT,
+                packet_id              TEXT,
+                model_name             TEXT,
+                prompt_schema_version  TEXT,
+                created_at             TEXT NOT NULL,
+                reviewed_at            TEXT,
+                reviewed_by            TEXT,
+                review_notes           TEXT,
+                accepted_at            TEXT,
+                rejected_at            TEXT,
+                FOREIGN KEY (case_id) REFERENCES cases(case_id),
+                FOREIGN KEY (source_email_id) REFERENCES emails(email_id)
+            );
+
             CREATE INDEX IF NOT EXISTS idx_connection_hypotheses_status ON connection_hypotheses(status);
             CREATE INDEX IF NOT EXISTS idx_connection_hypothesis_cases_case_id ON connection_hypothesis_cases(case_id);
             CREATE INDEX IF NOT EXISTS idx_connection_discovery_runs_started
@@ -502,6 +528,16 @@ def init_schema() -> None:
             CREATE INDEX IF NOT EXISTS idx_reply_mappings_case ON reply_case_mappings(case_id);
             CREATE INDEX IF NOT EXISTS idx_reply_mappings_group ON reply_case_mappings(group_id);
             CREATE INDEX IF NOT EXISTS idx_reply_mappings_status ON reply_case_mappings(status);
+
+            CREATE INDEX IF NOT EXISTS idx_case_field_suggestions_case_status
+                ON case_field_suggestions(case_id, status);
+            CREATE INDEX IF NOT EXISTS idx_case_field_suggestions_field_status
+                ON case_field_suggestions(field_name, status);
+            CREATE INDEX IF NOT EXISTS idx_case_field_suggestions_created_at
+                ON case_field_suggestions(created_at);
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_case_field_suggestions_proposed_unique
+                ON case_field_suggestions(case_id, field_name, suggested_value)
+                WHERE status = 'proposed';
 
             CREATE INDEX IF NOT EXISTS idx_cases_grouping_key ON cases(grouping_key);
             CREATE INDEX IF NOT EXISTS idx_cases_status ON cases(status);
@@ -2142,6 +2178,10 @@ def get_events_for_email(email_id: str) -> list:
 # ---------------------------------------------------------------------------
 
 _MISSING_CASE_FIELD_NAMES = ("contractor", "building", "device", "due_date", "period")
+_CASE_FIELD_SUGGESTION_STATUSES = frozenset(
+    {"proposed", "accepted", "rejected", "superseded"}
+)
+_ENRICHMENT_FIELD_COLUMNS = frozenset({"contractor"})
 
 
 def _is_blank(value: Any) -> bool:
@@ -2363,7 +2403,210 @@ def get_missing_data_case_detail(case_id: str) -> Optional[Dict[str, Any]]:
         "missing_fields": missing_fields,
         "missing_required_evidence": missing_required_evidence,
         "manual_reviews": manual_reviews,
+        "proposed_suggestions": [
+            dict(row)
+            for row in list_case_field_suggestions(
+                case_id=case_id,
+                status_filter="proposed",
+            )
+        ],
     }
+
+
+def insert_case_field_suggestion(
+    suggestion_id: str,
+    case_id: str,
+    field_name: str,
+    suggested_value: str,
+    confidence: str,
+    confidence_score: Optional[float] = None,
+    rationale: Optional[str] = None,
+    evidence_json: Optional[str] = None,
+    source_email_id: Optional[str] = None,
+    source: str = "ai_missing_data_enrichment",
+    run_id: Optional[str] = None,
+    packet_id: Optional[str] = None,
+    model_name: Optional[str] = None,
+    prompt_schema_version: Optional[str] = None,
+    created_at: Optional[str] = None,
+) -> None:
+    """Insert a proposed field-value suggestion for later human review."""
+    _execute_write(
+        """
+        INSERT INTO case_field_suggestions
+            (suggestion_id, case_id, field_name, suggested_value, confidence,
+             confidence_score, rationale, evidence_json, source_email_id,
+             source, status, run_id, packet_id, model_name,
+             prompt_schema_version, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'proposed', ?, ?, ?, ?, ?)
+        """,
+        (
+            suggestion_id,
+            case_id,
+            field_name,
+            suggested_value,
+            confidence,
+            confidence_score,
+            rationale,
+            evidence_json,
+            source_email_id,
+            source,
+            run_id,
+            packet_id,
+            model_name,
+            prompt_schema_version,
+            created_at or utc_now_iso(),
+        ),
+    )
+
+
+def get_case_field_suggestion(suggestion_id: str) -> Optional[sqlite3.Row]:
+    """Return one field suggestion row by ID, or None when absent."""
+    conn = get_connection()
+    return conn.execute(
+        "SELECT * FROM case_field_suggestions WHERE suggestion_id = ?",
+        (suggestion_id,),
+    ).fetchone()
+
+
+def list_case_field_suggestions(
+    status_filter: str = "proposed",
+    case_id: Optional[str] = None,
+    field_name: Optional[str] = None,
+    limit: int = 100,
+) -> List[sqlite3.Row]:
+    """Return field suggestions filtered by status, case, or field."""
+    clauses: List[str] = []
+    params: List[Any] = []
+    normalized_status = (status_filter or "proposed").strip().lower()
+    if normalized_status != "all":
+        clauses.append("status = ?")
+        params.append(normalized_status)
+    if case_id:
+        clauses.append("case_id = ?")
+        params.append(case_id)
+    if field_name:
+        clauses.append("field_name = ?")
+        params.append(field_name)
+
+    where_sql = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+    safe_limit = max(1, int(limit))
+    conn = get_connection()
+    return conn.execute(
+        f"""
+        SELECT *
+        FROM case_field_suggestions
+        {where_sql}
+        ORDER BY created_at DESC, rowid DESC
+        LIMIT ?
+        """,
+        tuple(params + [safe_limit]),
+    ).fetchall()
+
+
+def update_case_field_suggestion_status(
+    suggestion_id: str,
+    status: str,
+    *,
+    reviewed_by: Optional[str] = None,
+    review_notes: Optional[str] = None,
+    accepted_at: Optional[str] = None,
+    rejected_at: Optional[str] = None,
+) -> None:
+    """Update a field suggestion review status and optional review metadata."""
+    if status not in _CASE_FIELD_SUGGESTION_STATUSES:
+        raise ValueError(f"Unsupported case field suggestion status: {status}")
+    now = utc_now_iso()
+    _execute_write(
+        """
+        UPDATE case_field_suggestions
+        SET status = ?,
+            reviewed_at = ?,
+            reviewed_by = COALESCE(?, reviewed_by),
+            review_notes = COALESCE(?, review_notes),
+            accepted_at = COALESCE(?, accepted_at),
+            rejected_at = COALESCE(?, rejected_at)
+        WHERE suggestion_id = ?
+        """,
+        (
+            status,
+            now,
+            reviewed_by,
+            review_notes,
+            accepted_at,
+            rejected_at,
+            suggestion_id,
+        ),
+    )
+
+
+def mark_other_field_suggestions_superseded(
+    case_id: str,
+    field_name: str,
+    accepted_suggestion_id: str,
+) -> int:
+    """Mark competing proposed suggestions for the same case field superseded."""
+    now = utc_now_iso()
+    cursor = _execute_write(
+        """
+        UPDATE case_field_suggestions
+        SET status = 'superseded',
+            reviewed_at = ?
+        WHERE case_id = ?
+          AND field_name = ?
+          AND suggestion_id != ?
+          AND status = 'proposed'
+        """,
+        (now, case_id, field_name, accepted_suggestion_id),
+    )
+    return int(cursor.rowcount)
+
+
+def list_cases_missing_field_for_enrichment(
+    field_name: str = "contractor",
+    limit: Optional[int] = None,
+    case_id: Optional[str] = None,
+    building: Optional[str] = None,
+    case_type: Optional[str] = None,
+) -> List[sqlite3.Row]:
+    """Return supported open cases missing ``field_name`` and lacking proposals."""
+    if field_name not in _ENRICHMENT_FIELD_COLUMNS:
+        raise ValueError(f"Unsupported enrichment field: {field_name}")
+
+    supported_placeholders = ", ".join("?" for _ in SUPPORTED_CASE_TYPES)
+    sql = f"""
+        SELECT c.*
+        FROM cases c
+        WHERE c.status != 'closed'
+          AND c.case_type IN ({supported_placeholders})
+          AND (NULLIF(TRIM(COALESCE(c.{field_name}, '')), '') IS NULL)
+          AND NOT EXISTS (
+              SELECT 1 FROM case_field_suggestions s
+              WHERE s.case_id = c.case_id
+                AND s.field_name = ?
+                AND s.status = 'proposed'
+          )
+    """
+    params: List[Any] = list(SUPPORTED_CASE_TYPES)
+    params.append(field_name)
+
+    if case_id:
+        sql += " AND c.case_id = ?"
+        params.append(case_id)
+    if building:
+        sql += " AND lower(COALESCE(c.building, '')) LIKE ?"
+        params.append(f"%{building.lower()}%")
+    if case_type:
+        sql += " AND c.case_type = ?"
+        params.append(case_type)
+
+    sql += " ORDER BY c.updated_at DESC"
+    if limit is not None:
+        sql += " LIMIT ?"
+        params.append(int(limit))
+
+    conn = get_connection()
+    return conn.execute(sql, tuple(params)).fetchall()
 
 
 # ---------------------------------------------------------------------------
