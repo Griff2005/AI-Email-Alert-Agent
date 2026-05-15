@@ -244,7 +244,46 @@ def run_discovery(
     batch_size: int = 25,
     max_prompt_chars: int = 40000,
 ) -> Dict[str, Any]:
-    """Run small-case or scoped packetized connection discovery."""
+    """Route a discovery run to the small-case or packetized discovery path.
+
+    When ``scope`` is ``None``, ``"small"``, or ``"small-case"``, the
+    small-case path is used: all supported cases are loaded into a single
+    prompt and sent to the AI gateway in one call.
+
+    When ``scope`` is ``"patterns"``, ``"building-groups"``, or
+    ``"all-supported"``, the packetized path is used: cases are split into
+    prompt-sized packets grouped by ``packet_by`` (entity, building,
+    contractor, device, or case-type). Each packet is analyzed independently.
+
+    The AI gateway must be configured and armed by the caller before this
+    function is invoked. This function never mutates cases, sends emails,
+    schedules follow-ups, or escalates.
+
+    Args:
+        max_ai_calls: Maximum live AI calls permitted for this run (> 0 for
+            live runs; 0 allowed only when ``dry_run=True``).
+        limit: Cap on cases included in small-case mode (ignored for
+            packetized paths).
+        building: Optional building name filter applied before discovery
+            (substring match, small-case path only).
+        case_type_filter: Optional exact case-type filter (small-case path
+            only).
+        dry_run: When ``True``, hypotheses are printed but not written to
+            the database and the AI gateway is not called.
+        scope: Discovery scope selector. ``None`` / ``"small"`` / ``"small-case"``
+            → small-case path; ``"patterns"`` / ``"building-groups"`` /
+            ``"all-supported"`` → packetized path.
+        packet_by: Packetized-path grouping dimension — one of ``"entity"``,
+            ``"building"``, ``"contractor"``, ``"device"``, ``"case-type"``.
+        batch_size: Maximum cases per packet before size-based bisection.
+        max_prompt_chars: Hard ceiling on serialized packet size in characters.
+
+    Returns:
+        Summary dict with at least ``cases_analyzed``, ``hypotheses_proposed``,
+        ``hypotheses_rejected``, and ``dry_run``. Packetized runs also include
+        ``run_id``, ``packets_created``, ``packets_analyzed``, and
+        ``ai_calls_used``.
+    """
     if scope in (None, "", "small", "small-case"):
         if dry_run and max_ai_calls == 0:
             return _run_small_case_dry_run_preview(
@@ -340,7 +379,7 @@ def _run_small_case_discovery(
     gateway = get_ai_gateway()
     outcome = gateway.call_json(
         prompt=prompt,
-        purpose="other",
+        purpose="connection_discovery",
         prompt_type="connection_discovery",
         caller="connection_discovery",
     )
@@ -470,6 +509,8 @@ def _run_packetized_discovery(
     if not dry_run and max_ai_calls <= 0:
         raise ValueError("max_ai_calls must be positive unless dry_run=True.")
 
+    # Deferred import — avoids loading packet-builder machinery on runs that
+    # use the small-case path, keeping module startup lightweight.
     import discovery_packets
 
     run_id = str(uuid.uuid4())
@@ -603,7 +644,7 @@ def _run_packetized_discovery(
             },
         )
         _write_packetized_observability_event(run_id, scope, summary, status="error")
-        raise exc
+        raise
 
 
 def _build_packets_for_scope(
@@ -664,7 +705,7 @@ def _analyze_packet(
     try:
         outcome = gateway.call_json(
             prompt=prompt,
-            purpose="other",
+            purpose="connection_discovery",
             prompt_type="connection_discovery_packet",
             caller="connection_discovery",
         )
@@ -680,7 +721,7 @@ def _analyze_packet(
         result["error_count"] = 1
         return result
 
-    if outcome.status in {"allowed", "mocked", "cached"}:
+    if outcome.status in {"allowed", "mocked"}:
         result["ai_call_used"] = 1
 
     if outcome.status == "blocked" or outcome.payload is None:
@@ -935,6 +976,11 @@ def _parse_evidence(raw_evidence: Optional[str]) -> Dict[str, Any]:
 
 
 def _safe_string_list(value: Any) -> List[str]:
+    """Coerce a value to a list of non-empty strings, or return ``[]`` for non-list input.
+
+    Accepts only ``list`` — dicts, strings, and other iterables are rejected
+    and return an empty list. Empty/falsy items within the list are dropped.
+    """
     if not isinstance(value, list):
         return []
     return [str(item) for item in value if item]
@@ -976,6 +1022,8 @@ def _write_observability_event(
     hypotheses_rejected: int = 0,
     hypotheses_stored: int = 0,
 ) -> None:
+    # Deferred import — keeps module-load lightweight; observability.py does
+    # not import connection_discovery so this is not a circular-import guard.
     from observability import append_structured_event
 
     try:
@@ -1001,6 +1049,7 @@ def _write_packetized_observability_event(
     summary: Dict[str, Any],
     status: str,
 ) -> None:
+    # Deferred import — same rationale as _write_observability_event.
     from observability import append_structured_event
 
     try:

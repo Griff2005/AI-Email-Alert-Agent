@@ -796,16 +796,7 @@ def reviews():
 @app.route("/events")
 def events():
     """Render a global feed of the 100 most recent case events."""
-    conn = db.get_connection()
-    recent_events = conn.execute(
-        """
-        SELECT ce.*, c.case_type, c.building
-        FROM case_events ce
-        LEFT JOIN cases c ON ce.case_id = c.case_id
-        ORDER BY ce.created_at DESC
-        LIMIT 100
-        """
-    ).fetchall()
+    recent_events = db.get_recent_events(limit=100)
     events_list = []
     for row in recent_events:
         event = dict(row)
@@ -991,6 +982,8 @@ def ingest():
     Loads every sample email, stores it in the database, and runs the full
     case-manager pipeline for each one. Safe to run multiple times — existing
     emails and cases are updated rather than duplicated.
+
+    # AI is off by default — RuntimeOptions defaults disable model calls for this route.
     """
     import json
     import uuid as _uuid

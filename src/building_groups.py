@@ -17,13 +17,12 @@ from constants import (
     GROUP_CASE_STATUS,
     GROUP_STATUSES,
     STATUS_CLOSED,
-    SUPPORTED_CASE_TYPES,
+    SUPPORTED_CASE_TYPES_SET,
 )
 from time_utils import utc_now_iso
 
 _NON_WORD_RE = re.compile(r"[^a-z0-9]+")
 _WHITESPACE_RE = re.compile(r"\s+")
-_SUPPORTED_CASE_TYPES = frozenset(SUPPORTED_CASE_TYPES)
 _CASE_GROUP_SOURCES = frozenset(CASE_GROUP_SOURCE)
 _GROUP_CASE_STATUSES = frozenset(GROUP_CASE_STATUS)
 _GROUP_STATUSES = frozenset(GROUP_STATUSES)
@@ -46,7 +45,27 @@ def build_grouping_key(building: str, contractor: str) -> str:
 
 
 def get_or_create_group(building: str, contractor: str, group_id: str | None = None) -> str:
-    """Return the group ID for ``building`` and ``contractor``, creating it if needed."""
+    """Return the group ID for ``building`` and ``contractor``, creating it if needed.
+
+    The lookup and conditional insert are executed inside a single
+    ``db._write_lock`` block to prevent duplicate group creation under
+    concurrent writes. If a group already exists for the normalized
+    building/contractor pair, its existing ``group_id`` is returned without
+    any write. If no group exists, one is created with status ``'open'``.
+
+    Args:
+        building: Raw building name (normalized internally before lookup).
+        contractor: Raw contractor name (normalized internally before lookup).
+        group_id: Optional caller-supplied UUID to use when creating a new
+            group. Defaults to a freshly generated UUID.
+
+    Returns:
+        The ``group_id`` UUID string for the resolved or newly created group.
+
+    Raises:
+        ValueError: If either ``building`` or ``contractor`` normalizes to
+            an empty string.
+    """
     normalized_building = normalize_group_value(building)
     normalized_contractor = normalize_group_value(contractor)
     if not normalized_building or not normalized_contractor:
@@ -150,7 +169,7 @@ def rebuild_all_groups(include_closed: bool = False, dry_run: bool = False) -> d
     planned_group_keys: set[str] = set()
 
     for case in cases:
-        if case["case_type"] not in _SUPPORTED_CASE_TYPES:
+        if case["case_type"] not in SUPPORTED_CASE_TYPES_SET:
             summary["skipped_unsupported"] += 1
             continue
         if not include_closed and case["status"] == STATUS_CLOSED:
@@ -344,7 +363,7 @@ def _eligible_case_group_data(
     case = db.get_case_by_id(case_id)
     if not case:
         return None
-    if case["case_type"] not in _SUPPORTED_CASE_TYPES:
+    if case["case_type"] not in SUPPORTED_CASE_TYPES_SET:
         return None
     if not include_closed and case["status"] == STATUS_CLOSED:
         return None

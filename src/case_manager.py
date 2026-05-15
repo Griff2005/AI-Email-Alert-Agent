@@ -582,7 +582,7 @@ def _create_review_case(
     extracted_fields: Optional[Dict[str, Any]] = None,
 ) -> str:
     """Create a placeholder case for ambiguous classification or extraction."""
-    review_case_type = case_type if case_type != CASE_TYPE_UNKNOWN else CASE_TYPE_UNKNOWN
+    review_case_type = case_type
     grouping_key = f"review|{review_case_type.lower()}|{email_id}"
     existing_case = db.get_case_by_grouping_key(grouping_key)
     if existing_case:

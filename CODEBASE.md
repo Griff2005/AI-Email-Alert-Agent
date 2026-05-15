@@ -16,12 +16,18 @@ src/
   database.py           SQLite schema and query helpers
   backlog_loader.py     standalone backlog import workflow
   connection_discovery.py  AI-assisted connection hypothesis discovery (read-only; never mutates cases)
+  discovery_packets.py  structured evidence packet builders for connection discovery
   pst_to_backlog_json.py one-off PST-to-JSON helper for staged backlog files
   classifier.py         supported KPI family classification
   extractor.py          field extraction, grouping keys, outbound templates
   case_manager.py       email and reply orchestration
   reply_analyzer.py     deterministic reply interpretation
+  reply_mapping.py      inbound reply-to-group/case mapping and completeness analysis
   memory.py             entity memory, observations, links, pattern flags
+  building_groups.py    building/contractor group management and case attachment
+  communication_planner.py  readiness checks for building-group draft communication
+  group_email_builder.py   consolidated building-group draft generation (review-only)
+  response_requirements.py  per-case-type response requirement checklists for group drafts
   ai_gateway.py         model access gateway with budget enforcement
   claude_client.py      low-level Claude transport, re-exporting legacy safety helpers
   email_reader.py       optional IMAP polling
@@ -31,7 +37,7 @@ src/
   demo_scale_harness.py offline safety/demo validator
   web/
     app.py              Flask routes
-    templates/          case list, details, reviews, events, patterns
+    templates/          case list, details, reviews, events, patterns, building groups
 data/
   sample_emails.json    committed sample demo emails
   backlog_sample.json   committed sample backlog import records
@@ -40,15 +46,25 @@ docs/
 tests/
   test_ai_usage.py
   test_backlog_loader.py
+  test_building_group_ui.py
+  test_building_groups.py
   test_case_manager_cleanup.py
+  test_case_requirements.py
   test_classifier_extractor_cleanup.py
   test_connection_discovery.py
   test_content_safety.py
   test_database_reporting.py
   test_demo_scale.py
+  test_discovery_packets.py
+  test_group_email_builder.py
   test_memory.py
   test_observability.py
+  test_phase3_ui.py
+  test_phase5_ui.py
+  test_phase6_ops.py
   test_pst_converter.py
+  test_reply_mapping.py
+  test_response_requirements.py
   test_web_memory_ui.py
 ```
 
@@ -91,21 +107,28 @@ The backlog import flow is separate from the main pipeline:
 
 - `classifier.py`: supported case type matching plus prompt-injection detection. Unsupported alert families should resolve to `UNKNOWN` unless intentionally added to the MVP.
 - `constants.py`: shared strings for the six demo case types, common statuses, event labels, and safety-critical review reasons.
-- `time_utils.py`: centralized UTC timestamp helpers. Database-facing helpers preserve the existing naive ISO text format.
-- `observability.py`: local in-repo observability foundation. Builds JSON metrics snapshots for ingest volume, case/review/event counts, outbound/follow-up status, latency, current-process AI usage, and demo safety checks. Writes structured JSONL operational events without external telemetry dependencies.
-- `connection_discovery.py`: optional AI-assisted connection hypothesis discovery. Main entry point: `run_discovery(max_ai_calls, limit, building, case_type_filter, dry_run)`. Reads supported cases only — never includes UNKNOWN or unsupported types. Validates each AI-produced hypothesis before storage (confidence enum, risk_level enum, non-empty case IDs in the supported set, no prohibited action language). Stores accepted hypotheses as `proposed` items only. Never modifies cases, sends emails, schedules follow-ups, escalates, or closes cases. The caller must pre-configure the AI gateway before calling `run_discovery`. Dry-run mode prints hypotheses without writing to the database. Writes a JSONL observability event with `unsupported_kpi_included=0`.
-- `backlog_loader.py`: standalone backlog import workflow for staged historical KPI emails. Main entry point: `load_backlog(source, path, dry_run, limit, report_dir)`. Validates records through a subject-pattern gate (hardcoded six-type allowlist) before body classification, so classifier expansion cannot silently widen import scope. Dry-run mode previews without touching the database. Imported emails are immediately marked processed. Report output: `data/backlog_runs/<timestamp>/`. Dependencies: `database.py`, deterministic paths in `classifier.py` and `extractor.py`, and `memory.py`.
-- `pst_to_backlog_json.py`: optional one-off PST-to-JSON utility. It imports `libpff-python` lazily so tests and core runtime imports do not fail when PST tooling is absent.
-- `extractor.py`: deterministic field parsing, date normalization, grouping key generation, and outbound templates.
+- `time_utils.py`: centralized UTC timestamp helpers preserving the existing naive ISO text format used by the SQLite storage layer. All database-facing timestamp generation must go through this module so time zone handling stays consistent.
+- `content_safety.py`: transport-agnostic prompt-injection detection, sanitization of inbound email content, and detection of prohibited action language in AI-generated output. Product modules must import directly from this module; `claude_client.py` re-exports these helpers only for backward compatibility.
+- `observability.py`: local in-repo observability foundation. Builds JSON metrics snapshots for ingest volume, case/review/event counts, outbound/follow-up status, latency, current-process AI usage, and demo safety checks. Writes structured JSONL operational events to `OBSERVABILITY_LOG_PATH` without external telemetry dependencies. All paths are strictly read-only against case state.
+- `connection_discovery.py`: optional AI-assisted connection hypothesis discovery. Main entry point: `run_discovery(max_ai_calls, ...)`. Routes to a small-case path (single prompt) or a packetized path (`--scope patterns|building-groups|all-supported`). Reads supported cases only — never includes UNKNOWN or unsupported types. Validates each AI-produced hypothesis before storage (confidence enum, risk_level enum, non-empty case IDs in the supported set, no prohibited action language). Stores accepted hypotheses as `proposed` items only. Never modifies cases, sends emails, schedules follow-ups, escalates, or closes cases. The caller must pre-configure the AI gateway before invoking `run_discovery`. Dry-run mode prints hypotheses without writing to the database. Writes a JSONL observability event with `unsupported_kpi_included=0`.
+- `discovery_packets.py`: structured evidence packet builders for the packetized connection discovery path. Packetizes supported cases by entity, building, contractor, device, or case-type grouping dimension. Enforces the supported-case-types guard at packet-assembly time so unsupported records can never reach the AI prompt. Applies size-based bisection (`_split_chunk_to_prompt_size`) to keep each packet within `max_prompt_chars`. Never reads email body columns or includes unsupported types. Used exclusively by `connection_discovery._run_packetized_discovery`.
+- `backlog_loader.py`: standalone backlog import workflow for staged historical KPI emails. Main entry point: `load_backlog(source, path, dry_run, limit, report_dir, resume, report_detail)`. Validates records through a subject-pattern gate (hardcoded six-type allowlist) before body classification, so classifier expansion cannot silently widen import scope. `--resume` skips records already present in the database. `--report-detail summary|full` controls report verbosity. Dry-run mode previews without touching the database. Imported emails are immediately marked processed. Report output: `data/backlog_runs/<timestamp>/`. Zero AI calls, zero outbound messages, zero follow-ups.
+- `building_groups.py`: building/contractor group management. `get_or_create_group()` holds `db._write_lock` for the check-then-insert operation so concurrent writes cannot create duplicate groups. `attach_case_to_group()` links a supported case to its group by normalized building/contractor key. `rebuild_all_groups()` is the idempotent rebuild path used by the `rebuild-building-groups` CLI command.
+- `communication_planner.py`: readiness checks for manual building-group draft communication. Evaluates group status, existing draft records, suppression conditions, and blocking states before returning a next-action recommendation. Does not send mail, schedule follow-ups, close cases, or call AI.
+- `group_email_builder.py`: consolidated building-group draft generation. Creates review-only draft records in the database. Does not send mail, schedule follow-ups, close cases, or call AI. Used by the `generate-building-draft` CLI command and the web draft-generation route.
+- `reply_mapping.py`: inbound reply-to-group/case mapping and completeness analysis. Attaches inbound reply emails to building groups or individual cases, proposes deterministic mappings, and analyzes reply completeness against per-case-type response requirements. No AI calls, no automatic case closure, no automatic email sending.
+- `response_requirements.py`: per-case-type response requirement checklists for consolidated group drafts. `build_case_requirements()` returns the required response items for a given case type. `calculate_case_completeness()` scores an individual case against its requirements. Used by `reply_mapping.py` and `group_email_builder.py`.
+- `demo_scale_harness.py`: safe offline demo validator. Creates an isolated temp database, blocks SMTP and IMAP, disables AI, processes synthetic supported KPI alerts, and validates case creation, duplicate grouping, replies, prompt-injection handling, outbound recipient override, and memory pattern creation. Writes `report.json`, `report.md`, and `harness.log` to `data/test_runs/<timestamp>/`. Never touches `data/agent.db`.
+- `pst_to_backlog_json.py`: optional one-off PST-to-JSON utility. Imports `libpff-python` lazily so core runtime and tests do not fail when PST tooling is absent. Used only to pre-convert PST files before invoking Backlog Loading Mode.
+- `extractor.py`: deterministic field parsing, date normalization, grouping key generation, and outbound templates. `extract_fields_with_meta()` is the canonical API; `extract_fields()` is a convenience wrapper that omits the metadata tuple.
 - `case_manager.py`: the main orchestration point. Keep safety decisions visible here.
 - `database.py`: owns schema creation and all SQL helpers. `update_case()` accepts only known mutable columns. Prefer additive schema changes and avoid table/column renames without a migration plan.
-- `memory.py`: stores entities, observations, related cases, and deterministic pattern flags. Pattern flags should be explainable from stored evidence.
+- `memory.py`: stores entities, observations, related cases, and deterministic pattern flags. Evaluates nine pattern types via `detect_patterns_for_case()`. Pattern flags should be explainable from stored evidence; they are heuristic signals, not proof of root cause.
 - `ai_gateway.py`: the only approved model access path. It enforces enablement, budgets, cache accounting, and reports. Product modules must not call `claude_client` directly.
-- `content_safety.py`: transport-agnostic prompt-injection detection and email sanitization. `claude_client.py` re-exports these helpers for compatibility, but product modules should import from `content_safety.py`.
 - `claude_client.py`: low-level Claude CLI transport used by `ai_gateway.py`.
 - `email_sender.py`: preserves `intended_to` vs `actual_to` and demo recipient override. Normal new-case processing creates drafts only; `send_draft()` and `create_and_send()` are explicit send helpers.
 - `followup.py`: idempotent follow-up generation and escalation review creation.
-- `web/app.py`: Flask case list, case detail, review queue, event feed, and Memory / Intelligence views. The UI renders deterministic pattern signals, related cases, entity connections, observations, and evidence from stored memory records. Exposes a read-only `/connection-hypotheses.json` endpoint that returns proposed connection hypotheses without triggering AI, mutating cases, or sending email.
+- `web/app.py`: Flask case list, case detail, review queue, event feed, Memory / Intelligence, and Building Groups views. The UI renders deterministic pattern signals, related cases, entity connections, observations, and evidence from stored memory records. Exposes read-only `/connection-hypotheses.json` and `/observability.json` endpoints. Routes are read-only except for schema initialization and the `/ingest` action. AI is off by default — `RuntimeOptions` defaults disable model calls for all routes.
 
 ## Safety-Critical Behavior
 
@@ -149,6 +172,14 @@ Connection discovery tables:
 
 - `connection_hypotheses`
 - `connection_hypothesis_cases`
+- `connection_discovery_runs`
+- `connection_discovery_packets`
+
+Building group tables:
+
+- `building_issue_groups`
+- `building_issue_group_cases`
+- `building_group_emails`
 
 `cases.grouping_key` is unique and is the deduplication gate.
 
