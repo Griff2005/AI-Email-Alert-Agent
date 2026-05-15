@@ -51,6 +51,54 @@ def _cache_key(prompt: str) -> str:
     return hashlib.sha256(prompt.encode("utf-8")).hexdigest()
 
 
+def _extract_first_json_object(raw: str) -> str:
+    """Extract the first complete JSON object from a model response.
+
+    Claude sometimes returns valid JSON followed by explanatory text. The
+    product contract is still JSON, so we parse the first balanced object and
+    ignore trailing prose instead of crashing the whole run.
+    """
+    text = raw.strip()
+
+    fenced = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", text, flags=re.DOTALL)
+    if fenced:
+        return fenced.group(1).strip()
+
+    start = text.find("{")
+    if start == -1:
+        raise ValueError("No JSON object found in Claude response.")
+
+    depth = 0
+    in_string = False
+    escape = False
+
+    for index in range(start, len(text)):
+        char = text[index]
+
+        if escape:
+            escape = False
+            continue
+
+        if char == "\\":
+            escape = True
+            continue
+
+        if char == '"':
+            in_string = not in_string
+            continue
+
+        if in_string:
+            continue
+
+        if char == "{":
+            depth += 1
+        elif char == "}":
+            depth -= 1
+            if depth == 0:
+                return text[start : index + 1].strip()
+
+    raise ValueError("No complete JSON object found in Claude response.")
+
 # ---------------------------------------------------------------------------
 # Core Claude CLI call
 # ---------------------------------------------------------------------------
@@ -151,14 +199,10 @@ def call_claude_json(prompt: str, use_cache: bool = True) -> dict:
     """
     raw = call_claude(prompt, use_cache=use_cache)
 
-    # Strip markdown code fences: ```json ... ``` or ``` ... ```
-    cleaned = re.sub(r"^```(?:json)?\s*", "", raw.strip(), flags=re.MULTILINE)
-    cleaned = re.sub(r"\s*```$", "", cleaned.strip(), flags=re.MULTILINE)
-    cleaned = cleaned.strip()
-
     try:
+        cleaned = _extract_first_json_object(raw)
         return json.loads(cleaned)
-    except json.JSONDecodeError as exc:
+    except (ValueError, json.JSONDecodeError) as exc:
         raise ValueError(
-            f"Claude response was not valid JSON.\nRaw response:\n{raw}\nError: {exc}"
-        )
+        f"Claude response was not valid JSON.\nRaw response:\n{raw}\nError: {exc}"
+        ) from exc

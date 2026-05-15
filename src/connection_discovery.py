@@ -720,6 +720,17 @@ def _analyze_packet(
         )
         result["error_count"] = 1
         return result
+    except (ValueError, RuntimeError) as exc:
+        db.update_discovery_packet(
+            packet["packet_id"],
+            {
+                "status": "error",
+                "completed_at": utc_now_iso(),
+                "error": str(exc)[:2000],
+            },
+        )
+        result["error_count"] = 1
+        return result
 
     if outcome.status in {"allowed", "mocked"}:
         result["ai_call_used"] = 1
@@ -839,6 +850,7 @@ def _build_packet_prompt(packet: Dict[str, Any]) -> str:
         f"SCOPE HEADER:\n{json.dumps(scope_header, indent=2, sort_keys=True)}\n\n"
         f"EVIDENCE PACKET:\n{json.dumps(packet, indent=2, sort_keys=True)}\n\n"
         "Return ONLY a JSON object with a 'hypotheses' array. "
+        "Return exactly one JSON object and nothing else. Do not wrap it in markdown. Do not include explanations outside the JSON. "
         "If no meaningful connections are found, return {\"hypotheses\": []}."
     )
 
