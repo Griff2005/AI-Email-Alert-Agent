@@ -1324,6 +1324,78 @@ def cmd_discover_connections(args) -> None:
     )
 
 
+def cmd_enrich_missing_data(args) -> None:
+    """CLI handler for enrich-missing-data: build AI enrichment packets and propose contractor values."""
+    max_ai_calls = getattr(args, "max_ai_calls", 0)
+    dry_run = bool(getattr(args, "dry_run", False))
+    if not dry_run and max_ai_calls <= 0:
+        print("ERROR: --max-ai-calls must be > 0 for live enrichment. Use --dry-run to build packets only.")
+        sys.exit(1)
+
+    import missing_data_enrichment
+
+    db.init_schema()
+    config.validate()
+
+    report_path = _default_ai_report_path("enrich-missing-data")
+    runtime_options.configure(
+        RuntimeOptions(
+            ai_enabled=not dry_run,
+            max_ai_calls=max_ai_calls,
+            ai_budget_mode="fail",
+            ai_report_path=report_path,
+        )
+    )
+
+    gateway = get_ai_gateway()
+    gateway.reset()
+    gateway.configure(
+        AiUsageConfig(
+            enabled=not dry_run,
+            max_calls=max_ai_calls,
+            budget_mode="fail",
+            report_path=report_path,
+            csv_report_path=report_path.with_suffix(".csv"),
+            model_name=config.CLAUDE_MODEL,
+            cache_path=config.CLAUDE_CACHE_PATH,
+            config_version="agent-enrich-missing-data",
+        )
+    )
+    gateway.set_run_metadata(command="enrich-missing-data")
+
+    result = missing_data_enrichment.run_enrichment(
+        max_ai_calls=max_ai_calls,
+        field_name=args.field,
+        limit=args.limit,
+        case_id=args.case_id,
+        building=args.building,
+        case_type_filter=args.case_type,
+        batch_size=args.batch_size,
+        max_prompt_chars=args.max_prompt_chars,
+        dry_run=dry_run,
+    )
+
+    mode = "DRY RUN" if dry_run else "LIVE"
+    print(
+        f"[enrich-missing-data] {mode}: packets={result['packets_built']}, "
+        f"ai_calls={result['ai_calls_made']}, stored={result['suggestions_stored']}, "
+        f"rejected={result['rejections']}"
+    )
+
+    _finalize_ai_report(report_path)
+    report = gateway.build_report()
+    _append_command_event(
+        "enrich_missing_data_completed",
+        command="enrich-missing-data",
+        dry_run=dry_run,
+        field=args.field,
+        packets_built=result["packets_built"],
+        suggestions_stored=result["suggestions_stored"],
+        rejections=result["rejections"],
+        ai_calls=report.get("total_ai_calls", 0),
+    )
+
+
 def cmd_merge_connection_hypotheses(args) -> None:
     """Merge duplicate proposed connection hypotheses without calling AI."""
     max_ai_calls = getattr(args, "max_ai_calls", 0)
@@ -1572,6 +1644,7 @@ Commands:
   observability-report  Print local metrics and safety snapshot
   test-demo-scale  Run the safe offline demo validation harness
   discover-connections  Discover possible connections across supported cases (requires --max-ai-calls)
+  enrich-missing-data  Use budgeted AI to propose missing case field values for human review
 
 Examples:
   python src/agent.py ingest
@@ -1594,6 +1667,7 @@ Examples:
   python src/agent.py discover-connections --max-ai-calls 5 --dry-run
   python src/agent.py discover-connections --scope patterns --max-ai-calls 20
   python src/agent.py discover-connections --scope all-supported --packet-by entity --max-ai-calls 100
+  python src/agent.py enrich-missing-data --field contractor --max-ai-calls 0 --dry-run
   python src/agent.py merge-connection-hypotheses --max-ai-calls 0 --dry-run
         """,
     )
@@ -1803,6 +1877,21 @@ Examples:
         help="Print what would run without calling AI when --max-ai-calls is 0",
     )
 
+    enrich_parser = subparsers.add_parser(
+        "enrich-missing-data",
+        help="Use budgeted AI to propose missing case field values for human review",
+    )
+    enrich_parser.add_argument("--field", choices=("contractor",), default="contractor")
+    enrich_parser.add_argument("--max-ai-calls", type=int, default=0, metavar="N")
+    enrich_parser.add_argument("--limit", type=int, default=None, metavar="N")
+    enrich_parser.add_argument("--case-id", type=str, default=None, metavar="CASE_ID")
+    enrich_parser.add_argument("--building", type=str, default=None, metavar="BUILDING")
+    enrich_parser.add_argument("--case-type", type=str, default=None, metavar="TYPE")
+    enrich_parser.add_argument("--batch-size", type=int, default=10, metavar="N")
+    enrich_parser.add_argument("--max-prompt-chars", type=int, default=20000, metavar="N")
+    enrich_parser.add_argument("--dry-run", action="store_true", default=False)
+    enrich_parser.set_defaults(func=cmd_enrich_missing_data)
+
     merge_parser = subparsers.add_parser(
         "merge-connection-hypotheses",
         help="Merge duplicate connection hypotheses deterministically",
@@ -1859,6 +1948,8 @@ Examples:
         cmd_safety_check(args)
     elif args.command == "discover-connections":
         cmd_discover_connections(args)
+    elif args.command == "enrich-missing-data":
+        cmd_enrich_missing_data(args)
     elif args.command == "merge-connection-hypotheses":
         cmd_merge_connection_hypotheses(args)
     else:
