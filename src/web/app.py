@@ -747,9 +747,8 @@ def missing_data_detail(case_id):
             total=0,
             open_review_count=0,
         ), 404
-    suggestions = db.list_case_field_suggestions(case_id=case_id, status_filter="proposed")
-    detail["suggestions"] = [dict(s) for s in suggestions]
-    detail["proposed_suggestions"] = [dict(s) for s in suggestions]
+    # proposed_suggestions is already populated by get_missing_data_case_detail;
+    # no second query needed.
     return render_template("missing_data_detail.html", **detail)
 
 

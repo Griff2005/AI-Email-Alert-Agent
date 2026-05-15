@@ -270,6 +270,18 @@ class MissingDataEnrichmentTests(unittest.TestCase):
         )
         self.assertEqual("accepted", db.get_case_field_suggestion("suggestion-accept")["status"])
 
+        # Verify audit trail: a case_events row must exist for the accept action.
+        events = db.get_events_for_case("case-accept")
+        accepted_events = [e for e in events if e["event_type"] == "case_field_suggestion_accepted"]
+        self.assertEqual(1, len(accepted_events), "Expected one case_field_suggestion_accepted event")
+
+        # Verify building group linkage: attach_case_to_group must have linked the case.
+        conn = db.get_connection()
+        linked = conn.execute(
+            "SELECT 1 FROM building_issue_group_cases WHERE case_id = ?", ("case-accept",)
+        ).fetchone()
+        self.assertIsNotNone(linked, "Expected case-accept to be linked to a building group after accept")
+
     def test_accept_suggestion_supersedes_other_proposals(self):
         self._insert_source_case("case-supersede", "email-supersede")
         db.insert_extracted_field(
